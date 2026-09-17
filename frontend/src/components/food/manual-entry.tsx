@@ -1,20 +1,21 @@
 import { Plus, Zap } from "lucide-react"
-import type { ReactNode } from "react"
 
 import { CustomFoodForm, type CustomFoodSubmit } from "@/components/food/custom-food-form"
 import { QuickAddForm, type QuickAddDraft, type QuickAddResult } from "@/components/food/quick-add-form"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import type { DailyTargets, MealType } from "@/types/food"
 
 export type ManualEntryTab = "quick" | "custom"
+export type OverlayLayout = "dialog" | "drawer"
 
 type ManualEntryProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Chosen when the overlay opens, so resizing mid-entry never remounts the form. */
+  layout: OverlayLayout
   tab: ManualEntryTab
   onTabChange: (tab: ManualEntryTab) => void
   defaultMeal: MealType
@@ -24,71 +25,56 @@ type ManualEntryProps = {
   draftKey: number
   onQuickAdd: (result: QuickAddResult) => void
   onSaveAsCustom: (draft: QuickAddDraft) => void
-  onCustomSubmit: (result: CustomFoodSubmit) => void
+  onCustomSubmit: (result: CustomFoodSubmit) => Promise<void>
 }
 
 const TITLE = "Add food manually"
 const DESCRIPTION = "Quick add logs numbers once. A custom food is saved with a serving size so you can reuse it."
 
-/** Quick add + custom food. Bottom sheet on mobile, dialog on desktop. */
-export function ManualEntry(props: ManualEntryProps) {
-  const { open, onOpenChange, tab } = props
-  const isMobile = useIsMobile()
-  const body = <ManualEntryBody {...props} />
-
-  if (isMobile) {
+export function ManualEntry({ open, onOpenChange, layout, ...bodyProps }: ManualEntryProps) {
+  if (layout === "drawer") {
     return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="max-h-[92dvh] gap-0 overflow-y-auto rounded-t-3xl border-t bg-card px-4 pt-3 pb-8">
-          <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-muted-foreground/30" aria-hidden />
-          <SheetHeader className="px-0 pt-1 pb-4">
-            <SheetTitle className="text-xl font-semibold">{TITLE}</SheetTitle>
-            <SheetDescription>{DESCRIPTION}</SheetDescription>
-          </SheetHeader>
-          {body}
-        </SheetContent>
-      </Sheet>
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent className="max-h-[92dvh]">
+          <DrawerHeader className="text-left">
+            <DrawerTitle>{TITLE}</DrawerTitle>
+            <DrawerDescription>{DESCRIPTION}</DrawerDescription>
+          </DrawerHeader>
+          <div className="overflow-y-auto px-4 pb-6">
+            <ManualEntryBody {...bodyProps} />
+          </div>
+        </DrawerContent>
+      </Drawer>
     )
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className={cn(
-          "max-h-[90dvh] gap-0 overflow-y-auto rounded-2xl bg-card p-6 transition-[max-width]",
-          tab === "custom" ? "sm:max-w-5xl" : "sm:max-w-xl",
-        )}
-      >
-        <DialogHeader className="pb-5">
-          <DialogTitle className="text-xl font-semibold">{TITLE}</DialogTitle>
+      <DialogContent className={cn("max-h-[90dvh] overflow-y-auto sm:p-6", bodyProps.tab === "custom" ? "sm:max-w-5xl" : "sm:max-w-xl")}>
+        <DialogHeader>
+          <DialogTitle>{TITLE}</DialogTitle>
           <DialogDescription>{DESCRIPTION}</DialogDescription>
         </DialogHeader>
-        {body}
+        <ManualEntryBody {...bodyProps} />
       </DialogContent>
     </Dialog>
   )
 }
 
-function ManualEntryBody({
-  tab,
-  onTabChange,
-  defaultMeal,
-  targets,
-  draft,
-  draftKey,
-  onQuickAdd,
-  onSaveAsCustom,
-  onCustomSubmit,
-}: ManualEntryProps) {
+type ManualEntryBodyProps = Omit<ManualEntryProps, "open" | "onOpenChange" | "layout">
+
+function ManualEntryBody({ tab, onTabChange, defaultMeal, targets, draft, draftKey, onQuickAdd, onSaveAsCustom, onCustomSubmit }: ManualEntryBodyProps) {
   return (
     <Tabs value={tab} onValueChange={(value) => onTabChange(value as ManualEntryTab)} className="gap-5">
-      <TabsList className="h-11! w-full sm:w-fit">
-        <TabTrigger value="quick" icon={<Zap />}>
+      <TabsList className="w-full sm:w-fit">
+        <TabsTrigger value="quick" className="px-3">
+          <Zap data-icon="inline-start" />
           Quick add
-        </TabTrigger>
-        <TabTrigger value="custom" icon={<Plus />}>
+        </TabsTrigger>
+        <TabsTrigger value="custom" className="px-3">
+          <Plus data-icon="inline-start" />
           Custom food
-        </TabTrigger>
+        </TabsTrigger>
       </TabsList>
       <TabsContent value="quick">
         <QuickAddForm defaultMeal={defaultMeal} onSubmit={onQuickAdd} onSaveAsCustom={onSaveAsCustom} />
@@ -97,14 +83,5 @@ function ManualEntryBody({
         <CustomFoodForm key={draftKey} defaultMeal={defaultMeal} draft={draft} targets={targets} onSubmit={onCustomSubmit} />
       </TabsContent>
     </Tabs>
-  )
-}
-
-function TabTrigger({ value, icon, children }: { value: ManualEntryTab; icon: ReactNode; children: ReactNode }) {
-  return (
-    <TabsTrigger value={value} className="px-4 text-sm">
-      {icon}
-      {children}
-    </TabsTrigger>
   )
 }

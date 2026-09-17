@@ -1,62 +1,44 @@
 import type { ComponentProps } from "react"
 
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
 import { cn } from "@/lib/utils"
 
-type FormFieldProps = ComponentProps<"input"> & {
+type TextFieldProps = Omit<ComponentProps<"input">, "id"> & {
   id: string
   label: string
   error?: string
-  hint?: string
-  suffix?: string
-  /** Tailwind bg class for a colour dot before the label, e.g. "bg-protein". */
+  description?: string
+  /** Unit shown inside the input, e.g. "g" or "kcal". */
+  unit?: string
+  /** Theme colour class for a dot before the label, e.g. "bg-protein". */
   dotClassName?: string
-  inputClassName?: string
 }
 
-export function FormField({
-  id,
-  label,
-  error,
-  hint,
-  suffix,
-  dotClassName,
-  className,
-  inputClassName,
-  ...inputProps
-}: FormFieldProps) {
-  const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined
+/** Field + InputGroup composition used by the food forms. */
+export function TextField({ id, label, error, description, unit, dotClassName, className, disabled, ...inputProps }: TextFieldProps) {
+  const invalid = Boolean(error)
+  const describedBy = error ? `${id}-error` : description ? `${id}-description` : undefined
 
   return (
-    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
-      <Label htmlFor={id} className="gap-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-        {dotClassName && <span className={cn("size-2 rounded-full", dotClassName)} aria-hidden />}
+    <Field data-invalid={invalid || undefined} data-disabled={disabled || undefined} className={cn("min-w-0", className)}>
+      <FieldLabel htmlFor={id}>
+        {dotClassName ? <span aria-hidden className={cn("size-2 rounded-full", dotClassName)} /> : null}
         {label}
-      </Label>
-      <div className="relative">
-        <Input
-          id={id}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={describedBy}
-          className={cn("h-11 rounded-xl bg-secondary px-3 text-base dark:bg-secondary", suffix && "pr-12", inputClassName)}
-          {...inputProps}
-        />
-        {suffix && (
-          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">
-            {suffix}
-          </span>
-        )}
-      </div>
+      </FieldLabel>
+      <InputGroup className="h-10">
+        <InputGroupInput id={id} disabled={disabled} aria-invalid={invalid || undefined} aria-describedby={describedBy} {...inputProps} />
+        {unit ? (
+          <InputGroupAddon align="inline-end">
+            <InputGroupText>{unit}</InputGroupText>
+          </InputGroupAddon>
+        ) : null}
+      </InputGroup>
       {error ? (
-        <p id={`${id}-error`} className="text-xs text-destructive">
-          {error}
-        </p>
-      ) : hint ? (
-        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
-          {hint}
-        </p>
+        <FieldError id={`${id}-error`}>{error}</FieldError>
+      ) : description ? (
+        <FieldDescription id={`${id}-description`}>{description}</FieldDescription>
       ) : null}
-    </div>
+    </Field>
   )
 }

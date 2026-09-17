@@ -1,25 +1,24 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Check, TriangleAlert, Zap } from "lucide-react"
+import { ArrowRight, Check, TriangleAlert, Zap } from "lucide-react"
 import { useState } from "react"
-import { Controller, useForm, useWatch } from "react-hook-form"
+import { Controller, useForm, useWatch, type Control, type UseFormSetValue } from "react-hook-form"
 import { z } from "zod"
 
-import { FormField } from "@/components/food/form-field"
+import { TextField } from "@/components/food/form-field"
 import { MealPicker } from "@/components/food/meal-picker"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
+import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import { formatNumber, toNumber } from "@/lib/format"
 import { caloriesFromMacros, caloriesMismatch, type Nutrition } from "@/lib/macros"
 import { MEAL_LABELS, MEAL_TYPES, type MealType } from "@/types/food"
 
+const toNumberOrNaN = (value: unknown) => toNumber(value) ?? (value === "" || value == null ? undefined : Number.NaN)
+
 const optionalAmount = (max: number) =>
   z.preprocess(
-    (value) => toNumber(value) ?? (value === "" || value == null ? undefined : Number.NaN),
-    z
-      .number({ invalid_type_error: "Enter a number" })
-      .min(0, "Can’t be negative")
-      .max(max, "That looks too high")
-      .optional(),
+    toNumberOrNaN,
+    z.number({ invalid_type_error: "Enter a number" }).min(0, "Can’t be negative").max(max, "That looks too high").optional(),
   )
 
 const quickAddSchema = z
@@ -49,7 +48,6 @@ type QuickAddFormProps = {
 }
 
 export function QuickAddForm({ defaultMeal, onSubmit, onSaveAsCustom }: QuickAddFormProps) {
-  const [keepEntered, setKeepEntered] = useState(false)
   const {
     control,
     register,
@@ -62,102 +60,121 @@ export function QuickAddForm({ defaultMeal, onSubmit, onSaveAsCustom }: QuickAdd
     defaultValues: { meal: defaultMeal, name: "", calories: "", protein: "", carbs: "", fat: "" },
   })
 
-  const [caloriesRaw, proteinRaw, carbsRaw, fatRaw, meal] = useWatch({
-    control,
-    name: ["calories", "protein", "carbs", "fat", "meal"],
-  })
-  const macros = { protein: toNumber(proteinRaw) ?? 0, carbs: toNumber(carbsRaw) ?? 0, fat: toNumber(fatRaw) ?? 0 }
-  const computed = caloriesFromMacros(macros)
-  const entered = toNumber(caloriesRaw)
-  const hasMacros = computed > 0
-  const mismatch = entered !== undefined && hasMacros && caloriesMismatch(entered, macros) && !keepEntered
-
   const submit = handleSubmit((values) => {
-    const result: QuickAddResult = {
+    const macros = { protein: values.protein ?? 0, carbs: values.carbs ?? 0, fat: values.fat ?? 0 }
+    onSubmit({
       meal: values.meal,
       name: values.name || "Quick add",
-      protein: values.protein ?? 0,
-      carbs: values.carbs ?? 0,
-      fat: values.fat ?? 0,
-      calories: values.calories ?? caloriesFromMacros({ protein: values.protein ?? 0, carbs: values.carbs ?? 0, fat: values.fat ?? 0 }),
-    }
-    onSubmit(result)
+      ...macros,
+      calories: values.calories ?? caloriesFromMacros(macros),
+    })
   })
 
-  function switchToCustom() {
-    const v = getValues()
-    onSaveAsCustom({
-      name: v.name,
-      calories: toNumber(v.calories) ?? (hasMacros ? computed : undefined),
-      protein: toNumber(v.protein),
-      carbs: toNumber(v.carbs),
-      fat: toNumber(v.fat),
-    })
+  // Reads values only when clicked — no subscription needed.
+  function saveAsCustom() {
+    const values = getValues()
+    const macros = { protein: toNumber(values.protein), carbs: toNumber(values.carbs), fat: toNumber(values.fat) }
+    const computed = caloriesFromMacros({ protein: macros.protein ?? 0, carbs: macros.carbs ?? 0, fat: macros.fat ?? 0 })
+    onSaveAsCustom({ name: values.name, ...macros, calories: toNumber(values.calories) ?? (computed || undefined) })
   }
 
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-4">
-      <Controller control={control} name="meal" render={({ field }) => <MealPicker value={field.value} onChange={field.onChange} />} />
+    <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+      <FieldGroup>
+        <FieldSet className="gap-2">
+          <FieldLegend variant="label">Meal</FieldLegend>
+          <Controller control={control} name="meal" render={({ field }) => <MealPicker value={field.value} onChange={field.onChange} />} />
+        </FieldSet>
 
-      <FormField id="qa-name" label="Name (optional)" placeholder="e.g. Hawker lunch" error={errors.name?.message} {...register("name")} />
+        <TextField id="qa-name" label="Name" description="Optional — shown in your log" placeholder="e.g. Hawker lunch" error={errors.name?.message} {...register("name")} />
 
-      <FormField
-        id="qa-calories"
-        label="Calories"
-        suffix="kcal"
-        inputMode="decimal"
-        placeholder={hasMacros ? String(computed) : "0"}
-        dotClassName="bg-calories"
-        inputClassName="h-14 font-display text-3xl font-semibold"
-        hint={hasMacros ? undefined : "Leave blank to calculate from macros"}
-        error={errors.calories?.message}
-        {...register("calories", { onChange: () => setKeepEntered(false) })}
-      />
+        <TextField
+          id="qa-calories"
+          label="Calories"
+          unit="kcal"
+          inputMode="decimal"
+          placeholder="Calculated from macros if blank"
+          dotClassName="bg-calories"
+          error={errors.calories?.message}
+          {...register("calories")}
+        />
 
-      <div className="grid grid-cols-3 gap-2.5">
-        <FormField id="qa-protein" label="Protein" suffix="g" inputMode="decimal" placeholder="0" dotClassName="bg-protein" error={errors.protein?.message} {...register("protein")} />
-        <FormField id="qa-carbs" label="Carbs" suffix="g" inputMode="decimal" placeholder="0" dotClassName="bg-carbs" error={errors.carbs?.message} {...register("carbs")} />
-        <FormField id="qa-fat" label="Fat" suffix="g" inputMode="decimal" placeholder="0" dotClassName="bg-fat" error={errors.fat?.message} {...register("fat")} />
-      </div>
-
-      {mismatch ? (
-        <div role="status" className="flex gap-2.5 rounded-xl border border-carbs/35 bg-carbs/10 p-3 text-[13px] leading-relaxed">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-carbs" aria-hidden />
-          <div className="flex flex-col gap-2">
-            <p>
-              Macros add up to <b>{formatNumber(computed)} kcal</b>, but you entered <b>{formatNumber(entered ?? 0)}</b>. Alcohol or
-              fibre can explain a gap.
-            </p>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => setValue("calories", String(computed), { shouldValidate: true })}>
-                Use {formatNumber(computed)} kcal
-              </Button>
-              <Button type="button" variant="ghost" size="sm" className="h-9" onClick={() => setKeepEntered(true)}>
-                Keep {formatNumber(entered ?? 0)}
-              </Button>
-            </div>
-          </div>
+        <div className="grid grid-cols-3 gap-3">
+          <TextField id="qa-protein" label="Protein" unit="g" inputMode="decimal" placeholder="0" dotClassName="bg-protein" error={errors.protein?.message} {...register("protein")} />
+          <TextField id="qa-carbs" label="Carbs" unit="g" inputMode="decimal" placeholder="0" dotClassName="bg-carbs" error={errors.carbs?.message} {...register("carbs")} />
+          <TextField id="qa-fat" label="Fat" unit="g" inputMode="decimal" placeholder="0" dotClassName="bg-fat" error={errors.fat?.message} {...register("fat")} />
         </div>
-      ) : hasMacros ? (
-        <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
-          {entered === undefined ? <Zap className="size-4 text-primary" aria-hidden /> : <Check className="size-4 text-primary" aria-hidden />}
-          {entered === undefined
-            ? `Calories will be calculated: ${formatNumber(computed)} kcal`
-            : `Calories match macros (${formatNumber(computed)} kcal)`}
-        </p>
-      ) : null}
 
-      <label className="flex items-center gap-3 rounded-xl border bg-secondary px-4 py-3">
-        <span className="flex flex-1 flex-col gap-0.5">
-          <span className="text-sm font-medium">Save as custom food</span>
-          <span className="text-xs text-muted-foreground">Add a serving size so you can reuse it</span>
-        </span>
-        <Switch checked={false} onCheckedChange={(checked) => checked && switchToCustom()} aria-label="Save as custom food" />
-      </label>
+        <CalorieCheck control={control} setValue={setValue} />
+      </FieldGroup>
 
-      <Button type="submit" className="h-12 rounded-xl text-[15px] font-semibold">
-        Add to {MEAL_LABELS[meal]}
-      </Button>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <Button type="button" variant="ghost" className="h-10" onClick={saveAsCustom}>
+          Save as custom food instead
+          <ArrowRight data-icon="inline-end" />
+        </Button>
+        <SubmitButton control={control} />
+      </div>
     </form>
+  )
+}
+
+/** Subscribes to the four numbers so the rest of the form doesn't re-render on each keystroke. */
+function CalorieCheck({ control, setValue }: { control: Control<QuickAddInput, unknown, QuickAddValues>; setValue: UseFormSetValue<QuickAddInput> }) {
+  const [caloriesRaw, proteinRaw, carbsRaw, fatRaw] = useWatch({ control, name: ["calories", "protein", "carbs", "fat"] })
+  const [keptCalories, setKeptCalories] = useState<number>()
+
+  const macros = { protein: toNumber(proteinRaw) ?? 0, carbs: toNumber(carbsRaw) ?? 0, fat: toNumber(fatRaw) ?? 0 }
+  const computed = caloriesFromMacros(macros)
+  const entered = toNumber(caloriesRaw)
+
+  if (computed === 0) return null
+
+  if (entered === undefined) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Zap aria-hidden className="size-4 text-primary" />
+        Calories will be calculated: {formatNumber(computed)} kcal
+      </p>
+    )
+  }
+
+  // Derived: the warning hides only while the user keeps the exact value they confirmed.
+  if (caloriesMismatch(entered, macros) && keptCalories !== entered) {
+    return (
+      <Alert>
+        <TriangleAlert />
+        <AlertTitle>Calories don’t match macros</AlertTitle>
+        <AlertDescription>
+          <p>
+            Macros add up to {formatNumber(computed)} kcal, but you entered {formatNumber(entered)}. Alcohol or fibre can explain a gap.
+          </p>
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setValue("calories", String(computed), { shouldValidate: true })}>
+              Use {formatNumber(computed)} kcal
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setKeptCalories(entered)}>
+              Keep {formatNumber(entered)}
+            </Button>
+          </div>
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  return (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Check aria-hidden className="size-4 text-primary" />
+      Calories match macros ({formatNumber(computed)} kcal)
+    </p>
+  )
+}
+
+function SubmitButton({ control }: { control: Control<QuickAddInput, unknown, QuickAddValues> }) {
+  const meal = useWatch({ control, name: "meal" })
+  return (
+    <Button type="submit" size="lg" className="h-11 sm:min-w-40">
+      Add to {MEAL_LABELS[meal]}
+    </Button>
   )
 }

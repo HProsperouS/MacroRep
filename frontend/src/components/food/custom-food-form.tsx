@@ -1,20 +1,21 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Check, ChevronDown, TriangleAlert, UtensilsCrossed } from "lucide-react"
 import { useState } from "react"
-import { Controller, useForm, useWatch } from "react-hook-form"
+import { Controller, useForm, useWatch, type Control, type FieldErrors, type UseFormRegister } from "react-hook-form"
 import { z } from "zod"
 
 import { CalorieRing } from "@/components/charts/calorie-ring"
 import { MacroBar } from "@/components/charts/macro-bar"
-import { FormField } from "@/components/food/form-field"
+import { TextField } from "@/components/food/form-field"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
+import { Spinner } from "@/components/ui/spinner"
+import type { QuickAddDraft } from "@/components/food/quick-add-form"
 import { formatNumber, toNumber } from "@/lib/format"
 import { caloriesFromMacros, caloriesMismatch, energySplit } from "@/lib/macros"
-import { cn } from "@/lib/utils"
 import { MEAL_LABELS, MEAL_TYPES, SERVING_UNITS, type DailyTargets, type Food, type MealType } from "@/types/food"
-import type { QuickAddDraft } from "@/components/food/quick-add-form"
 
 const toNumberOrNaN = (value: unknown) => toNumber(value) ?? (value === "" || value == null ? undefined : Number.NaN)
 
@@ -51,6 +52,7 @@ const customFoodSchema = z.object({
 
 type CustomFoodInput = z.input<typeof customFoodSchema>
 type CustomFoodValues = z.output<typeof customFoodSchema>
+type CustomFoodControl = Control<CustomFoodInput, unknown, CustomFoodValues>
 
 export type CustomFoodSubmit = {
   food: Omit<Food, "id" | "source">
@@ -61,18 +63,20 @@ type CustomFoodFormProps = {
   defaultMeal: MealType
   draft?: QuickAddDraft
   targets: DailyTargets
-  onSubmit: (result: CustomFoodSubmit) => void
+  /** Resolve when saved; reject to keep the form open. */
+  onSubmit: (result: CustomFoodSubmit) => Promise<void>
 }
 
-const str = (value: number | undefined) => (value === undefined ? "" : String(value))
+const toInput = (value: number | undefined) => (value === undefined ? "" : String(value))
 
 export function CustomFoodForm({ defaultMeal, draft, targets, onSubmit }: CustomFoodFormProps) {
   const [showMore, setShowMore] = useState(false)
+  const [submitMode, setSubmitMode] = useState<"save" | "log">("log")
   const {
     control,
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<CustomFoodInput, unknown, CustomFoodValues>({
     resolver: zodResolver(customFoodSchema),
     defaultValues: {
@@ -81,10 +85,10 @@ export function CustomFoodForm({ defaultMeal, draft, targets, onSubmit }: Custom
       servingSize: "1",
       servingUnit: "piece",
       servingWeightG: "",
-      calories: str(draft?.calories),
-      protein: str(draft?.protein),
-      carbs: str(draft?.carbs),
-      fat: str(draft?.fat),
+      calories: toInput(draft?.calories),
+      protein: toInput(draft?.protein),
+      carbs: toInput(draft?.carbs),
+      fat: toInput(draft?.fat),
       fibreG: "",
       sugarG: "",
       sodiumMg: "",
@@ -92,222 +96,266 @@ export function CustomFoodForm({ defaultMeal, draft, targets, onSubmit }: Custom
     },
   })
 
-  const watched = useWatch({ control })
-  const name = (watched.name as string | undefined)?.trim() || "Untitled food"
-  const calories = toNumber(watched.calories) ?? 0
-  const macros = { protein: toNumber(watched.protein) ?? 0, carbs: toNumber(watched.carbs) ?? 0, fat: toNumber(watched.fat) ?? 0 }
-  const computed = caloriesFromMacros(macros)
-  const split = energySplit(macros)
-  const servingSize = toNumber(watched.servingSize)
-  const servingUnit = (watched.servingUnit as string | undefined) ?? "piece"
-  const weight = toNumber(watched.servingWeightG)
-  const per100 = weight && weight > 0 ? 100 / weight : undefined
-  const hasEnergy = calories > 0 && computed > 0
-  const mismatch = hasEnergy && caloriesMismatch(calories, macros)
-  const logMeal = (watched.meal as MealType | undefined) ?? defaultMeal
-
-  const toResult = (values: CustomFoodValues, logTo: MealType | null): CustomFoodSubmit => ({
-    food: {
-      name: values.name,
-      brand: values.brand || undefined,
-      servingSize: values.servingSize,
-      servingUnit: values.servingUnit,
-      servingWeightG: values.servingUnit === "g" ? values.servingSize : values.servingWeightG,
-      nutrition: { calories: values.calories, protein: values.protein, carbs: values.carbs, fat: values.fat },
-      fibreG: values.fibreG,
-      sugarG: values.sugarG,
-      sodiumMg: values.sodiumMg,
-    },
-    logTo,
-  })
-
-  const saveOnly = handleSubmit((values) => onSubmit(toResult(values, null)))
-  const saveAndLog = handleSubmit((values) => onSubmit(toResult(values, values.meal)))
+  const submitWith = (mode: "save" | "log") =>
+    handleSubmit(async (values) => {
+      setSubmitMode(mode)
+      await onSubmit({
+        food: {
+          name: values.name,
+          brand: values.brand || undefined,
+          servingSize: values.servingSize,
+          servingUnit: values.servingUnit,
+          servingWeightG: values.servingUnit === "g" ? values.servingSize : values.servingWeightG,
+          nutrition: { calories: values.calories, protein: values.protein, carbs: values.carbs, fat: values.fat },
+          fibreG: values.fibreG,
+          sugarG: values.sugarG,
+          sodiumMg: values.sodiumMg,
+        },
+        logTo: mode === "log" ? values.meal : null,
+      })
+    })
 
   return (
-    <form onSubmit={saveAndLog} noValidate className="grid gap-6 lg:grid-cols-12">
-      <div className="flex flex-col gap-4 lg:col-span-7">
-        <FormField id="cf-name" label="Food name" placeholder="e.g. Mum’s fried rice" error={errors.name?.message} {...register("name")} />
+    <form onSubmit={submitWith("log")} noValidate className="grid gap-6 lg:grid-cols-12">
+      <FieldGroup className="lg:col-span-7">
+        <TextField id="cf-name" label="Food name" placeholder="e.g. Mum’s fried rice" error={errors.name?.message} {...register("name")} />
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FormField id="cf-brand" label="Brand or place (optional)" placeholder="e.g. Koufu" error={errors.brand?.message} {...register("brand")} />
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="cf-meal" className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-              Log to
-            </Label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField id="cf-brand" label="Brand or place" description="Optional" placeholder="e.g. Koufu" error={errors.brand?.message} {...register("brand")} />
+          <Field>
+            <FieldLabel htmlFor="cf-meal">Log to</FieldLabel>
             <Controller
               control={control}
               name="meal"
               render={({ field }) => (
                 <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger id="cf-meal" className="h-11! w-full rounded-xl bg-secondary text-base dark:bg-secondary">
+                  <SelectTrigger id="cf-meal" className="h-10 w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {MEAL_TYPES.map((meal) => (
-                      <SelectItem key={meal} value={meal}>
-                        {MEAL_LABELS[meal]}
-                      </SelectItem>
-                    ))}
+                    <SelectGroup>
+                      {MEAL_TYPES.map((meal) => (
+                        <SelectItem key={meal} value={meal}>
+                          {MEAL_LABELS[meal]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               )}
             />
+          </Field>
+        </div>
+
+        <FieldSet>
+          <FieldLegend variant="label">Serving</FieldLegend>
+          <ServingFields control={control} register={register} errors={errors} />
+        </FieldSet>
+
+        <Separator />
+
+        <FieldSet>
+          <FieldLegend variant="label">Nutrition per serving</FieldLegend>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <TextField id="cf-calories" label="Calories" unit="kcal" inputMode="decimal" placeholder="0" dotClassName="bg-calories" error={errors.calories?.message} {...register("calories")} />
+            <TextField id="cf-protein" label="Protein" unit="g" inputMode="decimal" placeholder="0" dotClassName="bg-protein" error={errors.protein?.message} {...register("protein")} />
+            <TextField id="cf-carbs" label="Carbs" unit="g" inputMode="decimal" placeholder="0" dotClassName="bg-carbs" error={errors.carbs?.message} {...register("carbs")} />
+            <TextField id="cf-fat" label="Fat" unit="g" inputMode="decimal" placeholder="0" dotClassName="bg-fat" error={errors.fat?.message} {...register("fat")} />
           </div>
-        </div>
+          <MacroConsistency control={control} />
+        </FieldSet>
 
-        <div className="grid grid-cols-3 gap-3">
-          <FormField id="cf-serving" label="Serving" inputMode="decimal" error={errors.servingSize?.message} {...register("servingSize")} />
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="cf-unit" className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-              Unit
-            </Label>
-            <Controller
-              control={control}
-              name="servingUnit"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger id="cf-unit" className="h-11! w-full rounded-xl bg-secondary text-base dark:bg-secondary">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SERVING_UNITS.map((unit) => (
-                      <SelectItem key={unit} value={unit}>
-                        {unit}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-          <FormField
-            id="cf-weight"
-            label="Weight"
-            suffix="g"
-            inputMode="decimal"
-            placeholder="—"
-            disabled={servingUnit === "g"}
-            error={errors.servingWeightG?.message}
-            {...register("servingWeightG")}
-          />
-        </div>
-
-        <div className="h-px bg-border" />
-        <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Nutrition per serving</p>
-
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <FormField id="cf-calories" label="Calories" suffix="kcal" inputMode="decimal" placeholder="0" dotClassName="bg-calories" error={errors.calories?.message} {...register("calories")} />
-          <FormField id="cf-protein" label="Protein" suffix="g" inputMode="decimal" placeholder="0" dotClassName="bg-protein" error={errors.protein?.message} {...register("protein")} />
-          <FormField id="cf-carbs" label="Carbs" suffix="g" inputMode="decimal" placeholder="0" dotClassName="bg-carbs" error={errors.carbs?.message} {...register("carbs")} />
-          <FormField id="cf-fat" label="Fat" suffix="g" inputMode="decimal" placeholder="0" dotClassName="bg-fat" error={errors.fat?.message} {...register("fat")} />
-        </div>
-
-        {hasEnergy &&
-          (mismatch ? (
-            <p role="status" className="flex items-start gap-2 text-[13px] text-carbs">
-              <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-              Macros add up to {formatNumber(computed)} kcal — check the label for alcohol or fibre.
-            </p>
-          ) : (
-            <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
-              <Check className="size-4 text-primary" aria-hidden />
-              Calories match macros ({formatNumber(computed)} kcal)
-            </p>
-          ))}
-
-        <button
-          type="button"
-          aria-expanded={showMore}
-          aria-controls="cf-more"
-          onClick={() => setShowMore((open) => !open)}
-          className="flex h-12 items-center gap-2 rounded-xl border bg-secondary px-4 text-left text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          <span className="flex-1">
+        <Button type="button" variant="outline" className="h-10 justify-between" aria-expanded={showMore} aria-controls="cf-more" onClick={() => setShowMore((open) => !open)}>
+          <span>
             More nutrients <span className="font-normal text-muted-foreground">· fibre, sugar, sodium</span>
           </span>
-          <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", showMore && "rotate-180")} aria-hidden />
-        </button>
-        {showMore && (
+          <ChevronDown data-icon="inline-end" className={showMore ? "rotate-180" : undefined} />
+        </Button>
+        {showMore ? (
           <div id="cf-more" className="grid grid-cols-3 gap-3">
-            <FormField id="cf-fibre" label="Fibre" suffix="g" inputMode="decimal" placeholder="—" error={errors.fibreG?.message} {...register("fibreG")} />
-            <FormField id="cf-sugar" label="Sugar" suffix="g" inputMode="decimal" placeholder="—" error={errors.sugarG?.message} {...register("sugarG")} />
-            <FormField id="cf-sodium" label="Sodium" suffix="mg" inputMode="decimal" placeholder="—" error={errors.sodiumMg?.message} {...register("sodiumMg")} />
+            <TextField id="cf-fibre" label="Fibre" unit="g" inputMode="decimal" placeholder="—" error={errors.fibreG?.message} {...register("fibreG")} />
+            <TextField id="cf-sugar" label="Sugar" unit="g" inputMode="decimal" placeholder="—" error={errors.sugarG?.message} {...register("sugarG")} />
+            <TextField id="cf-sodium" label="Sodium" unit="mg" inputMode="decimal" placeholder="—" error={errors.sodiumMg?.message} {...register("sodiumMg")} />
           </div>
-        )}
-      </div>
+        ) : null}
+      </FieldGroup>
 
-      {/* Live preview — desktop only */}
-      <aside aria-label="Preview" className="hidden flex-col gap-4 self-start rounded-2xl border bg-background p-5 lg:col-span-5 lg:flex">
-        <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Preview</p>
-        <div className="flex items-center gap-3">
-          <span className="flex size-11 items-center justify-center rounded-xl bg-secondary text-muted-foreground">
-            <UtensilsCrossed className="size-5" aria-hidden />
-          </span>
-          <span className="flex min-w-0 flex-col">
-            <span className="truncate font-semibold">{name}</span>
-            <span className="text-xs text-muted-foreground">
-              Custom · {servingSize ? `${formatNumber(servingSize, 2)} ${servingUnit}` : "—"}
-              {weight && servingUnit !== "g" ? ` (${formatNumber(weight)} g)` : ""}
-            </span>
-          </span>
-        </div>
-        <div className="flex items-center gap-5">
-          <CalorieRing value={calories} max={targets.calories} size={104}>
-            <span className="font-display text-2xl leading-none font-semibold">{formatNumber(calories)}</span>
-            <span className="mt-0.5 text-[11px] text-muted-foreground">kcal</span>
-          </CalorieRing>
-          <div className="flex flex-1 flex-col gap-3">
-            <MacroBar macro="protein" value={macros.protein} target={targets.protein} />
-            <MacroBar macro="carbs" value={macros.carbs} target={targets.carbs} />
-            <MacroBar macro="fat" value={macros.fat} target={targets.fat} />
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground">Share of your daily targets</p>
-
-        <div className="flex flex-col gap-2 border-t pt-4">
-          <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Energy split</p>
-          <div className="flex h-2.5 overflow-hidden rounded-full bg-border">
-            <div className="bg-protein" style={{ width: `${split.protein}%` }} />
-            <div className="bg-carbs" style={{ width: `${split.carbs}%` }} />
-            <div className="bg-fat" style={{ width: `${split.fat}%` }} />
-          </div>
-          <p className="flex gap-4 text-xs text-muted-foreground">
-            <span>Protein {split.protein}%</span>
-            <span>Carbs {split.carbs}%</span>
-            <span>Fat {split.fat}%</span>
-          </p>
-        </div>
-
-        {per100 && (
-          <div className="flex flex-col gap-2 border-t pt-4">
-            <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Per 100 g</p>
-            <dl className="grid grid-cols-4 gap-2">
-              {[
-                ["kcal", formatNumber(calories * per100)],
-                ["Protein", `${formatNumber(macros.protein * per100, 1)}g`],
-                ["Carbs", `${formatNumber(macros.carbs * per100, 1)}g`],
-                ["Fat", `${formatNumber(macros.fat * per100, 1)}g`],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <dd className="font-display text-xl font-semibold">{value}</dd>
-                  <dt className="text-[11px] text-muted-foreground">{label}</dt>
-                </div>
-              ))}
-            </dl>
-          </div>
-        )}
-      </aside>
+      <CustomFoodPreview control={control} targets={targets} />
 
       <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-end lg:col-span-12">
-        <p className="mr-auto hidden text-[13px] text-muted-foreground sm:block">Saved foods appear in search as “My food”.</p>
-        <Button type="button" variant="outline" className="h-12 rounded-xl px-5" onClick={saveOnly}>
+        <p className="mr-auto hidden text-sm text-muted-foreground sm:block">Saved foods appear in search as “My food”.</p>
+        <Button type="button" variant="outline" size="lg" className="h-11" disabled={isSubmitting} onClick={submitWith("save")}>
+          {isSubmitting && submitMode === "save" ? <Spinner data-icon="inline-start" /> : null}
           Save only
         </Button>
-        <Button type="submit" className="h-12 rounded-xl px-5 text-[15px] font-semibold">
-          <Check /> Save &amp; log to {MEAL_LABELS[logMeal]}
-        </Button>
+        <SaveAndLogButton control={control} pending={isSubmitting && submitMode === "log"} disabled={isSubmitting} />
       </div>
     </form>
+  )
+}
+
+type ServingFieldsProps = {
+  control: CustomFoodControl
+  register: UseFormRegister<CustomFoodInput>
+  errors: FieldErrors<CustomFoodInput>
+}
+
+function ServingFields({ control, register, errors }: ServingFieldsProps) {
+  const unit = useWatch({ control, name: "servingUnit" })
+  return (
+    <div className="grid grid-cols-3 items-start gap-3">
+      <TextField id="cf-serving" label="Size" inputMode="decimal" error={errors.servingSize?.message} {...register("servingSize")} />
+      <Field>
+        <FieldLabel htmlFor="cf-unit">Unit</FieldLabel>
+        <Controller
+          control={control}
+          name="servingUnit"
+          render={({ field }) => (
+            <Select value={field.value} onValueChange={field.onChange}>
+              <SelectTrigger id="cf-unit" className="h-10 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {SERVING_UNITS.map((servingUnit) => (
+                    <SelectItem key={servingUnit} value={servingUnit}>
+                      {servingUnit}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
+        />
+      </Field>
+      <TextField
+        id="cf-weight"
+        label="Weight"
+        unit="g"
+        inputMode="decimal"
+        placeholder="—"
+        disabled={unit === "g"}
+        description={unit === "g" ? "Same as size" : undefined}
+        error={errors.servingWeightG?.message}
+        {...register("servingWeightG")}
+      />
+    </div>
+  )
+}
+
+function MacroConsistency({ control }: { control: CustomFoodControl }) {
+  const [caloriesRaw, proteinRaw, carbsRaw, fatRaw] = useWatch({ control, name: ["calories", "protein", "carbs", "fat"] })
+  const calories = toNumber(caloriesRaw) ?? 0
+  const macros = { protein: toNumber(proteinRaw) ?? 0, carbs: toNumber(carbsRaw) ?? 0, fat: toNumber(fatRaw) ?? 0 }
+  const computed = caloriesFromMacros(macros)
+
+  if (calories === 0 || computed === 0) return null
+
+  return caloriesMismatch(calories, macros) ? (
+    <p role="status" className="flex items-start gap-2 text-sm text-muted-foreground">
+      <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
+      Macros add up to {formatNumber(computed)} kcal — check the label for alcohol or fibre.
+    </p>
+  ) : (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Check aria-hidden className="size-4 text-primary" />
+      Calories match macros ({formatNumber(computed)} kcal)
+    </p>
+  )
+}
+
+function SaveAndLogButton({ control, pending, disabled }: { control: CustomFoodControl; pending: boolean; disabled: boolean }) {
+  const meal = useWatch({ control, name: "meal" })
+  return (
+    <Button type="submit" size="lg" className="h-11" disabled={disabled}>
+      {pending ? <Spinner data-icon="inline-start" /> : <Check data-icon="inline-start" />}
+      Save &amp; log to {MEAL_LABELS[meal]}
+    </Button>
+  )
+}
+
+/** Desktop-only live preview. Owns its own subscription so typing doesn't re-render the form. */
+function CustomFoodPreview({ control, targets }: { control: CustomFoodControl; targets: DailyTargets }) {
+  const [nameRaw, sizeRaw, unit, weightRaw, caloriesRaw, proteinRaw, carbsRaw, fatRaw] = useWatch({
+    control,
+    name: ["name", "servingSize", "servingUnit", "servingWeightG", "calories", "protein", "carbs", "fat"],
+  })
+
+  const name = nameRaw.trim() || "Untitled food"
+  const size = toNumber(sizeRaw)
+  const weight = unit === "g" ? size : toNumber(weightRaw)
+  const calories = toNumber(caloriesRaw) ?? 0
+  const macros = { protein: toNumber(proteinRaw) ?? 0, carbs: toNumber(carbsRaw) ?? 0, fat: toNumber(fatRaw) ?? 0 }
+  const split = energySplit(macros)
+  const per100 = weight !== undefined && weight > 0 ? 100 / weight : undefined
+
+  return (
+    <aside aria-label="Preview" className="hidden flex-col gap-4 self-start rounded-xl border p-4 lg:col-span-5 lg:flex">
+      <p className="text-sm font-medium">Preview</p>
+      <div className="flex items-center gap-3">
+        <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <UtensilsCrossed aria-hidden className="size-5" />
+        </span>
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate font-medium">{name}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            Custom · {size !== undefined ? `${formatNumber(size, 2)} ${unit}` : "—"}
+            {unit !== "g" && weight !== undefined ? ` (${formatNumber(weight)} g)` : ""}
+          </span>
+        </span>
+      </div>
+
+      <div className="flex items-center gap-5">
+        <CalorieRing value={calories} max={targets.calories} size={96}>
+          <span className="font-display text-2xl leading-none font-semibold">{formatNumber(calories)}</span>
+          <span className="mt-0.5 text-xs text-muted-foreground">kcal</span>
+        </CalorieRing>
+        <div className="flex flex-1 flex-col gap-3">
+          <MacroBar macro="protein" value={macros.protein} target={targets.protein} />
+          <MacroBar macro="carbs" value={macros.carbs} target={targets.carbs} />
+          <MacroBar macro="fat" value={macros.fat} target={targets.fat} />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">Bars show share of your daily targets.</p>
+
+      <Separator />
+      <div className="flex flex-col gap-2">
+        <p className="text-sm font-medium">Energy split</p>
+        <div className="flex h-2 overflow-hidden rounded-full bg-muted" aria-hidden>
+          <div className="bg-protein" style={{ width: `${split.protein}%` }} />
+          <div className="bg-carbs" style={{ width: `${split.carbs}%` }} />
+          <div className="bg-fat" style={{ width: `${split.fat}%` }} />
+        </div>
+        <p className="flex gap-4 text-xs text-muted-foreground">
+          <span>Protein {split.protein}%</span>
+          <span>Carbs {split.carbs}%</span>
+          <span>Fat {split.fat}%</span>
+        </p>
+      </div>
+
+      {per100 !== undefined ? (
+        <>
+          <Separator />
+          <div className="flex flex-col gap-2">
+            <p className="text-sm font-medium">Per 100 g</p>
+            <dl className="grid grid-cols-4 gap-2">
+              <PreviewStat label="kcal" value={formatNumber(calories * per100)} />
+              <PreviewStat label="Protein" value={`${formatNumber(macros.protein * per100, 1)}g`} />
+              <PreviewStat label="Carbs" value={`${formatNumber(macros.carbs * per100, 1)}g`} />
+              <PreviewStat label="Fat" value={`${formatNumber(macros.fat * per100, 1)}g`} />
+            </dl>
+          </div>
+        </>
+      ) : null}
+    </aside>
+  )
+}
+
+function PreviewStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col-reverse">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="font-display text-lg font-semibold">{value}</dd>
+    </div>
   )
 }

@@ -3,6 +3,8 @@ import { Plus } from "lucide-react"
 import { FoodRow } from "@/components/food/food-row"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { formatNumber } from "@/lib/format"
 import { MEAL_LABELS, type FoodEntry, type MealType } from "@/types/food"
 
@@ -16,34 +18,53 @@ type MealSectionProps = {
 export function MealSection({ meal, entries, onAdd, onRemove }: MealSectionProps) {
   const label = MEAL_LABELS[meal]
   const calories = entries.reduce((sum, entry) => sum + entry.calories, 0)
-  const headingId = `meal-${meal}`
 
   return (
-    <section aria-labelledby={headingId} className="overflow-hidden rounded-2xl border bg-card">
-      <header className="flex items-center justify-between gap-3 py-2.5 pr-2.5 pl-4 sm:pl-5">
-        <div className="flex items-center gap-2.5">
-          <h2 id={headingId} className="text-[15px] font-semibold">
-            {label}
-          </h2>
+    <Card size="sm" className="gap-0 pb-0">
+      <CardHeader className="pb-3">
+        <CardTitle>{label}</CardTitle>
+        <CardDescription>
           {entries.length > 0 ? (
-            <span className="text-sm text-muted-foreground">{formatNumber(calories)} kcal</span>
+            `${formatNumber(calories)} kcal · ${entries.length} item${entries.length === 1 ? "" : "s"}`
           ) : (
-            <Badge variant="outline" className="h-6 text-carbs">
-              Not logged
-            </Badge>
+            <Badge variant="outline">Not logged</Badge>
           )}
-        </div>
-        <Button variant="outline" size="icon" className="size-10" aria-label={`Add food to ${label}`} onClick={() => onAdd(meal)}>
-          <Plus />
-        </Button>
-      </header>
-      {entries.length > 0 && (
-        <ul>
-          {entries.map((entry) => (
-            <FoodRow key={entry.id} entry={entry} onRemove={onRemove} />
-          ))}
-        </ul>
+        </CardDescription>
+        <CardAction>
+          <Button variant="outline" size="icon-lg" aria-label={`Add food to ${label}`} onClick={() => onAdd(meal)}>
+            <Plus />
+          </Button>
+        </CardAction>
+      </CardHeader>
+      {entries.length > 0 ? (
+        <CardContent className="border-t px-0">
+          <ul className="divide-y">
+            {entries.map((entry) => (
+              <FoodRow key={entry.id} entry={entry} onRemove={onRemove} />
+            ))}
+          </ul>
+        </CardContent>
+      ) : (
+        <div className="pb-3" />
       )}
-    </section>
+    </Card>
+  )
+}
+
+export function MealSectionSkeleton() {
+  return (
+    <Card size="sm" aria-busy="true">
+      <CardHeader>
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-3 w-28" />
+        <CardAction>
+          <Skeleton className="size-9" />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-full" />
+      </CardContent>
+    </Card>
   )
 }

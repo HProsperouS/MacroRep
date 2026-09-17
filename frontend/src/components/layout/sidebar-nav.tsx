@@ -1,3 +1,4 @@
+import { CircleUser } from "lucide-react"
 import { NavLink } from "react-router-dom"
 
 import { NAV_ITEMS } from "@/components/layout/nav-items"
@@ -30,6 +31,18 @@ export function SidebarNav({ className }: { className?: string }) {
           </NavLink>
         ))}
       </nav>
+      <NavLink
+        to="/profile"
+        className={({ isActive }) =>
+          cn(
+            "mt-auto flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            isActive && "bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:text-primary",
+          )
+        }
+      >
+        <CircleUser className="size-5" aria-hidden />
+        Profile
+      </NavLink>
     </aside>
   )
 }

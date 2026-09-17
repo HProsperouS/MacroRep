@@ -1,43 +1,91 @@
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
-import { useCallback, useState } from "react"
 
-import { SAMPLE_ENTRIES } from "@/data/sample-food"
-import type { Food, FoodEntry } from "@/types/food"
+import { foodApi, type CreateCustomFoodInput, type FoodLogResponse } from "@/api/food-api"
+import { foodKeys } from "@/api/query-keys"
+import type { FoodEntry } from "@/types/food"
 
 export function dateKey(date: Date) {
   return format(date, "yyyy-MM-dd")
 }
 
-const withId = <T extends object>(item: T) => ({ ...item, id: crypto.randomUUID() })
+export function useFoodLog(date: Date) {
+  const key = dateKey(date)
+  return useQuery({
+    queryKey: foodKeys.log(key),
+    queryFn: ({ signal }) => foodApi.getFoodLog(key, signal),
+  })
+}
 
-/**
- * In-memory food log seeded with sample data.
- * Swap the internals for TanStack Query queries/mutations once the API exists —
- * the returned shape can stay the same so pages don't change.
- */
-export function useFoodLog() {
-  const [entriesByDate, setEntriesByDate] = useState<Record<string, FoodEntry[]>>(() => ({
-    [dateKey(new Date())]: SAMPLE_ENTRIES.map(withId),
-  }))
-  const [customFoods, setCustomFoods] = useState<Food[]>([])
+export function useNutritionTargets() {
+  return useQuery({
+    queryKey: foodKeys.targets(),
+    queryFn: ({ signal }) => foodApi.getTargets(signal),
+    staleTime: 5 * 60_000,
+  })
+}
 
-  const getEntries = useCallback((date: Date) => entriesByDate[dateKey(date)] ?? [], [entriesByDate])
+export function useFoodSearch(query: string) {
+  const q = query.trim()
+  return useQuery({
+    queryKey: foodKeys.search(q),
+    queryFn: ({ signal }) => foodApi.searchFoods(q, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  })
+}
 
-  const addEntry = useCallback((date: Date, entry: Omit<FoodEntry, "id">) => {
-    const key = dateKey(date)
-    setEntriesByDate((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), withId(entry)] }))
-  }, [])
+/** Adds an entry optimistically; rolls back if the request fails. */
+export function useAddFoodEntry(date: Date) {
+  const queryClient = useQueryClient()
+  const key = dateKey(date)
+  const queryKey = foodKeys.log(key)
 
-  const removeEntry = useCallback((date: Date, entryId: string) => {
-    const key = dateKey(date)
-    setEntriesByDate((prev) => ({ ...prev, [key]: (prev[key] ?? []).filter((entry) => entry.id !== entryId) }))
-  }, [])
+  return useMutation({
+    mutationFn: (entry: Omit<FoodEntry, "id">) => foodApi.addEntry({ ...entry, date: key }),
+    onMutate: async (entry) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<FoodLogResponse>(queryKey)
+      const optimistic: FoodEntry = { ...entry, id: `optimistic-${Date.now()}` }
+      queryClient.setQueryData<FoodLogResponse>(queryKey, (old) => ({
+        date: key,
+        entries: [...(old?.entries ?? []), optimistic],
+      }))
+      return { previous }
+    },
+    onError: (_error, _entry, context) => {
+      queryClient.setQueryData(queryKey, context?.previous)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  })
+}
 
-  const addCustomFood = useCallback((food: Omit<Food, "id" | "source">) => {
-    const created: Food = { ...food, id: crypto.randomUUID(), source: "custom" }
-    setCustomFoods((prev) => [created, ...prev])
-    return created
-  }, [])
+/** Removes an entry optimistically; rolls back if the request fails. */
+export function useRemoveFoodEntry(date: Date) {
+  const queryClient = useQueryClient()
+  const queryKey = foodKeys.log(dateKey(date))
 
-  return { getEntries, addEntry, removeEntry, customFoods, addCustomFood }
+  return useMutation({
+    mutationFn: (entryId: string) => foodApi.removeEntry(entryId),
+    onMutate: async (entryId) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<FoodLogResponse>(queryKey)
+      queryClient.setQueryData<FoodLogResponse>(queryKey, (old) =>
+        old ? { ...old, entries: old.entries.filter((entry) => entry.id !== entryId) } : old,
+      )
+      return { previous }
+    },
+    onError: (_error, _entryId, context) => {
+      queryClient.setQueryData(queryKey, context?.previous)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  })
+}
+
+export function useCreateCustomFood() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: CreateCustomFoodInput) => foodApi.createCustomFood(input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "search"] }),
+  })
 }
