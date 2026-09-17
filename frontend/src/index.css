@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/barlow-condensed/latin-500.css";
+@import "@fontsource/barlow-condensed/latin-600.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* MacroRep tokens — dark, data-dense. Matches the design canvas. */
+:root,
+.dark {
+  color-scheme: dark;
+
+  --background: #0e1012;
+  --foreground: #edeff2;
+  --card: #16191d;
+  --card-foreground: #edeff2;
+  --popover: #16191d;
+  --popover-foreground: #edeff2;
+  --primary: #c6f24e;
+  --primary-foreground: #0e1012;
+  --secondary: #1e2227;
+  --secondary-foreground: #edeff2;
+  --muted: #1e2227;
+  --muted-foreground: #9aa3ae;
+  --accent: #1e2227;
+  --accent-foreground: #edeff2;
+  --destructive: #f2685c;
+  --border: #262b31;
+  --input: #2e343b;
+  --ring: #c6f24e;
+  --radius: 0.75rem;
+
+  --sidebar: #0b0d0f;
+  --sidebar-foreground: #9aa3ae;
+  --sidebar-primary: #c6f24e;
+  --sidebar-primary-foreground: #0e1012;
+  --sidebar-accent: #1e2227;
+  --sidebar-accent-foreground: #edeff2;
+  --sidebar-border: #262b31;
+  --sidebar-ring: #c6f24e;
+
+  /* Macro colours */
+  --protein: #7cc4fa;
+  --carbs: #f5b85c;
+  --fat: #f28ca8;
+  --calories: #c6f24e;
+
+  --chart-1: #c6f24e;
+  --chart-2: #7cc4fa;
+  --chart-3: #f5b85c;
+  --chart-4: #f28ca8;
+  --chart-5: #5b636d;
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "IBM Plex Sans", sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-protein: var(--protein);
+  --color-carbs: var(--carbs);
+  --color-fat: var(--fat);
+  --color-calories: var(--calories);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+}
