@@ -1,10 +1,14 @@
-import { CircleUser } from "lucide-react"
-import { NavLink } from "react-router-dom"
+import { CircleUser, LogOut } from "lucide-react"
+import { NavLink, useNavigate } from "react-router-dom"
 
 import { NAV_ITEMS } from "@/components/layout/nav-items"
+import { useLogout } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
 
 export function SidebarNav({ className }: { className?: string }) {
+  const navigate = useNavigate()
+  const logout = useLogout()
+
   return (
     <aside
       className={cn(
@@ -43,6 +47,15 @@ export function SidebarNav({ className }: { className?: string }) {
         <CircleUser className="size-5" aria-hidden />
         Profile
       </NavLink>
+      <button
+        type="button"
+        disabled={logout.isPending}
+        onClick={() => logout.mutate(undefined, { onSettled: () => navigate("/login", { replace: true }) })}
+        className="flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-50"
+      >
+        <LogOut className="size-5" aria-hidden />
+        Sign out
+      </button>
     </aside>
   )
 }
