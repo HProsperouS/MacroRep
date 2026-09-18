@@ -1,5 +1,5 @@
 import { format } from "date-fns"
-import { CircleUser, Zap } from "lucide-react"
+import { CircleUser } from "lucide-react"
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
@@ -14,10 +14,12 @@ import { TrendWeightCard } from "@/components/home/trend-weight-card"
 import { PageHeader } from "@/components/layout/page-header"
 import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
 import { WeighInForm } from "@/components/progress/weigh-in-form"
+import { StartWorkoutButton } from "@/components/workout/start-workout-button"
 import { Button } from "@/components/ui/button"
 import { useFoodLog } from "@/hooks/use-food-log"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
 import { useAddWeighIn, useProgress } from "@/hooks/use-progress"
+import { useTodayWorkout } from "@/hooks/use-workout"
 import { groupEntries } from "@/lib/food-log"
 import { MEAL_TYPES, type MealType } from "@/types/food"
 
@@ -33,6 +35,7 @@ export default function HomePage() {
   const progress = useProgress("1M")
   const foodLog = useFoodLog(today)
   const addWeighIn = useAddWeighIn()
+  const todayWorkout = useTodayWorkout()
 
   const todayKey = format(today, "yyyy-MM-dd")
   const points = progress.data?.weight.points
@@ -72,12 +75,7 @@ export default function HomePage() {
         title="Today"
         actions={
           isDesktop ? (
-            <Button className="h-10" asChild>
-              <Link to="/workout?start=plan">
-                <Zap data-icon="inline-start" />
-                Start workout
-              </Link>
-            </Button>
+            <StartWorkoutButton plan={todayWorkout.data} className="h-10" />
           ) : (
             <Button variant="outline" size="icon-lg" className="size-11 rounded-full" asChild>
               <Link to="/profile" aria-label="Profile">

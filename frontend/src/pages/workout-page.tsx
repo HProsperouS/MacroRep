@@ -1,6 +1,5 @@
 import { Dumbbell, Plus, Trash2 } from "lucide-react"
-import { useMemo, useReducer, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { apiErrorMessage } from "@/api/client"
@@ -17,34 +16,39 @@ import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
+import { useActiveWorkout } from "@/hooks/use-active-workout"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
 import { useFinishWorkout, useTodayWorkout } from "@/hooks/use-workout"
-import { initSession, sessionReducer, sessionTotals, toFinishInput, type SessionExercise } from "@/lib/workout-session"
-import type { Exercise, PlannedWorkout, WorkoutSummary as WorkoutSummaryData } from "@/types/workout"
+import { beginWorkout, clearActiveWorkout, updateActiveSession, type ActiveWorkout } from "@/lib/active-workout-store"
+import { sessionReducer, sessionTotals, toFinishInput, type SessionAction, type SessionExercise } from "@/lib/workout-session"
+import type { Exercise, WorkoutSummary as WorkoutSummaryData } from "@/types/workout"
 
-type Started = { kind: "plan" | "empty"; id: number }
+const dispatch = (action: SessionAction) => updateActiveSession((session) => sessionReducer(session, action))
 
 export default function WorkoutPage() {
   const workout = useTodayWorkout()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const [started, setStarted] = useState<Started | null>(null)
+  const active = useActiveWorkout()
+  const [finished, setFinished] = useState<{ summary: WorkoutSummaryData; weekLabel?: string } | null>(null)
 
-  // Home's "Start workout" links to ?start=plan and skips the chooser once the plan has loaded.
-  const autoStartPlan = started === null && searchParams.get("start") === "plan" && Boolean(workout.data)
-  const active: Started | null = started ?? (autoStartPlan ? { kind: "plan", id: 0 } : null)
-
-  function start(kind: Started["kind"]) {
-    setStarted((prev) => ({ kind, id: (prev?.id ?? 0) + 1 }))
+  if (active) {
+    return (
+      <WorkoutSession
+        active={active}
+        onFinished={(summary) => {
+          setFinished({ summary, weekLabel: active.plan?.weekLabel })
+          clearActiveWorkout()
+        }}
+      />
+    )
   }
 
-  function exit() {
-    setStarted(null)
-    if (searchParams.has("start")) setSearchParams({}, { replace: true })
-  }
-
-  if (active && (active.kind === "empty" || workout.data)) {
-    const plan = active.kind === "plan" ? (workout.data ?? null) : null
-    return <WorkoutSession key={`${active.kind}-${active.id}`} plan={plan} onExit={exit} />
+  if (finished) {
+    return (
+      <>
+        <PageHeader eyebrow={finished.weekLabel ?? "Workout"} title="Nice work" />
+        <WorkoutSummary summary={finished.summary} />
+      </>
+    )
   }
 
   return (
@@ -55,8 +59,8 @@ export default function WorkoutPage() {
         planPending={workout.isPending}
         planError={workout.isError ? workout.error : null}
         onRetryPlan={() => void workout.refetch()}
-        onStartPlan={() => start("plan")}
-        onStartEmpty={() => start("empty")}
+        onStartPlan={() => beginWorkout(workout.data ?? null)}
+        onStartEmpty={() => beginWorkout(null)}
       />
     </>
   )
@@ -65,19 +69,17 @@ export default function WorkoutPage() {
 type Confirm = { kind: "finish" | "discard"; layout: OverlayLayout } | null
 
 type WorkoutSessionProps = {
-  /** Null for an empty workout. */
-  plan: PlannedWorkout | null
-  onExit: () => void
+  active: ActiveWorkout
+  onFinished: (summary: WorkoutSummaryData) => void
 }
 
-function WorkoutSession({ plan, onExit }: WorkoutSessionProps) {
+/** Every change goes through the persisted store, so leaving the page or reloading keeps progress. */
+function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
-  const [state, dispatch] = useReducer(sessionReducer, plan, initSession)
-  const [startedAt] = useState(() => Date.now())
+  const { session: state, startedAt, plan } = active
   const [pickerLayout, setPickerLayout] = useState<OverlayLayout | null>(null)
   const [pickerKey, setPickerKey] = useState(0)
   const [confirm, setConfirm] = useState<Confirm>(null)
-  const [summary, setSummary] = useState<WorkoutSummaryData | null>(null)
   const finish = useFinishWorkout()
 
   const totals = useMemo(() => sessionTotals(state.exercises), [state.exercises])
@@ -101,7 +103,7 @@ function WorkoutSession({ plan, onExit }: WorkoutSessionProps) {
     finish.mutate(toFinishInput(state, startedAt, Date.now()), {
       onSuccess: (result) => {
         setConfirm(null)
-        setSummary(result)
+        onFinished(result)
       },
       onError: (error) => toast.error("Couldn’t save your workout", { description: `${apiErrorMessage(error)} Your sets are still here.` }),
     })
@@ -109,8 +111,8 @@ function WorkoutSession({ plan, onExit }: WorkoutSessionProps) {
 
   function discard() {
     setConfirm(null)
+    clearActiveWorkout()
     toast("Workout discarded")
-    onExit()
   }
 
   function openPicker() {
@@ -130,15 +132,6 @@ function WorkoutSession({ plan, onExit }: WorkoutSessionProps) {
     toast(`Removed ${exercise.name}`, {
       action: { label: "Undo", onClick: () => dispatch({ type: "restore-exercise", exercise, index }) },
     })
-  }
-
-  if (summary) {
-    return (
-      <>
-        <PageHeader eyebrow={plan?.weekLabel ?? "Workout"} title="Nice work" />
-        <WorkoutSummary summary={summary} />
-      </>
-    )
   }
 
   return (

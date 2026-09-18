@@ -1,9 +1,16 @@
-import { ArrowDown, ArrowUp, Dumbbell, Minus, NotebookText, Plus, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, Dumbbell, Ellipsis, Minus, NotebookText, Plus, Trash2 } from "lucide-react"
 
 import { SET_GRID, SetRow } from "@/components/workout/set-row"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { setLabels, type SessionAction, type SessionExercise } from "@/lib/workout-session"
 
@@ -41,6 +48,32 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
           <span className="text-xs whitespace-nowrap text-muted-foreground">
             {doneCount}/{exercise.sets.length}
           </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-lg" className="size-11 text-muted-foreground" aria-label={`Options for ${exercise.name}`}>
+                <Ellipsis />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-48">
+              <DropdownMenuItem disabled={isFirst} onSelect={() => dispatch({ type: "move-exercise", exerciseId: exercise.id, direction: -1 })}>
+                <ArrowUp />
+                Move up
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={isLast} onSelect={() => dispatch({ type: "move-exercise", exerciseId: exercise.id, direction: 1 })}>
+                <ArrowDown />
+                Move down
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!canRemoveSet} onSelect={() => dispatch({ type: "remove-last-set", exerciseId: exercise.id })}>
+                <Minus />
+                Remove last set
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onSelect={() => onRemove(exercise)}>
+                <Trash2 />
+                Remove exercise
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -75,45 +108,10 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
           })}
         </ul>
 
-        <div className="flex items-center gap-1.5">
-          <Button variant="ghost" className="h-11 flex-1 border border-dashed" onClick={() => dispatch({ type: "add-set", exerciseId: exercise.id })}>
-            <Plus data-icon="inline-start" />
-            Add set
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-lg"
-            className="size-11 text-muted-foreground"
-            aria-label={`Remove last set of ${exercise.name}`}
-            disabled={!canRemoveSet}
-            onClick={() => dispatch({ type: "remove-last-set", exerciseId: exercise.id })}
-          >
-            <Minus />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-lg"
-            className="size-11 text-muted-foreground"
-            aria-label={`Move ${exercise.name} up`}
-            disabled={isFirst}
-            onClick={() => dispatch({ type: "move-exercise", exerciseId: exercise.id, direction: -1 })}
-          >
-            <ArrowUp />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-lg"
-            className="size-11 text-muted-foreground"
-            aria-label={`Move ${exercise.name} down`}
-            disabled={isLast}
-            onClick={() => dispatch({ type: "move-exercise", exerciseId: exercise.id, direction: 1 })}
-          >
-            <ArrowDown />
-          </Button>
-          <Button variant="ghost" size="icon-lg" className="size-11 text-muted-foreground hover:text-destructive" aria-label={`Remove ${exercise.name}`} onClick={() => onRemove(exercise)}>
-            <Trash2 />
-          </Button>
-        </div>
+        <Button variant="ghost" className="h-11 w-full border border-dashed" onClick={() => dispatch({ type: "add-set", exerciseId: exercise.id })}>
+          <Plus data-icon="inline-start" />
+          Add set
+        </Button>
       </CardContent>
     </Card>
   )

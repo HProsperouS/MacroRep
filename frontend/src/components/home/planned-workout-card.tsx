@@ -1,9 +1,8 @@
-import { Dumbbell, Zap } from "lucide-react"
-import { Link } from "react-router-dom"
+import { Dumbbell } from "lucide-react"
 
 import { QueryError } from "@/components/layout/query-error"
+import { StartWorkoutButton } from "@/components/workout/start-workout-button"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useTodayWorkout } from "@/hooks/use-workout"
@@ -89,12 +88,7 @@ export function PlannedWorkoutCard() {
         </ul>
       </CardContent>
       <CardFooter className="lg:hidden">
-        <Button className="h-11 w-full" asChild>
-          <Link to="/workout?start=plan">
-            <Zap data-icon="inline-start" />
-            Start workout
-          </Link>
-        </Button>
+        <StartWorkoutButton plan={plan} className="h-11 w-full" />
       </CardFooter>
     </Card>
   )
