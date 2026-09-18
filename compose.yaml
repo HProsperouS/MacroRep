@@ -1,0 +1,73 @@
+name: macrorep
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      VITE_API_BASE_URL: /api
+      VITE_DEV_PROXY_TARGET: http://backend:8000
+      CHOKIDAR_USEPOLLING: "true"
+    init: true
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/workspace/frontend
+      - frontend-node-modules:/workspace/frontend/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: ["sh", "-c", "npm ci --prefer-offline --no-audit --no-fund && npm run dev -- --host 0.0.0.0"]
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: development
+    environment:
+      APP_ENV: local
+      API_PREFIX: /api
+      DATABASE_URL: postgresql+psycopg://macrorep:local-development-only@postgres:5432/macrorep
+      CORS_ORIGINS: '["http://localhost:5173","http://127.0.0.1:5173"]'
+      LOG_JSON: "false"
+      PREVIEW_AUTH_ENABLED: "true"
+      AUTO_CREATE_SCHEMA: "false"
+      SEED_DEMO_DATA: "true"
+      WATCHFILES_FORCE_POLLING: "true"
+    init: true
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/srv/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: macrorep
+      POSTGRES_USER: macrorep
+      POSTGRES_PASSWORD: local-development-only
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U macrorep -d macrorep"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  frontend-node-modules:
+  postgres-data:

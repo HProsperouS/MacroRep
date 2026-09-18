@@ -1,0 +1,20 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Personal design-decision notes (e.g. for exam/contribution write-ups) —
+# not project deliverables, kept out of the shared repo.
+/reference/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+*.db
+*.sqlite
+*.sqlite3
+.coverage
+htmlcov/
