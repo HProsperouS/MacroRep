@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.identity.dependencies import ActorContext, get_current_actor
@@ -12,7 +12,15 @@ from app.shared.persistence import get_session
 
 from .models import EQUIPMENT
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
-from .schemas import CreateExerciseInput, ExerciseRead, FinishWorkoutInput, PlannedWorkout, WorkoutSummary
+from .schemas import (
+    CreateExerciseInput,
+    ExerciseRead,
+    FinishWorkoutInput,
+    PlannedWorkout,
+    SavePlanDayInput,
+    WeekPlanDay,
+    WorkoutSummary,
+)
 from .service import WorkoutService
 
 router = APIRouter(prefix="/api", tags=["workout"])
@@ -62,3 +70,26 @@ async def finish_session(
     payload: FinishWorkoutInput, actor: ActorDep, service: WorkoutServiceDep
 ) -> WorkoutSummary:
     return await service.finish_session(payload, actor)
+
+
+@router.get("/workouts/plan", response_model=list[WeekPlanDay])
+async def get_week_plan(actor: ActorDep, service: WorkoutServiceDep) -> list[WeekPlanDay]:
+    return await service.get_week_plan(actor)
+
+
+@router.put("/workouts/plan/{day_of_week}", response_model=WeekPlanDay)
+async def save_plan_day(
+    payload: SavePlanDayInput,
+    actor: ActorDep,
+    service: WorkoutServiceDep,
+    day_of_week: Annotated[int, Path(ge=0, le=6)],
+) -> WeekPlanDay:
+    return await service.save_day(actor, day_of_week, payload)
+
+
+@router.delete("/workouts/plan/{day_of_week}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_plan_day(
+    actor: ActorDep, service: WorkoutServiceDep, day_of_week: Annotated[int, Path(ge=0, le=6)]
+) -> Response:
+    await service.delete_day(actor, day_of_week)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1,5 +1,14 @@
 import { apiClient } from "@/api/client"
-import type { CreateExerciseInput, Exercise, ExerciseFilters, FinishWorkoutInput, PlannedWorkout, WorkoutSummary } from "@/types/workout"
+import type {
+  CreateExerciseInput,
+  Exercise,
+  ExerciseFilters,
+  FinishWorkoutInput,
+  PlannedWorkout,
+  SavePlanDayInput,
+  WeekPlanDay,
+  WorkoutSummary,
+} from "@/types/workout"
 
 export const workoutApi = {
   /** Today's planned session, or null on a rest day. */
@@ -21,5 +30,21 @@ export const workoutApi = {
   async finishSession(input: FinishWorkoutInput) {
     const { data } = await apiClient.post<WorkoutSummary>("/workouts/sessions", input)
     return data
+  },
+
+  /** All 7 days of the user's weekly routine; a day's `plan` is null on a rest day. */
+  async getWeekPlan(signal?: AbortSignal) {
+    const { data } = await apiClient.get<WeekPlanDay[]>("/workouts/plan", { signal })
+    return data
+  },
+
+  async savePlanDay(dayOfWeek: number, input: SavePlanDayInput) {
+    const { data } = await apiClient.put<WeekPlanDay>(`/workouts/plan/${dayOfWeek}`, input)
+    return data
+  },
+
+  /** Clears a day back to a rest day. */
+  async deletePlanDay(dayOfWeek: number) {
+    await apiClient.delete(`/workouts/plan/${dayOfWeek}`)
   },
 }

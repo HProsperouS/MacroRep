@@ -2,7 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { progressKeys, workoutKeys } from "@/api/query-keys"
 import { workoutApi } from "@/api/workout-api"
-import type { CreateExerciseInput, ExerciseFilters, FinishWorkoutInput } from "@/types/workout"
+import type { CreateExerciseInput, ExerciseFilters, FinishWorkoutInput, SavePlanDayInput } from "@/types/workout"
 
 export function useTodayWorkout() {
   return useQuery({
@@ -37,5 +37,36 @@ export function useCreateExercise() {
   return useMutation({
     mutationFn: (input: CreateExerciseInput) => workoutApi.createExercise(input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [...workoutKeys.all, "exercises"] }),
+  })
+}
+
+export function useWeekPlan() {
+  return useQuery({
+    queryKey: workoutKeys.plan(),
+    queryFn: ({ signal }) => workoutApi.getWeekPlan(signal),
+    staleTime: 60_000,
+  })
+}
+
+export function useSavePlanDay() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ dayOfWeek, input }: { dayOfWeek: number; input: SavePlanDayInput }) =>
+      workoutApi.savePlanDay(dayOfWeek, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workoutKeys.plan() })
+      void queryClient.invalidateQueries({ queryKey: workoutKeys.today() })
+    },
+  })
+}
+
+export function useDeletePlanDay() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (dayOfWeek: number) => workoutApi.deletePlanDay(dayOfWeek),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workoutKeys.plan() })
+      void queryClient.invalidateQueries({ queryKey: workoutKeys.today() })
+    },
   })
 }

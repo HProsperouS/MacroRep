@@ -32,6 +32,8 @@ export type SetKind = "warmup" | "working"
 export type PreviousSet = {
   weightKg: number
   reps: number
+  /** Rating of Perceived Exertion, 1-10 in 0.5 steps. */
+  rpe?: number | null
 }
 
 /** One planned set. Target values pre-fill the logger. */
@@ -97,6 +99,8 @@ export type LoggedSet = {
   kind: SetKind
   weightKg: number
   reps: number
+  /** Rating of Perceived Exertion, 1-10 in 0.5 steps. Optional. */
+  rpe?: number | null
 }
 
 export type FinishWorkoutInput = {
@@ -115,4 +119,32 @@ export type WorkoutSummary = {
   setsCompleted: number
   volumeKg: number
   personalRecords: string[]
+}
+
+export const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const
+
+export type PlanSetInput = {
+  kind: SetKind
+  targetWeightKg: number | null
+  targetReps: number | null
+}
+
+export type PlanExerciseInput = {
+  exerciseId: string
+  restSeconds: number
+  sets: PlanSetInput[]
+}
+
+export type SavePlanDayInput = {
+  name: string
+  weekLabel: string
+  estimatedMinutes: number
+  exercises: PlanExerciseInput[]
+}
+
+/** A user's plan for one day of the week (0=Monday .. 6=Sunday); `plan` is
+ * null for a rest day. */
+export type WeekPlanDay = {
+  dayOfWeek: number
+  plan: PlannedWorkout | null
 }

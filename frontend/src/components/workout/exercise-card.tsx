@@ -89,6 +89,7 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
           <span>Previous</span>
           <span className="text-center">kg</span>
           <span className="text-center">Reps</span>
+          <span className="text-center">RPE</span>
           <span />
         </div>
 

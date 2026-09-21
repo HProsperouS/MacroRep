@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db import escape_like
@@ -119,6 +119,19 @@ class WorkoutPlanRepository:
     async def get(self, plan_entry_id: str) -> WorkoutPlanEntry | None:
         return await self.session.get(WorkoutPlanEntry, plan_entry_id)
 
+    async def list_for_owner(self, owner_id: str) -> list[WorkoutPlanEntry]:
+        return list(
+            await self.session.scalars(select(WorkoutPlanEntry).where(WorkoutPlanEntry.owner_id == owner_id))
+        )
+
+    async def add(self, plan_entry: WorkoutPlanEntry) -> WorkoutPlanEntry:
+        self.session.add(plan_entry)
+        await self.session.flush()
+        return plan_entry
+
+    async def delete(self, plan_entry: WorkoutPlanEntry) -> None:
+        await self.session.delete(plan_entry)
+
     async def list_exercises(self, plan_entry_id: str) -> list[WorkoutPlanExercise]:
         return list(
             await self.session.scalars(
@@ -127,6 +140,32 @@ class WorkoutPlanRepository:
                 .order_by(WorkoutPlanExercise.position.asc())
             )
         )
+
+    async def list_exercises_for_entries(
+        self, plan_entry_ids: list[str]
+    ) -> dict[str, list[WorkoutPlanExercise]]:
+        """Batched form of :meth:`list_exercises` for several plan entries at once."""
+
+        if not plan_entry_ids:
+            return {}
+        rows = await self.session.scalars(
+            select(WorkoutPlanExercise)
+            .where(WorkoutPlanExercise.plan_entry_id.in_(plan_entry_ids))
+            .order_by(WorkoutPlanExercise.position.asc())
+        )
+        grouped: dict[str, list[WorkoutPlanExercise]] = {entry_id: [] for entry_id in plan_entry_ids}
+        for row in rows:
+            grouped[row.plan_entry_id].append(row)
+        return grouped
+
+    async def replace_exercises(self, plan_entry_id: str, exercises: list[WorkoutPlanExercise]) -> None:
+        """Delete a day's existing exercise list and insert the new one, as one unit."""
+
+        await self.session.execute(
+            delete(WorkoutPlanExercise).where(WorkoutPlanExercise.plan_entry_id == plan_entry_id)
+        )
+        self.session.add_all(exercises)
+        await self.session.flush()
 
 
 class WorkoutSessionRepository:

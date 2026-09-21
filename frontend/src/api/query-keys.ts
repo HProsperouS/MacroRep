@@ -13,6 +13,7 @@ export const workoutKeys = {
   all: ["workout"] as const,
   today: () => [...workoutKeys.all, "today"] as const,
   exercises: (filters: ExerciseFilters) => [...workoutKeys.all, "exercises", filters] as const,
+  plan: () => [...workoutKeys.all, "plan"] as const,
 }
 
 export const coachKeys = {

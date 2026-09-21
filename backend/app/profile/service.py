@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.identity.dependencies import ActorContext
 from app.identity.repository import UserRepository
 
-from .models import Goal, Profile
+from .models import ExperienceLevel, Goal, Profile
 from .repository import ProfileRepository
 from .schemas import DailyTargets, ProfileRead, UpdateProfileInput
 
@@ -32,6 +32,8 @@ class ProfileService:
             goal=Goal.MAINTAIN,
             weekly_rate_kg=0,
             training_days_per_week=3,
+            experience_level=ExperienceLevel.BEGINNER,
+            equipment=[],
             target_calories=_DEFAULT_TARGETS.calories,
             target_protein_g=_DEFAULT_TARGETS.protein,
             target_carbs_g=_DEFAULT_TARGETS.carbs,
@@ -53,6 +55,8 @@ class ProfileService:
             goal=profile.goal,
             weekly_rate_kg=float(profile.weekly_rate_kg),
             training_days_per_week=profile.training_days_per_week,
+            experience_level=profile.experience_level,
+            equipment=list(profile.equipment),
         )
 
     async def get(self, actor: ActorContext) -> ProfileRead:
@@ -66,6 +70,8 @@ class ProfileService:
         profile.goal = payload.goal
         profile.weekly_rate_kg = payload.weekly_rate_kg
         profile.training_days_per_week = payload.training_days_per_week
+        profile.experience_level = payload.experience_level
+        profile.equipment = payload.equipment
         profile.touch()
         await self.session.commit()
         await self.session.refresh(profile)

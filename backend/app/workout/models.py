@@ -114,4 +114,6 @@ class WorkoutSetLog(Base):
     kind: Mapped[SetKind] = mapped_column(SAEnum(SetKind, name="set_kind"), nullable=False)
     weight_kg: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
     reps: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Rating of Perceived Exertion, 1-10 in 0.5 steps. Nullable — logging it is optional.
+    rpe: Mapped[float | None] = mapped_column(Numeric(3, 1), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

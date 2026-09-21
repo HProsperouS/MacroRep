@@ -8,7 +8,8 @@ import { FieldDescription, FieldGroup, FieldLegend, FieldSet } from "@/component
 import { Spinner } from "@/components/ui/spinner"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { requiredNumber } from "@/lib/zod-helpers"
-import { GOAL_LABELS, GOALS, type Profile, type UpdateProfileInput } from "@/types/profile"
+import { EXPERIENCE_LEVEL_LABELS, EXPERIENCE_LEVELS, GOAL_LABELS, GOALS, type Profile, type UpdateProfileInput } from "@/types/profile"
+import { EQUIPMENT, EQUIPMENT_LABELS, type Equipment } from "@/types/workout"
 
 const profileSchema = z.object({
   name: z.string().trim().min(1, "Enter your name").max(60, "Keep it under 60 characters"),
@@ -19,6 +20,8 @@ const profileSchema = z.object({
     (value) => Number(value),
     z.number().int("Whole days only").min(1, "At least 1 day").max(7, "At most 7 days"),
   ),
+  experienceLevel: z.enum(EXPERIENCE_LEVELS),
+  equipment: z.array(z.enum(EQUIPMENT)),
 })
 
 type ProfileInput = z.input<typeof profileSchema>
@@ -44,12 +47,22 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
       goal: profile.goal,
       weeklyRate: String(Math.abs(profile.weeklyRateKg)),
       trainingDaysPerWeek: String(profile.trainingDaysPerWeek),
+      experienceLevel: profile.experienceLevel,
+      equipment: profile.equipment,
     },
   })
 
   const submit = handleSubmit((values) => {
     const rate = values.goal === "maintain" ? 0 : values.goal === "lose" ? -values.weeklyRate : values.weeklyRate
-    onSubmit({ name: values.name, heightCm: values.heightCm, goal: values.goal, weeklyRateKg: rate, trainingDaysPerWeek: values.trainingDaysPerWeek })
+    onSubmit({
+      name: values.name,
+      heightCm: values.heightCm,
+      goal: values.goal,
+      weeklyRateKg: rate,
+      trainingDaysPerWeek: values.trainingDaysPerWeek,
+      experienceLevel: values.experienceLevel,
+      equipment: values.equipment,
+    })
   })
 
   return (
@@ -100,6 +113,62 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
             {...register("trainingDaysPerWeek")}
           />
         </div>
+
+        <FieldSet className="gap-2">
+          <FieldLegend variant="label">Training experience</FieldLegend>
+          <Controller
+            control={control}
+            name="experienceLevel"
+            render={({ field }) => (
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                spacing={0}
+                value={field.value}
+                onValueChange={(next) => (next ? field.onChange(next) : undefined)}
+                aria-label="Training experience"
+                className="w-full"
+                disabled={submitting}
+              >
+                {EXPERIENCE_LEVELS.map((level) => (
+                  <ToggleGroupItem key={level} value={level} className="h-10 flex-1">
+                    {EXPERIENCE_LEVEL_LABELS[level]}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            )}
+          />
+        </FieldSet>
+
+        <FieldSet className="gap-2">
+          <FieldLegend variant="label">Equipment you have access to</FieldLegend>
+          <Controller
+            control={control}
+            name="equipment"
+            render={({ field }) => (
+              <ToggleGroup
+                type="multiple"
+                variant="outline"
+                value={field.value}
+                onValueChange={(next: Equipment[]) => field.onChange(next)}
+                aria-label="Available equipment"
+                className="flex-wrap"
+                disabled={submitting}
+              >
+                {EQUIPMENT.map((item) => (
+                  <ToggleGroupItem
+                    key={item}
+                    value={item}
+                    className="h-10 data-[state=on]:border-primary/45 data-[state=on]:bg-primary/7"
+                  >
+                    {EQUIPMENT_LABELS[item]}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            )}
+          />
+          <FieldDescription>Used to steer which exercises your coach proposes.</FieldDescription>
+        </FieldSet>
       </FieldGroup>
 
       <div className="flex justify-end">

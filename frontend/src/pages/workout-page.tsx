@@ -1,5 +1,6 @@
 import { Dumbbell, Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { apiErrorMessage } from "@/api/client"
@@ -26,6 +27,7 @@ import type { Exercise, WorkoutSummary as WorkoutSummaryData } from "@/types/wor
 const dispatch = (action: SessionAction) => updateActiveSession((session) => sessionReducer(session, action))
 
 export default function WorkoutPage() {
+  const navigate = useNavigate()
   const workout = useTodayWorkout()
   const active = useActiveWorkout()
   const [finished, setFinished] = useState<{ summary: WorkoutSummaryData; weekLabel?: string } | null>(null)
@@ -53,7 +55,15 @@ export default function WorkoutPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Workout" title="Start a workout" />
+      <PageHeader
+        eyebrow="Workout"
+        title="Start a workout"
+        actions={
+          <Button variant="outline" className="h-10" onClick={() => navigate("/workout/plan")}>
+            Manage plan
+          </Button>
+        }
+      />
       <StartWorkout
         plan={workout.data}
         planPending={workout.isPending}

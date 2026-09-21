@@ -6,11 +6,12 @@ from datetime import date
 from typing import cast
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.identity.dependencies import ActorContext
 
-from .models import Exercise, SetKind, WorkoutSession, WorkoutSetLog
+from .models import Exercise, SetKind, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutSession, WorkoutSetLog
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
 from .schemas import (
     CreateExerciseInput,
@@ -21,6 +22,8 @@ from .schemas import (
     PlannedSet,
     PlannedWorkout,
     PreviousSet,
+    SavePlanDayInput,
+    WeekPlanDay,
     WorkoutSummary,
 )
 
@@ -64,7 +67,14 @@ class WorkoutService:
             last_session = (
                 LastSession(
                     date=found[0],
-                    sets=[PreviousSet(weight_kg=float(s.weight_kg), reps=s.reps) for s in found[1]],
+                    sets=[
+                        PreviousSet(
+                            weight_kg=float(s.weight_kg),
+                            reps=s.reps,
+                            rpe=float(s.rpe) if s.rpe is not None else None,
+                        )
+                        for s in found[1]
+                    ],
                 )
                 if found is not None
                 else None
@@ -86,10 +96,124 @@ class WorkoutService:
         plan_entry = await self.plans.get_for_day(actor.actor_id, day_of_week)
         if plan_entry is None:
             return None
+        return await self._build_planned_workout(plan_entry, actor)
+
+    async def get_week_plan(self, actor: ActorContext) -> list[WeekPlanDay]:
+        entries = await self.plans.list_for_owner(actor.actor_id)
+        entries_by_day = {entry.day_of_week: entry for entry in entries}
+
+        # Batched across all 7 days (a handful of queries total) rather than
+        # calling _build_planned_workout per day, which would otherwise run
+        # its own 3 queries per day — up to 21 sequential round trips here.
+        plan_exercises_by_entry = await self.plans.list_exercises_for_entries([entry.id for entry in entries])
+        all_exercise_ids = [pe.exercise_id for pes in plan_exercises_by_entry.values() for pe in pes]
+        exercises_by_id = await self.exercises.get_many(all_exercise_ids)
+        last_sessions = await self.exercises.last_session_sets_bulk(actor.actor_id, all_exercise_ids)
+
+        result: list[WeekPlanDay] = []
+        for day_of_week in range(7):
+            entry = entries_by_day.get(day_of_week)
+            plan = (
+                self._assemble_planned_workout(
+                    entry, plan_exercises_by_entry[entry.id], exercises_by_id, last_sessions
+                )
+                if entry is not None
+                else None
+            )
+            result.append(WeekPlanDay(day_of_week=day_of_week, plan=plan))
+        return result
+
+    async def _verify_exercises_owned(
+        self, actor: ActorContext, exercise_ids: list[str]
+    ) -> dict[str, Exercise]:
+        """Fetch exercises by id, raising 404 unless each is global or owned by actor."""
+
+        exercises_by_id = await self.exercises.get_many(exercise_ids)
+        for exercise_id in exercise_ids:
+            exercise = exercises_by_id.get(exercise_id)
+            if exercise is None or (exercise.owner_id is not None and exercise.owner_id != actor.actor_id):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, f"Exercise {exercise_id} not found")
+        return exercises_by_id
+
+    async def save_day(self, actor: ActorContext, day_of_week: int, payload: SavePlanDayInput) -> WeekPlanDay:
+        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
+
+        plan_entry = await self.plans.get_for_day(actor.actor_id, day_of_week)
+        if plan_entry is None:
+            plan_entry = WorkoutPlanEntry(
+                owner_id=actor.actor_id,
+                day_of_week=day_of_week,
+                name=payload.name,
+                week_label=payload.week_label,
+                estimated_minutes=payload.estimated_minutes,
+            )
+            try:
+                await self.plans.add(plan_entry)
+            except IntegrityError:
+                # Lost a race with a concurrent save for this same day (e.g. a
+                # double-submit) — the unique (owner_id, day_of_week) index
+                # rejected the second insert. Ask the client to retry rather
+                # than surfacing a raw 500; a retry will see the row that won
+                # and take the update branch below instead.
+                await self.session.rollback()
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "This day was just saved elsewhere, please retry"
+                ) from None
+        else:
+            plan_entry.name = payload.name
+            plan_entry.week_label = payload.week_label
+            plan_entry.estimated_minutes = payload.estimated_minutes
+            plan_entry.touch()
+
+        new_exercises = [
+            WorkoutPlanExercise(
+                plan_entry_id=plan_entry.id,
+                exercise_id=plan_exercise.exercise_id,
+                position=index,
+                rest_seconds=plan_exercise.rest_seconds,
+                planned_sets=[
+                    {
+                        "kind": plan_set.kind.value,
+                        "target_weight_kg": plan_set.target_weight_kg,
+                        "target_reps": plan_set.target_reps,
+                    }
+                    for plan_set in plan_exercise.sets
+                ],
+            )
+            for index, plan_exercise in enumerate(payload.exercises)
+        ]
+        await self.plans.replace_exercises(plan_entry.id, new_exercises)
+        await self.session.commit()
+
+        plan = await self._build_planned_workout(plan_entry, actor)
+        return WeekPlanDay(day_of_week=day_of_week, plan=plan)
+
+    async def delete_day(self, actor: ActorContext, day_of_week: int) -> None:
+        plan_entry = await self.plans.get_for_day(actor.actor_id, day_of_week)
+        if plan_entry is None:
+            return
+        await self.plans.delete(plan_entry)
+        await self.session.commit()
+
+    async def _build_planned_workout(
+        self, plan_entry: WorkoutPlanEntry, actor: ActorContext
+    ) -> PlannedWorkout:
         plan_exercises = await self.plans.list_exercises(plan_entry.id)
         exercise_ids = [plan_exercise.exercise_id for plan_exercise in plan_exercises]
         exercises_by_id = await self.exercises.get_many(exercise_ids)
         last_sessions = await self.exercises.last_session_sets_bulk(actor.actor_id, exercise_ids)
+        return self._assemble_planned_workout(plan_entry, plan_exercises, exercises_by_id, last_sessions)
+
+    def _assemble_planned_workout(
+        self,
+        plan_entry: WorkoutPlanEntry,
+        plan_exercises: list[WorkoutPlanExercise],
+        exercises_by_id: dict[str, Exercise],
+        last_sessions: dict[str, tuple[str, list[WorkoutSetLog]]],
+    ) -> PlannedWorkout:
+        """Pure assembly step, split out from :meth:`_build_planned_workout` so
+        ``get_week_plan`` can batch the fetches for all 7 days up front and
+        call this once per day instead of running the fetches per day too."""
 
         exercises: list[PlannedExercise] = []
         for plan_exercise in plan_exercises:
@@ -121,7 +245,11 @@ class WorkoutService:
                         target_weight_kg=planned.get("target_weight_kg"),
                         target_reps=planned.get("target_reps"),
                         previous=(
-                            PreviousSet(weight_kg=float(previous_row.weight_kg), reps=previous_row.reps)
+                            PreviousSet(
+                                weight_kg=float(previous_row.weight_kg),
+                                reps=previous_row.reps,
+                                rpe=float(previous_row.rpe) if previous_row.rpe is not None else None,
+                            )
                             if previous_row is not None
                             else None
                         ),
@@ -151,13 +279,7 @@ class WorkoutService:
             if plan_entry is None or plan_entry.owner_id != actor.actor_id:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Workout plan not found")
 
-        exercises_by_id = await self.exercises.get_many([e.exercise_id for e in payload.exercises])
-        for exercise_entry in payload.exercises:
-            exercise = exercises_by_id.get(exercise_entry.exercise_id)
-            if exercise is None or (exercise.owner_id is not None and exercise.owner_id != actor.actor_id):
-                raise HTTPException(
-                    status.HTTP_404_NOT_FOUND, f"Exercise {exercise_entry.exercise_id} not found"
-                )
+        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
 
         workout_session = WorkoutSession(
             owner_id=actor.actor_id,
@@ -180,6 +302,7 @@ class WorkoutService:
                         kind=logged_set.kind,
                         weight_kg=logged_set.weight_kg,
                         reps=logged_set.reps,
+                        rpe=logged_set.rpe,
                         position=index,
                     )
                 )

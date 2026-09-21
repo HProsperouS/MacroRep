@@ -7,6 +7,8 @@ export type SessionSet = {
   kind: SetKind
   weight: string
   reps: string
+  /** Rating of Perceived Exertion, kept as a string like weight/reps; optional so it may be blank. */
+  rpe: string
   previous?: PlannedSet["previous"]
   done: boolean
 }
@@ -31,7 +33,7 @@ const DEFAULT_REST_SECONDS = 90
 const DEFAULT_SET_COUNT = 3
 
 export type SessionAction =
-  | { type: "edit"; exerciseId: string; setId: string; field: "weight" | "reps"; value: string }
+  | { type: "edit"; exerciseId: string; setId: string; field: "weight" | "reps" | "rpe"; value: string }
   | { type: "toggle"; exerciseId: string; setId: string; now: number }
   | { type: "add-set"; exerciseId: string }
   | { type: "adjust-rest"; seconds: number; now: number }
@@ -57,6 +59,7 @@ export function initSession(plan: PlannedWorkout | null): SessionState {
         kind: set.kind,
         weight: set.targetWeightKg == null ? "" : String(set.targetWeightKg),
         reps: set.targetReps == null ? "" : String(set.targetReps),
+        rpe: "",
         previous: set.previous,
         done: false,
       })),
@@ -82,6 +85,7 @@ export function exerciseToSession(exercise: Exercise, instanceId: string): Sessi
         kind: "working" as const,
         weight: previous ? String(previous.weightKg) : "",
         reps: previous ? String(previous.reps) : "",
+        rpe: "",
         previous: last[index],
         done: false,
       }
@@ -95,6 +99,13 @@ export function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
   const reps = set.reps.trim() === "" ? Number.NaN : Number(set.reps)
   const valid = Number.isFinite(weightKg) && weightKg >= 0 && weightKg <= 1000 && Number.isInteger(reps) && reps > 0 && reps <= 200
   return valid ? { weightKg, reps } : null
+}
+
+/** RPE is optional: blank parses to `null` (not provided, not invalid); out-of-range parses to `undefined` (invalid). */
+export function parseRpe(rpe: string): number | null | undefined {
+  if (rpe.trim() === "") return null
+  const value = Number(rpe)
+  return Number.isFinite(value) && value >= 1 && value <= 10 ? value : undefined
 }
 
 function updateSet(state: SessionState, exerciseId: string, setId: string, update: (set: SessionSet, exercise: SessionExercise) => SessionSet) {
@@ -131,6 +142,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
             kind: "working",
             weight: last?.weight ?? "",
             reps: last?.reps ?? "",
+            rpe: "",
             done: false,
           }
           return { ...exercise, sets: [...exercise.sets, next] }
@@ -222,7 +234,9 @@ export function toFinishInput(state: SessionState, startedAt: number, finishedAt
         name: exercise.name,
         sets: exercise.sets.flatMap((set) => {
           const parsed = set.done ? parseSet(set) : null
-          return parsed ? [{ kind: set.kind, ...parsed }] : []
+          if (!parsed) return []
+          const rpe = parseRpe(set.rpe)
+          return [{ kind: set.kind, ...parsed, rpe: rpe ?? undefined }]
         }),
       }))
       .filter((exercise) => exercise.sets.length > 0),

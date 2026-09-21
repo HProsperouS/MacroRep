@@ -14,6 +14,7 @@ from .models import EQUIPMENT, SetKind
 class PreviousSet(CamelModel):
     weight_kg: float
     reps: int
+    rpe: float | None = None
 
 
 class LastSession(CamelModel):
@@ -81,6 +82,7 @@ class LoggedSet(CamelModel):
     kind: SetKind
     weight_kg: float = Field(ge=0)
     reps: int = Field(ge=0)
+    rpe: float | None = Field(default=None, ge=1, le=10, multiple_of=0.5)
 
 
 class FinishWorkoutExercise(CamelModel):
@@ -104,3 +106,30 @@ class WorkoutSummary(CamelModel):
     sets_completed: int
     volume_kg: float
     personal_records: list[str]
+
+
+class PlanSetInput(CamelModel):
+    kind: SetKind
+    target_weight_kg: float | None = Field(default=None, ge=0)
+    target_reps: int | None = Field(default=None, ge=1)
+
+
+class PlanExerciseInput(CamelModel):
+    exercise_id: str
+    rest_seconds: int = Field(ge=0, le=600)
+    sets: list[PlanSetInput] = Field(min_length=1)
+
+
+class SavePlanDayInput(CamelModel):
+    name: str = Field(min_length=1, max_length=255)
+    week_label: str = Field(min_length=1, max_length=64)
+    estimated_minutes: int = Field(ge=1, le=600)
+    exercises: list[PlanExerciseInput] = Field(min_length=1)
+
+
+class WeekPlanDay(CamelModel):
+    """A user's plan for one day of the week (0=Monday .. 6=Sunday); `plan` is
+    null for a rest day (no `WorkoutPlanEntry` saved for that day)."""
+
+    day_of_week: int
+    plan: PlannedWorkout | None

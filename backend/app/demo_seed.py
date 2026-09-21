@@ -18,7 +18,7 @@ from app.coach.models import CheckIn, Proposal
 from app.core.database import get_session_factory
 from app.food.models import Food
 from app.identity.models import User, UserStatus
-from app.profile.models import Goal, Profile
+from app.profile.models import ExperienceLevel, Goal, Profile
 from app.workout.models import Exercise, WorkoutPlanEntry, WorkoutPlanExercise
 
 DEMO_USER_ID = "USR-DEMO"
@@ -54,6 +54,8 @@ async def seed_demo_data() -> None:
                     goal=Goal.LOSE,
                     weekly_rate_kg=-0.5,
                     training_days_per_week=3,
+                    experience_level=ExperienceLevel.INTERMEDIATE,
+                    equipment=["barbell", "dumbbell", "bodyweight"],
                     target_calories=2350,
                     target_protein_g=165,
                     target_carbs_g=250,

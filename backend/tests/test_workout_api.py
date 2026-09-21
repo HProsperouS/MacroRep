@@ -135,6 +135,106 @@ def test_today_previous_sets_matched_by_kind(client: TestClient, auth_headers: d
     assert sets[0]["kind"] == "warmup"
     assert sets[0]["previous"] is None
     assert sets[1]["kind"] == "working"
-    assert sets[1]["previous"] == {"weightKg": 65.0, "reps": 6}
+    assert sets[1]["previous"] == {"weightKg": 65.0, "reps": 6, "rpe": None}
     assert sets[2]["kind"] == "working"
-    assert sets[2]["previous"] == {"weightKg": 65.0, "reps": 6}
+    assert sets[2]["previous"] == {"weightKg": 65.0, "reps": 6, "rpe": None}
+
+
+def test_rpe_is_optional_and_round_trips(client: TestClient, auth_headers: dict[str, str]) -> None:
+    payload = _session_payload(
+        "exercise-bench-press",
+        [
+            {"kind": "working", "weightKg": 70, "reps": 8, "rpe": 8.5},
+            {"kind": "working", "weightKg": 70, "reps": 8},
+        ],
+    )
+    logged = client.post("/api/workouts/sessions", headers=auth_headers, json=payload)
+    assert logged.status_code == 201
+
+    plan = client.get("/api/workouts/today", headers=auth_headers).json()
+    sets = [s for s in plan["exercises"][0]["sets"] if s["kind"] == "working"]
+    assert sets[0]["previous"]["rpe"] == 8.5
+    assert sets[1]["previous"]["rpe"] is None
+
+
+def test_rpe_rejects_non_half_step_values(client: TestClient, auth_headers: dict[str, str]) -> None:
+    payload = _session_payload(
+        "exercise-bench-press", [{"kind": "working", "weightKg": 70, "reps": 8, "rpe": 7.3}]
+    )
+    response = client.post("/api/workouts/sessions", headers=auth_headers, json=payload)
+    assert response.status_code == 422
+
+
+def test_get_week_plan_includes_todays_seeded_day(client: TestClient, auth_headers: dict[str, str]) -> None:
+    response = client.get("/api/workouts/plan", headers=auth_headers)
+    assert response.status_code == 200
+    days = response.json()
+    assert len(days) == 7
+    assert {day["dayOfWeek"] for day in days} == set(range(7))
+    seeded = next(day for day in days if day["plan"] is not None)
+    assert seeded["plan"]["name"] == "Push day"
+
+
+def test_save_and_delete_plan_day(client: TestClient, auth_headers: dict[str, str]) -> None:
+    save_payload = {
+        "name": "Leg day",
+        "weekLabel": "Week 1",
+        "estimatedMinutes": 45,
+        "exercises": [
+            {
+                "exerciseId": "exercise-squat",
+                "restSeconds": 120,
+                "sets": [
+                    {"kind": "warmup", "targetWeightKg": 40, "targetReps": 10},
+                    {"kind": "working", "targetWeightKg": 80, "targetReps": 5},
+                ],
+            }
+        ],
+    }
+    saved = client.put("/api/workouts/plan/3", headers=auth_headers, json=save_payload)
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["dayOfWeek"] == 3
+    assert body["plan"]["name"] == "Leg day"
+    assert len(body["plan"]["exercises"][0]["sets"]) == 2
+
+    listed = client.get("/api/workouts/plan", headers=auth_headers).json()
+    day3 = next(day for day in listed if day["dayOfWeek"] == 3)
+    assert day3["plan"]["name"] == "Leg day"
+
+    # Saving the same day again must update in place, not collide with the
+    # existing (owner_id, day_of_week) row.
+    resaved = client.put(
+        "/api/workouts/plan/3", headers=auth_headers, json={**save_payload, "name": "Leg day v2"}
+    )
+    assert resaved.status_code == 200
+    assert resaved.json()["plan"]["name"] == "Leg day v2"
+
+    deleted = client.delete("/api/workouts/plan/3", headers=auth_headers)
+    assert deleted.status_code == 204
+
+    listed_after = client.get("/api/workouts/plan", headers=auth_headers).json()
+    day3_after = next(day for day in listed_after if day["dayOfWeek"] == 3)
+    assert day3_after["plan"] is None
+
+
+def test_save_plan_day_rejects_unknown_exercise(client: TestClient, auth_headers: dict[str, str]) -> None:
+    payload = {
+        "name": "Leg day",
+        "weekLabel": "Week 1",
+        "estimatedMinutes": 45,
+        "exercises": [{"exerciseId": "does-not-exist", "restSeconds": 90, "sets": [{"kind": "working"}]}],
+    }
+    response = client.put("/api/workouts/plan/4", headers=auth_headers, json=payload)
+    assert response.status_code == 404
+
+
+def test_save_plan_day_rejects_out_of_range_day(client: TestClient, auth_headers: dict[str, str]) -> None:
+    payload = {
+        "name": "Leg day",
+        "weekLabel": "Week 1",
+        "estimatedMinutes": 45,
+        "exercises": [{"exerciseId": "exercise-squat", "restSeconds": 90, "sets": [{"kind": "working"}]}],
+    }
+    response = client.put("/api/workouts/plan/7", headers=auth_headers, json=payload)
+    assert response.status_code == 422
