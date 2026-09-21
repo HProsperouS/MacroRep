@@ -1,6 +1,7 @@
 import { Dumbbell, Minus, Plus, Trash2 } from "lucide-react"
-import { useRef, useState } from "react"
+import { useState } from "react"
 
+import { createRequestId } from "@/api/client"
 import { TextField } from "@/components/food/form-field"
 import { ResponsiveOverlay } from "@/components/layout/responsive-overlay"
 import { ExercisePicker } from "@/components/workout/exercise-picker"
@@ -11,6 +12,7 @@ import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
+import { toNumber } from "@/lib/format"
 import type { Exercise, PlannedWorkout, SavePlanDayInput, SetKind } from "@/types/workout"
 
 type EditorSet = { id: string; kind: SetKind; targetWeightKg: string; targetReps: string }
@@ -52,13 +54,6 @@ function newSet(kind: SetKind, id: string): EditorSet {
   return { id, kind, targetWeightKg: "", targetReps: "" }
 }
 
-/** Number(value), but a blank/non-numeric string falls back rather than an
- * explicit 0 — `Number(value) || fallback` would wrongly treat "0" as unset. */
-function parseIntOrDefault(value: string, fallback: number) {
-  const parsed = Number(value)
-  return value.trim() !== "" && Number.isFinite(parsed) ? parsed : fallback
-}
-
 type PlanDayEditorProps = {
   dayLabel: string
   plan: PlannedWorkout | null
@@ -71,23 +66,17 @@ type PlanDayEditorProps = {
 
 export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, onClearDay, onCancel }: PlanDayEditorProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
-  const initial = fromPlan(plan, dayLabel)
+  const [initial] = useState(() => fromPlan(plan, dayLabel))
   const [name, setName] = useState(initial.name)
   const [weekLabel, setWeekLabel] = useState(initial.weekLabel)
   const [estimatedMinutes, setEstimatedMinutes] = useState(initial.estimatedMinutes)
   const [exercises, setExercises] = useState<EditorExercise[]>(initial.exercises)
   const [pickerOpen, setPickerOpen] = useState(false)
-  // A ref, not state: two rapid clicks (e.g. double-clicking "Add set") can
-  // fire before a re-render, and reading a `useState` counter from a stale
-  // closure in that window would hand out the same id twice. A ref is always
-  // read/written synchronously, so each call gets a genuinely unique id.
-  const seqRef = useRef(0)
-  const nextSeq = () => ++seqRef.current
 
   function addExercises(picked: Exercise[]) {
     setPickerOpen(false)
     const added = picked.map((exercise) => {
-      const id = nextSeq()
+      const id = createRequestId()
       return {
         instanceId: `${exercise.id}-new-${id}`,
         exerciseId: exercise.id,
@@ -110,7 +99,7 @@ export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, on
   }
 
   function addSet(instanceId: string) {
-    const id = nextSeq()
+    const id = createRequestId()
     updateExerciseSets(instanceId, (sets) => [...sets, newSet("working", `${instanceId}-extra-${id}`)])
   }
 
@@ -130,14 +119,14 @@ export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, on
     const input: SavePlanDayInput = {
       name: name.trim() || `${dayLabel} workout`,
       weekLabel: weekLabel.trim() || "Week 1",
-      estimatedMinutes: parseIntOrDefault(estimatedMinutes, 45),
+      estimatedMinutes: toNumber(estimatedMinutes) ?? 45,
       exercises: exercises.map((exercise) => ({
         exerciseId: exercise.exerciseId,
-        restSeconds: parseIntOrDefault(exercise.restSeconds, 90),
+        restSeconds: toNumber(exercise.restSeconds) ?? 90,
         sets: exercise.sets.map((set) => ({
           kind: set.kind,
-          targetWeightKg: set.targetWeightKg.trim() === "" ? null : Number(set.targetWeightKg),
-          targetReps: set.targetReps.trim() === "" ? null : Number(set.targetReps),
+          targetWeightKg: toNumber(set.targetWeightKg) ?? null,
+          targetReps: toNumber(set.targetReps) ?? null,
         })),
       })),
     }

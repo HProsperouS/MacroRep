@@ -136,7 +136,9 @@ class WorkoutService:
         return exercises_by_id
 
     async def save_day(self, actor: ActorContext, day_of_week: int, payload: SavePlanDayInput) -> WeekPlanDay:
-        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
+        exercises_by_id = await self._verify_exercises_owned(
+            actor, [e.exercise_id for e in payload.exercises]
+        )
 
         plan_entry = await self.plans.get_for_day(actor.actor_id, day_of_week)
         if plan_entry is None:
@@ -185,7 +187,13 @@ class WorkoutService:
         await self.plans.replace_exercises(plan_entry.id, new_exercises)
         await self.session.commit()
 
-        plan = await self._build_planned_workout(plan_entry, actor)
+        # Assemble from what we already have in memory (new_exercises, exercises_by_id)
+        # instead of re-querying them via _build_planned_workout — only the last-session
+        # data is actually new here.
+        last_sessions = await self.exercises.last_session_sets_bulk(
+            actor.actor_id, [e.exercise_id for e in payload.exercises]
+        )
+        plan = self._assemble_planned_workout(plan_entry, new_exercises, exercises_by_id, last_sessions)
         return WeekPlanDay(day_of_week=day_of_week, plan=plan)
 
     async def delete_day(self, actor: ActorContext, day_of_week: int) -> None:

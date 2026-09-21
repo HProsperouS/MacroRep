@@ -108,6 +108,13 @@ export function parseRpe(rpe: string): number | null | undefined {
   return Number.isFinite(value) && value >= 1 && value <= 10 ? value : undefined
 }
 
+/** The single definition of "can this set be marked done" — an out-of-range RPE must
+ * block completion too, or toFinishInput silently drops it on save. Shared by the
+ * "toggle" reducer case and the row's disabled state so they can't drift apart. */
+export function isSetCompletable(set: Pick<SessionSet, "weight" | "reps" | "rpe">) {
+  return parseSet(set) !== null && parseRpe(set.rpe) !== undefined
+}
+
 function updateSet(state: SessionState, exerciseId: string, setId: string, update: (set: SessionSet, exercise: SessionExercise) => SessionSet) {
   return state.exercises.map((exercise) =>
     exercise.id === exerciseId ? { ...exercise, sets: exercise.sets.map((set) => (set.id === setId ? update(set, exercise) : set)) } : exercise,
@@ -123,7 +130,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       const exercise = state.exercises.find((e) => e.id === action.exerciseId)
       const set = exercise?.sets.find((s) => s.id === action.setId)
       if (!exercise || !set) return state
-      if (!set.done && !parseSet(set)) return state
+      if (!set.done && !isSetCompletable(set)) return state
       const exercises = updateSet(state, action.exerciseId, action.setId, (s) => ({ ...s, done: !s.done }))
       // Completing a set starts the rest timer; un-ticking leaves it alone.
       const rest = set.done ? state.rest : { endsAt: action.now + exercise.restSeconds * 1000, totalSeconds: exercise.restSeconds }

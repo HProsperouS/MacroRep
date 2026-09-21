@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { parseRpe, parseSet, type SessionSet } from "@/lib/workout-session"
+import { isSetCompletable, parseRpe, type SessionSet } from "@/lib/workout-session"
 
 type SetRowProps = {
   exerciseName: string
@@ -23,9 +23,7 @@ export function SetRow({ exerciseName, set, label, active, onEdit, onToggle }: S
   const weightInvalid = set.weight.trim() !== "" && !(Number(set.weight) >= 0)
   const repsInvalid = set.reps.trim() !== "" && !(Number.isInteger(Number(set.reps)) && Number(set.reps) > 0)
   const rpeInvalid = parseRpe(set.rpe) === undefined
-  // An out-of-range RPE must block completion too, or toFinishInput silently
-  // drops it on save — the user would see no error there, just a missing value.
-  const invalid = !set.done && (!parseSet(set) || rpeInvalid)
+  const invalid = !set.done && !isSetCompletable(set)
 
   return (
     <li
