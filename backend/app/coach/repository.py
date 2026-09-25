@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db import get_owned as _get_owned
@@ -29,6 +29,19 @@ class CoachRepository:
 
     async def get_owned(self, check_in_id: str, owner_id: str) -> CheckIn | None:
         return await _get_owned(self.session, CheckIn, check_in_id, owner_id)
+
+    async def get_by_idempotency_key(self, owner_id: str, idempotency_key: str) -> CheckIn | None:
+        return cast(
+            "CheckIn | None",
+            await self.session.scalar(
+                select(CheckIn).where(
+                    CheckIn.owner_id == owner_id, CheckIn.idempotency_key == idempotency_key
+                )
+            ),
+        )
+
+    async def count_for_owner(self, owner_id: str) -> int:
+        return int(await self.session.scalar(select(func.count()).where(CheckIn.owner_id == owner_id)) or 0)
 
     async def add_check_in(self, check_in: CheckIn) -> CheckIn:
         self.session.add(check_in)

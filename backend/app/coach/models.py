@@ -40,7 +40,13 @@ class MessageRole(StrEnum):
 
 class CheckIn(TimestampMixin, Base):
     __tablename__ = "coach_check_ins"
-    __table_args__ = (Index("ix_coach_check_ins_owner_created", "owner_id", "created_utc"),)
+    __table_args__ = (
+        Index("ix_coach_check_ins_owner_created", "owner_id", "created_utc"),
+        # Enforces idempotent creation: a retried POST carrying the same key can
+        # never insert a second check-in, even when two requests race. NULL keys
+        # (seeded check-ins) are distinct from each other, so they don't collide.
+        Index("uq_coach_check_ins_owner_idempotency_key", "owner_id", "idempotency_key", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -55,6 +61,10 @@ class CheckIn(TimestampMixin, Base):
     # Each item: {"id", "title", "detail", "status"}
     pipeline: Mapped[list[dict[str, str]]] = mapped_column(JSON, nullable=False, default=list)
     suggested_questions: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # The metrics the proposals were drafted from, frozen at creation so the
+    # check-in stays auditable after the underlying logs are edited.
+    input_snapshot: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
 
 
 class Proposal(Base):
