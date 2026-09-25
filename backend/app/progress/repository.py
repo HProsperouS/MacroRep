@@ -8,11 +8,11 @@ progress-specific methods bolted onto every other domain's repository.
 from __future__ import annotations
 
 from datetime import date as date_
-from datetime import timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.training import estimated_one_rep_max, weekly_volume_kg
 from app.body.models import WeighIn
 from app.coach.models import CheckIn
 from app.food.models import FoodEntry
@@ -54,21 +54,22 @@ class ProgressRepository:
         )
 
     async def weekly_volume(self, owner_id: str, start: date_, end: date_) -> dict[date_, float]:
+        """Working-set volume (kg) per week, keyed by the week's Monday."""
+
         statement = (
             select(WorkoutSetLog.weight_kg, WorkoutSetLog.reps, WorkoutSession.started_at)
             .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
             .where(
                 WorkoutSetLog.owner_id == owner_id,
+                WorkoutSetLog.kind == SetKind.WORKING,
                 func.date(WorkoutSession.started_at) >= start,
                 func.date(WorkoutSession.started_at) <= end,
             )
         )
         rows = await self.session.execute(statement)
-        totals: dict[date_, float] = {}
-        for weight_kg, reps, started_at in rows:
-            week_start = started_at.date() - timedelta(days=started_at.date().weekday())
-            totals[week_start] = totals.get(week_start, 0.0) + float(weight_kg) * reps
-        return totals
+        return weekly_volume_kg(
+            (started_at.date(), float(weight_kg), reps) for weight_kg, reps, started_at in rows
+        )
 
     async def strength_lifts(self, owner_id: str, start: date_, end: date_) -> dict[str, tuple[float, float]]:
         """Best estimated 1RM per exercise at the start vs. the end of the range."""
@@ -92,7 +93,9 @@ class ProgressRepository:
         current: dict[str, float] = {}
         midpoint = start
         for name, weight_kg, reps, started_at in rows:
-            e1rm = float(weight_kg) * (1 + reps / 30)
+            e1rm = estimated_one_rep_max(float(weight_kg), reps)
+            if e1rm is None:
+                continue
             bucket = before if started_at.date() < midpoint else current
             bucket[name] = max(bucket.get(name, 0.0), e1rm)
         return {name: (before.get(name, current[name]), current[name]) for name in current}

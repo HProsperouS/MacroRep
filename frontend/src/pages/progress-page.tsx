@@ -91,7 +91,9 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
     [volume.weeks],
   )
   const onPace = data.weight.goalRatePerWeekKg < 0 ? weight.ratePerWeekKg <= weight.goalRatePerWeekKg * 0.8 : weight.ratePerWeekKg >= weight.goalRatePerWeekKg * 0.8
-  const lastWeek = volume.weeks[volume.weeks.length - 1]
+  // A real volume goal takes over the reference line once the backend provides one.
+  const volumeReference =
+    volume.targetTonnes != null ? { label: "Target", tonnes: volume.targetTonnes } : { label: "Average", tonnes: volume.averageTonnes }
 
   return (
     <>
@@ -110,7 +112,12 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
           />
           <Stat label="Adherence" value={data.adherencePercent} unit="%" hint="Days within ±10% of target" />
           <Stat label="Workouts" value={`${data.workouts.done} / ${data.workouts.planned}`} hint="Planned sessions done" />
-          <Stat label="Volume" value={lastWeek ? formatNumber(lastWeek.tonnes, 1) : "—"} unit="t / wk" hint={`${formatSigned(volume.changePercent, 0)}% vs last week`} />
+          <Stat
+            label="Volume"
+            value={formatNumber(volume.lastWeekTonnes, 1)}
+            unit="t / wk"
+            hint={volume.changePercent != null ? `Last full week · ${formatSigned(volume.changePercent, 0)}% vs prior` : "Last full week"}
+          />
         </CardContent>
       </Card>
 
@@ -134,15 +141,18 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
         <Card className="lg:col-span-5">
           <CardHeader>
             <CardTitle>Weekly volume</CardTitle>
-            <CardAction className="text-xs text-muted-foreground">Target {formatNumber(volume.targetTonnes)} t</CardAction>
+            <CardAction className="text-xs text-muted-foreground">
+              {volumeReference.label} {formatNumber(volumeReference.tonnes)} t
+            </CardAction>
           </CardHeader>
           <CardContent>
             <TargetBarChart
               data={volumeData}
-              target={volume.targetTonnes}
+              target={volumeReference.tonnes}
+              targetLabel={volumeReference.label}
               seriesLabel="Volume"
               formatValue={(value) => `${formatNumber(value, 1)} t`}
-              ariaLabel={`Weekly training volume in tonnes against a ${volume.targetTonnes} tonne target`}
+              ariaLabel={`Weekly training volume in tonnes against a ${volumeReference.label.toLowerCase()} of ${volumeReference.tonnes} tonnes`}
               height={260}
             />
           </CardContent>

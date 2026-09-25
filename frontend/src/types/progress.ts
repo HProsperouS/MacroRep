@@ -46,7 +46,17 @@ export type ProgressResponse = {
   expenditureKcalPerDay: number
   adherencePercent: number
   workouts: { done: number; planned: number }
-  volume: { weeks: VolumeWeek[]; targetTonnes: number; changePercent: number }
+  volume: {
+    weeks: VolumeWeek[]
+    /** Mean of the weeks in range: a reference line, not a goal. */
+    averageTonnes: number
+    /** A weekly volume goal; null until one exists. Shown instead of the average when set. */
+    targetTonnes: number | null
+    /** The most recent completed Monday–Sunday week. */
+    lastWeekTonnes: number
+    /** lastWeekTonnes vs the week before it; null when that week had no volume. */
+    changePercent: number | null
+  }
   strength: StrengthLift[]
   checkIns: CheckInHistoryItem[]
 }

@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.body.service import compute_trend_series
+from app.analytics.nutrition import average_daily_calories, estimate_expenditure, logging_adherence_percent
+from app.analytics.training import percent_change, week_start
+from app.analytics.weight import rate_per_week
+from app.body.service import trend_by_date
 from app.coach.models import ProposalStatus
 from app.coach.repository import CoachRepository
 from app.identity.dependencies import ActorContext
@@ -30,7 +33,6 @@ from .schemas import (
 )
 
 _RANGE_DAYS: dict[str, int] = {"1M": 30, "3M": 90, "6M": 182, "1Y": 365}
-_KCAL_PER_KG = 7700
 
 
 class ProgressService:
@@ -59,35 +61,35 @@ class ProgressService:
         date_from, date_to = self._resolve_range(progress_range, earliest, today)
         days_in_range = max((date_to - date_from).days + 1, 1)
 
-        trend_series = compute_trend_series([row for row in history if row.log_date <= date_to])
+        trends = trend_by_date([row for row in history if row.log_date <= date_to])
         scale_by_date = {row.log_date: float(row.weight_kg) for row in history}
 
         points: list[WeightPoint] = []
         last_trend = 0.0
         cursor = date_from
         while cursor <= date_to:
-            if cursor.isoformat() in trend_series:
-                last_trend = trend_series[cursor.isoformat()]
+            if cursor in trends:
+                last_trend = trends[cursor]
             points.append(WeightPoint(date=cursor, scale_kg=scale_by_date.get(cursor), trend_kg=last_trend))
             cursor += timedelta(days=1)
 
         trend_at_start = points[0].trend_kg if points else 0.0
         trend_at_end = points[-1].trend_kg if points else 0.0
         change_kg = round(trend_at_end - trend_at_start, 2)
-        rate_per_week_kg = round(change_kg / (days_in_range / 7), 3) if days_in_range else 0.0
+        rate_per_week_kg = rate_per_week(change_kg, days_in_range)
 
         profile = await self.profiles.get(actor.actor_id)
         goal_rate = float(profile.weekly_rate_kg) if profile else 0.0
         target_calories = profile.target_calories if profile else 2000
 
         calories_by_date = await self.repository.daily_calories(actor.actor_id, date_from, date_to)
-        logged_days = min(len([d for d in calories_by_date if d <= today]), days_in_range)
+        logged_days = len([d for d in calories_by_date if d <= today])
         elapsed_days = max((min(today, date_to) - date_from).days + 1, 1)
-        adherence_percent = round(min(logged_days / elapsed_days, 1) * 100, 1)
-        avg_calories = (
-            (sum(calories_by_date.values()) / len(calories_by_date)) if calories_by_date else target_calories
+        adherence_percent = logging_adherence_percent(logged_days, elapsed_days)
+        avg_calories = average_daily_calories(calories_by_date)
+        expenditure_kcal_per_day = estimate_expenditure(
+            avg_calories if avg_calories is not None else target_calories, change_kg, days_in_range
         )
-        expenditure_kcal_per_day = round(avg_calories - (change_kg * _KCAL_PER_KG) / days_in_range, 0)
 
         workouts_done = await self.repository.workouts_done(actor.actor_id, date_from, date_to)
         planned_per_week = await self.repository.workouts_planned_per_week(actor.actor_id)
@@ -98,12 +100,17 @@ class ProgressService:
             VolumeWeek(week_start=week, tonnes=round(kg / 1000, 2))
             for week, kg in sorted(weekly_volume.items())
         ]
-        target_tonnes = round(sum(w.tonnes for w in weeks) / len(weeks), 2) if weeks else 0.0
-        change_percent = (
-            round((weeks[-1].tonnes - weeks[0].tonnes) / weeks[0].tonnes * 100, 1)
-            if len(weeks) >= 2 and weeks[0].tonnes > 0
-            else 0.0
+        average_tonnes = round(sum(w.tonnes for w in weeks) / len(weeks), 2) if weeks else 0.0
+
+        # Queried on their own rather than read from `weekly_volume`, so the
+        # comparison doesn't depend on the selected range covering both weeks.
+        last_week = week_start(today) - timedelta(days=7)
+        week_before = last_week - timedelta(days=7)
+        recent_volume = await self.repository.weekly_volume(
+            actor.actor_id, week_before, last_week + timedelta(days=6)
         )
+        last_week_kg = recent_volume.get(last_week, 0.0)
+        change_percent = percent_change(recent_volume.get(week_before, 0.0), last_week_kg)
 
         lifts = await self.repository.strength_lifts(actor.actor_id, date_from, date_to)
         strength = [
@@ -151,7 +158,12 @@ class ProgressService:
             expenditure_kcal_per_day=expenditure_kcal_per_day,
             adherence_percent=adherence_percent,
             workouts=WorkoutsSummary(done=workouts_done, planned=workouts_planned),
-            volume=VolumeSummary(weeks=weeks, target_tonnes=target_tonnes, change_percent=change_percent),
+            volume=VolumeSummary(
+                weeks=weeks,
+                average_tonnes=average_tonnes,
+                last_week_tonnes=round(last_week_kg / 1000, 2),
+                change_percent=change_percent,
+            ),
             strength=strength,
             check_ins=check_ins,
         )

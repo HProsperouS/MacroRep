@@ -7,6 +7,7 @@ from typing import cast
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.training import estimated_one_rep_max
 from app.shared.db import escape_like
 
 from .models import (
@@ -208,7 +209,7 @@ class WorkoutSessionRepository:
         )
         best: dict[str, float] = {}
         for row in rows:
-            e1rm = float(row.weight_kg) * (1 + row.reps / 30)
-            if row.exercise_id is not None:
+            e1rm = estimated_one_rep_max(float(row.weight_kg), row.reps)
+            if row.exercise_id is not None and e1rm is not None:
                 best[row.exercise_id] = max(best.get(row.exercise_id, 0.0), e1rm)
         return best

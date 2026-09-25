@@ -115,6 +115,42 @@ def test_pr_baseline_excludes_warmup_sets(client: TestClient, auth_headers: dict
     assert second.json()["personalRecords"], "a working-set PR should not be masked by an earlier warmup"
 
 
+def _fresh_exercise(client: TestClient, auth_headers: dict[str, str], name: str) -> str:
+    """A custom exercise with no logged history, so PR baselines start empty."""
+
+    response = client.post(
+        "/api/exercises",
+        headers=auth_headers,
+        json={"name": name, "equipment": "barbell", "muscles": ["chest"]},
+    )
+    assert response.status_code == 201
+    return str(response.json()["id"])
+
+
+def test_a_failed_zero_rep_set_is_not_a_pr(client: TestClient, auth_headers: dict[str, str]) -> None:
+    exercise_id = _fresh_exercise(client, auth_headers, "Zero-rep PR check")
+    baseline = _session_payload(exercise_id, [{"kind": "working", "weightKg": 100, "reps": 5}])
+    assert client.post("/api/workouts/sessions", headers=auth_headers, json=baseline).status_code == 201
+
+    # Failing a heavier attempt for 0 reps used to count as an estimated 1RM of 140 kg.
+    failed_attempt = _session_payload(exercise_id, [{"kind": "working", "weightKg": 140, "reps": 0}])
+    response = client.post("/api/workouts/sessions", headers=auth_headers, json=failed_attempt)
+    assert response.status_code == 201
+    assert response.json()["personalRecords"] == []
+
+
+def test_session_volume_counts_working_sets_only(client: TestClient, auth_headers: dict[str, str]) -> None:
+    exercise_id = _fresh_exercise(client, auth_headers, "Volume check")
+    payload = _session_payload(
+        exercise_id,
+        [{"kind": "warmup", "weightKg": 40, "reps": 10}, {"kind": "working", "weightKg": 60, "reps": 5}],
+    )
+    response = client.post("/api/workouts/sessions", headers=auth_headers, json=payload)
+    assert response.status_code == 201
+    assert response.json()["volumeKg"] == 300.0  # 60 x 5; the 40 x 10 warmup is excluded
+    assert response.json()["setsCompleted"] == 2
+
+
 def test_today_previous_sets_matched_by_kind(client: TestClient, auth_headers: dict[str, str]) -> None:
     # The seeded plan for today is 1 warmup + 2 working sets on the bench press. Log a
     # past session with only working sets (no warmup) and check the plan's warmup slot

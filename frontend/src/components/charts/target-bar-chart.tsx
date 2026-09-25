@@ -12,6 +12,8 @@ export type TargetBarDatum = {
 type TargetBarChartProps = {
   data: TargetBarDatum[]
   target: number
+  /** What the dashed line represents, e.g. "Target" or "Average". */
+  targetLabel?: string
   seriesLabel: string
   formatValue: (value: number) => string
   ariaLabel: string
@@ -19,8 +21,8 @@ type TargetBarChartProps = {
 }
 
 
-/** Bars against a dashed target line — weekly volume and daily calories. */
-export function TargetBarChart({ data, target, seriesLabel, formatValue, ariaLabel, height = 220 }: TargetBarChartProps) {
+/** Bars against a dashed reference line — weekly volume and daily calories. */
+export function TargetBarChart({ data, target, targetLabel = "Target", seriesLabel, formatValue, ariaLabel, height = 220 }: TargetBarChartProps) {
   const max = Math.max(target, ...data.map((d) => d.value))
 
   return (
@@ -46,7 +48,7 @@ export function TargetBarChart({ data, target, seriesLabel, formatValue, ariaLab
                   title={datum.tooltipTitle}
                   rows={[
                     { label: seriesLabel, value: formatValue(datum.value), swatchClassName: "bg-protein" },
-                    { label: "Target", value: formatValue(target), swatchClassName: "bg-muted-foreground" },
+                    { label: targetLabel, value: formatValue(target), swatchClassName: "bg-muted-foreground" },
                   ]}
                 />
               )

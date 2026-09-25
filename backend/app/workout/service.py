@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.training import best_estimated_one_rep_max, is_personal_record, volume_kg
 from app.identity.dependencies import ActorContext
 
 from .models import Exercise, SetKind, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutSession, WorkoutSetLog
@@ -321,15 +322,17 @@ class WorkoutService:
         )
         personal_records: list[str] = []
         for exercise_entry in payload.exercises:
-            working_sets = [s for s in exercise_entry.sets if s.kind == SetKind.WORKING]
-            if not working_sets:
-                continue
-            best_new = max(s.weight_kg * (1 + s.reps / 30) for s in working_sets)
-            best_before = best_before_by_exercise.get(exercise_entry.exercise_id)
-            if best_before is None or best_new > best_before:
+            best_new = best_estimated_one_rep_max(
+                (s.weight_kg, s.reps) for s in exercise_entry.sets if s.kind == SetKind.WORKING
+            )
+            if best_new is not None and is_personal_record(
+                best_new, best_before_by_exercise.get(exercise_entry.exercise_id)
+            ):
                 personal_records.append(f"{exercise_entry.name} — new estimated 1RM {round(best_new, 1)} kg")
 
-        volume_kg = sum(s.weight_kg * s.reps for e in payload.exercises for s in e.sets)
+        session_volume_kg = volume_kg(
+            (s.weight_kg, s.reps) for e in payload.exercises for s in e.sets if s.kind == SetKind.WORKING
+        )
         sets_completed = sum(len(e.sets) for e in payload.exercises)
         duration_seconds = int((payload.finished_at - payload.started_at).total_seconds())
 
@@ -339,6 +342,6 @@ class WorkoutService:
             name=workout_session.name,
             duration_seconds=max(duration_seconds, 0),
             sets_completed=sets_completed,
-            volume_kg=round(volume_kg, 1),
+            volume_kg=round(session_volume_kg, 1),
             personal_records=personal_records,
         )

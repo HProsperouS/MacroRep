@@ -28,8 +28,16 @@ class VolumeWeek(CamelModel):
 
 class VolumeSummary(CamelModel):
     weeks: list[VolumeWeek]
-    target_tonnes: float
-    change_percent: float
+    # Mean of the weeks in range: a reference line, not a goal anyone set.
+    average_tonnes: float
+    # A weekly volume goal (e.g. derived from the workout plan). Always null
+    # for now; clients show `average_tonnes` as their reference until it's set.
+    target_tonnes: float | None = None
+    # The most recent *completed* Monday-Sunday week, so a half-finished
+    # current week never reads as a drop.
+    last_week_tonnes: float
+    # last_week_tonnes vs the week before it; null when the week before had no volume.
+    change_percent: float | None
 
 
 class StrengthLift(CamelModel):

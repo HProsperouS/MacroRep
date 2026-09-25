@@ -9,7 +9,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.body.service import compute_trend_series
+from app.analytics.nutrition import average_daily_calories, logging_adherence_percent
+from app.analytics.weight import trend_on_or_before
+from app.body.service import trend_by_date
 from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
 from app.progress.repository import ProgressRepository
@@ -48,17 +50,6 @@ MIN_FOOD_LOG_DAYS = 4
 MIN_WEIGH_INS = 2
 # Mirrors ProgressService's fallback for a user whose profile was never provisioned.
 _FALLBACK_TARGET_CALORIES = 2000
-
-
-def _trend_on_or_before(trend_by_date: dict[str, float], day: date) -> float | None:
-    """The latest trend weight recorded on or before `day` (keys are in date order)."""
-
-    latest: float | None = None
-    for iso_date, trend in trend_by_date.items():
-        if iso_date > day.isoformat():
-            break
-        latest = trend
-    return latest
 
 
 class CoachService:
@@ -181,22 +172,24 @@ class CoachService:
                 f"Not enough data for a check-in yet: {' and '.join(missing)}.",
             )
 
-        trend_by_date = compute_trend_series(history)
+        trends = trend_by_date(history)
         # A weigh-in from before the window anchors the start; otherwise the
         # window's own first reading does.
-        trend_start = _trend_on_or_before(trend_by_date, start)
+        trend_start = trend_on_or_before(trends, start)
         if trend_start is None:
-            trend_start = trend_by_date[weigh_ins_in_window[0].log_date.isoformat()]
-        trend_end = trend_by_date[weigh_ins_in_window[-1].log_date.isoformat()]
+            trend_start = trends[weigh_ins_in_window[0].log_date]
+        trend_end = trends[weigh_ins_in_window[-1].log_date]
 
         profile = await self.profiles.get(owner_id)
+        # Non-None: the data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days.
+        avg_calories = cast(float, average_daily_calories(calories_by_date))
         return {
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
-            "avg_calories": round(sum(calories_by_date.values()) / len(calories_by_date), 1),
+            "avg_calories": round(avg_calories, 1),
             "target_calories": profile.target_calories if profile else _FALLBACK_TARGET_CALORIES,
             "food_log_days": len(calories_by_date),
-            "adherence_percent": round(len(calories_by_date) / CHECK_IN_WINDOW_DAYS * 100, 1),
+            "adherence_percent": logging_adherence_percent(len(calories_by_date), CHECK_IN_WINDOW_DAYS),
             "weigh_ins": len(weigh_ins_in_window),
             "weight_change_kg": round(trend_end - trend_start, 2),
             "goal_rate_kg_per_week": float(profile.weekly_rate_kg) if profile else 0.0,
