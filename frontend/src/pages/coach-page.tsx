@@ -16,7 +16,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useCurrentCheckIn, useDecideProposal } from "@/hooks/use-coach"
+import { Spinner } from "@/components/ui/spinner"
+import { useCurrentCheckIn, useDecideProposal, useStartCheckIn } from "@/hooks/use-coach"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
 import type { CheckIn, Proposal, ProposalDecisionInput } from "@/types/coach"
 
@@ -44,10 +45,11 @@ export default function CoachPage() {
               <Sparkles />
             </EmptyMedia>
             <EmptyTitle>No check-in yet</EmptyTitle>
-            <EmptyDescription>Your first check-in is generated after 7 days of food logs and at least 3 weigh-ins.</EmptyDescription>
+            <EmptyDescription>A check-in reviews your last 7 days. It needs food logged on at least 4 of those days and at least 2 weigh-ins.</EmptyDescription>
           </EmptyHeader>
-          <EmptyContent>
-            <Button asChild>
+          <EmptyContent className="flex-row justify-center gap-2">
+            <StartCheckInButton label="Start check-in" />
+            <Button variant="outline" className="h-10" asChild>
               <Link to="/food">Log food</Link>
             </Button>
           </EmptyContent>
@@ -116,10 +118,14 @@ function CheckInView({ checkIn }: { checkIn: CheckIn }) {
                 History
               </Link>
             </Button>
-            <Button className="h-10" onClick={() => void applyAll()} disabled={pending.length === 0 || decide.isPending}>
-              <CheckCheck data-icon="inline-start" />
-              Apply all
-            </Button>
+            {pending.length > 0 ? (
+              <Button className="h-10" onClick={() => void applyAll()} disabled={decide.isPending}>
+                <CheckCheck data-icon="inline-start" />
+                Apply all
+              </Button>
+            ) : (
+              <StartCheckInButton label="New check-in" />
+            )}
           </>
         }
       />
@@ -178,6 +184,27 @@ function CheckInView({ checkIn }: { checkIn: CheckIn }) {
         ) : null}
       </ResponsiveOverlay>
     </>
+  )
+}
+
+function StartCheckInButton({ label }: { label: string }) {
+  const start = useStartCheckIn()
+
+  function run() {
+    start.mutate(undefined, {
+      onSuccess: (checkIn) =>
+        toast.success(`${checkIn.weekLabel} check-in ready`, {
+          description: checkIn.proposals.length > 0 ? "Review the proposed changes below." : "No changes needed this week.",
+        }),
+      onError: (error) => toast.error("Couldn’t start a check-in", { description: apiErrorMessage(error) }),
+    })
+  }
+
+  return (
+    <Button className="h-10" onClick={run} disabled={start.isPending}>
+      {start.isPending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
+      {label}
+    </Button>
   )
 }
 

@@ -1,13 +1,37 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useRef } from "react"
 
 import { coachApi } from "@/api/coach-api"
-import { coachKeys, foodKeys, workoutKeys } from "@/api/query-keys"
+import { createRequestId } from "@/api/client"
+import { coachKeys, foodKeys, progressKeys, workoutKeys } from "@/api/query-keys"
 import type { CheckIn, Proposal, ProposalDecisionInput } from "@/types/coach"
 
 export function useCurrentCheckIn() {
   return useQuery({
     queryKey: coachKeys.current(),
     queryFn: ({ signal }) => coachApi.getCurrentCheckIn(signal),
+  })
+}
+
+/**
+ * Starts a new weekly check-in. One idempotency key is kept per attempt until it
+ * succeeds, so retrying after a timeout or dropped connection (when the first
+ * request may have gone through) returns that check-in rather than creating a second.
+ */
+export function useStartCheckIn() {
+  const queryClient = useQueryClient()
+  const idempotencyKey = useRef<string | null>(null)
+
+  return useMutation({
+    mutationFn: () => {
+      idempotencyKey.current ??= createRequestId()
+      return coachApi.startCheckIn(idempotencyKey.current)
+    },
+    onSuccess: (checkIn) => {
+      idempotencyKey.current = null
+      queryClient.setQueryData(coachKeys.current(), checkIn)
+      void queryClient.invalidateQueries({ queryKey: progressKeys.all })
+    },
   })
 }
 
