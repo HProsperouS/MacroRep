@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.shared.persistence import get_session
+from app.shared.validation import MAX_SEARCH_LENGTH
 
 from .repository import FoodEntryRepository, FoodRepository
 from .schemas import (
@@ -64,7 +65,7 @@ async def remove_food_entry(entry_id: str, actor: ActorDep, service: FoodService
 async def search_foods(
     actor: ActorDep,
     service: FoodServiceDep,
-    q: Annotated[str, Query()] = "",
+    q: Annotated[str, Query(max_length=MAX_SEARCH_LENGTH)] = "",
     limit: Annotated[int, Query(ge=1, le=50)] = 8,
 ) -> list[FoodRead]:
     return await service.search_foods(actor, q, limit)

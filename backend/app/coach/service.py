@@ -227,18 +227,22 @@ class CoachService:
 
         if payload.decision == "reject":
             proposal.status = ProposalStatus.REJECTED
-        elif payload.decision == "apply":
-            if payload.changes:
-                overrides = {override.id: override.after for override in payload.changes}
-                proposal.changes = [
-                    {**change, "after": overrides.get(cast(str, change["id"]), change["after"])}
-                    for change in proposal.changes
-                ]
-                proposal.status = ProposalStatus.EDITED
-            else:
-                proposal.status = ProposalStatus.APPLIED
+        elif payload.changes:
+            overrides = {override.id: override.after for override in payload.changes}
+            unknown = set(overrides) - {cast(str, change["id"]) for change in proposal.changes}
+            if unknown:
+                # An edit can only adjust a value the proposal actually changes.
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    f"Not part of this proposal: {', '.join(sorted(unknown))}",
+                )
+            proposal.changes = [
+                {**change, "after": overrides.get(cast(str, change["id"]), change["after"])}
+                for change in proposal.changes
+            ]
+            proposal.status = ProposalStatus.EDITED
         else:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "decision must be 'apply' or 'reject'")
+            proposal.status = ProposalStatus.APPLIED
 
         await self.session.commit()
         await self.session.refresh(proposal)

@@ -12,7 +12,7 @@ from app.identity.repository import UserRepository
 from app.shared.persistence import get_session
 
 from .repository import ProfileRepository
-from .schemas import DailyTargets, ProfileRead, UpdateProfileInput
+from .schemas import DailyTargets, ProfileRead, UpdateProfileInput, UpdateTargetsInput
 from .service import ProfileService
 
 router = APIRouter(prefix="/api", tags=["profile"])
@@ -44,5 +44,7 @@ async def get_targets(actor: ActorDep, service: ProfileServiceDep) -> DailyTarge
 
 
 @router.put("/nutrition/targets", response_model=DailyTargets)
-async def update_targets(payload: DailyTargets, actor: ActorDep, service: ProfileServiceDep) -> DailyTargets:
+async def update_targets(
+    payload: UpdateTargetsInput, actor: ActorDep, service: ProfileServiceDep
+) -> DailyTargets:
     return await service.update_targets(payload, actor)

@@ -7,18 +7,19 @@ from datetime import date as date_
 from pydantic import Field
 
 from app.shared.schema import CamelModel
+from app.shared.validation import MAX_BODY_WEIGHT_KG, MIN_BODY_WEIGHT_KG, LogDate
 
 
 class WeighInInput(CamelModel):
-    date: date_
-    weight_kg: float = Field(gt=0)
+    date: LogDate
+    weight_kg: float = Field(ge=MIN_BODY_WEIGHT_KG, le=MAX_BODY_WEIGHT_KG)
 
 
 class UpdateWeighInInput(CamelModel):
     """Fields to change; anything omitted is left as it is."""
 
-    date: date_ | None = None
-    weight_kg: float | None = Field(default=None, gt=0)
+    date: LogDate | None = None
+    weight_kg: float | None = Field(default=None, ge=MIN_BODY_WEIGHT_KG, le=MAX_BODY_WEIGHT_KG)
 
 
 class WeighInRead(CamelModel):

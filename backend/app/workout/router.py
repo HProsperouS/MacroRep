@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.shared.persistence import get_session
+from app.shared.validation import MAX_SEARCH_LENGTH
 
-from .models import EQUIPMENT
+from .models import EQUIPMENT, MUSCLE_GROUPS
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
 from .schemas import (
     CreateExerciseInput,
@@ -48,13 +49,15 @@ async def get_today(actor: ActorDep, service: WorkoutServiceDep) -> PlannedWorko
 async def search_exercises(
     actor: ActorDep,
     service: WorkoutServiceDep,
-    q: Annotated[str, Query()] = "",
+    q: Annotated[str, Query(max_length=MAX_SEARCH_LENGTH)] = "",
     muscle: Annotated[str | None, Query()] = None,
     equipment: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
 ) -> list[ExerciseRead]:
     if equipment is not None and equipment not in EQUIPMENT:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"equipment must be one of {EQUIPMENT}")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"equipment must be one of {EQUIPMENT}")
+    if muscle is not None and muscle not in MUSCLE_GROUPS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"muscle must be one of {MUSCLE_GROUPS}")
     return await service.search_exercises(actor, q, muscle, equipment, limit)
 
 

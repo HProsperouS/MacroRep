@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import type { QuickAddDraft } from "@/components/food/quick-add-form"
 import { formatNumber, toNumber } from "@/lib/format"
-import { caloriesFromMacros, caloriesMismatch, energySplit } from "@/lib/macros"
+import { caloriesFromMacros, caloriesImplausiblyLow, caloriesMismatch, energySplit, implausibleCaloriesMessage } from "@/lib/macros"
 import { MEAL_LABELS, MEAL_TYPES, SERVING_UNITS, type DailyTargets, type Food, type MealType } from "@/types/food"
 
 const toNumberOrNaN = (value: unknown) => toNumber(value) ?? (value === "" || value == null ? undefined : Number.NaN)
@@ -48,6 +48,11 @@ const customFoodSchema = z.object({
   sugarG: optionalAmount(1_000),
   sodiumMg: optionalAmount(50_000),
   meal: z.enum(MEAL_TYPES),
+}).superRefine((v, ctx) => {
+  const macros = { protein: v.protein, carbs: v.carbs, fat: v.fat }
+  if (caloriesImplausiblyLow(v.calories, macros)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: implausibleCaloriesMessage(macros), path: ["calories"] })
+  }
 })
 
 type CustomFoodInput = z.input<typeof customFoodSchema>

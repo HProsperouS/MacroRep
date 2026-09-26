@@ -16,6 +16,7 @@ import { useFood } from "@/hooks/use-food-log"
 import { useServingAmount } from "@/hooks/use-serving-amount"
 import { isLoggableDay, toDayKey } from "@/lib/dates"
 import { toNumber } from "@/lib/format"
+import { caloriesImplausiblyLow, implausibleCaloriesMessage } from "@/lib/macros"
 import { MEAL_TYPES, type Food, type FoodEntry, type MealType } from "@/types/food"
 
 type EditFoodEntryFormProps = {
@@ -99,15 +100,21 @@ const numberField = (max: number, { integer = false } = {}) => {
   return z.preprocess(toNumberOrNaN, integer ? base.int("Use a whole number") : base)
 }
 
-const enteredValuesSchema = z.object({
-  meal: z.enum(MEAL_TYPES),
-  day: z.string().refine(isLoggableDay, DAY_ERROR),
-  name: z.string().trim().min(1, "Enter a name").max(255, "Keep it under 255 characters"),
-  calories: numberField(10_000, { integer: true }),
-  protein: numberField(1_000),
-  carbs: numberField(1_000),
-  fat: numberField(1_000),
-})
+const enteredValuesSchema = z
+  .object({
+    meal: z.enum(MEAL_TYPES),
+    day: z.string().refine(isLoggableDay, DAY_ERROR),
+    name: z.string().trim().min(1, "Enter a name").max(255, "Keep it under 255 characters"),
+    calories: numberField(10_000, { integer: true }),
+    protein: numberField(1_000),
+    carbs: numberField(1_000),
+    fat: numberField(1_000),
+  })
+  .superRefine((v, ctx) => {
+    if (caloriesImplausiblyLow(v.calories, v)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: implausibleCaloriesMessage(v), path: ["calories"] })
+    }
+  })
 
 type EnteredValuesInput = z.input<typeof enteredValuesSchema>
 type EnteredValuesValues = z.output<typeof enteredValuesSchema>

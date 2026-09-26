@@ -14,7 +14,8 @@ const weighInSchema = z.object({
   date: z.string().refine(isLoggableDay, "Pick today or an earlier day"),
   weightKg: z.preprocess(
     (value) => toNumber(value) ?? (value === "" || value == null ? undefined : Number.NaN),
-    z.number({ required_error: "Enter your weight", invalid_type_error: "Enter a number" }).min(25, "That looks too low").max(400, "That looks too high"),
+    // Same 20–400 kg range the server accepts.
+    z.number({ required_error: "Enter your weight", invalid_type_error: "Enter a number" }).min(20, "That looks too low").max(400, "That looks too high"),
   ),
 })
 

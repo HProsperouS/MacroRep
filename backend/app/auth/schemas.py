@@ -5,12 +5,13 @@ from __future__ import annotations
 from pydantic import EmailStr, Field
 
 from app.shared.schema import CamelModel
+from app.shared.validation import MAX_NAME_LENGTH, PlainText
 
 MIN_PASSWORD_LENGTH = 8
 
 
 class RegisterInput(CamelModel):
-    name: str = Field(min_length=1, max_length=255)
+    name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
     email: EmailStr
     password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
 

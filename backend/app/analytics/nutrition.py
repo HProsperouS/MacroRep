@@ -36,6 +36,37 @@ def scale_nutrients(per_serving: Nutrients, servings: float) -> Nutrients:
     )
 
 
+KCAL_PER_G_PROTEIN = 4
+KCAL_PER_G_CARBS = 4
+KCAL_PER_G_FAT = 9
+
+# Below this share of the macro-implied energy, entered calories can't be real.
+MIN_CALORIE_SHARE_OF_MACROS = 0.5
+# Macro totals under this are too small for the comparison to mean anything.
+MIN_MACRO_KCAL_TO_CHECK = 50
+
+
+def macro_calories(protein: float, carbs: float, fat: float) -> float:
+    """Energy implied by the macros (Atwater factors 4 / 4 / 9 kcal per gram)."""
+
+    return protein * KCAL_PER_G_PROTEIN + carbs * KCAL_PER_G_CARBS + fat * KCAL_PER_G_FAT
+
+
+def calories_implausibly_low(calories: float, protein: float, carbs: float, fat: float) -> bool:
+    """True when entered calories are under half of what the macros imply.
+
+    Only this direction is checked. Calories *above* the macros are normal:
+    alcohol (~7 kcal/g) carries energy without protein, carbs, or fat, and a
+    quick add often has calories with no macros at all. Calories modestly
+    *below* are normal too: fibre counts as carbohydrate but yields about half
+    the energy, and labels round. Under half, though, the numbers can't both
+    be right, e.g. 900 g of protein (3,600 kcal) logged as 10 kcal.
+    """
+
+    implied = macro_calories(protein, carbs, fat)
+    return implied >= MIN_MACRO_KCAL_TO_CHECK and calories < implied * MIN_CALORIE_SHARE_OF_MACROS
+
+
 def average_daily_calories(calories_by_date: Mapping[date, float]) -> float | None:
     """Mean intake over the days that have any food logged.
 

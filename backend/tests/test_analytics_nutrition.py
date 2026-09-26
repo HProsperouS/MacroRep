@@ -7,10 +7,33 @@ import pytest
 from app.analytics.nutrition import (
     Nutrients,
     average_daily_calories,
+    calories_implausibly_low,
     estimate_expenditure,
     logging_adherence_percent,
+    macro_calories,
     scale_nutrients,
 )
+
+
+def test_macro_calories_use_atwater_factors() -> None:
+    assert macro_calories(protein=10, carbs=10, fat=10) == 170  # 40 + 40 + 90
+
+
+@pytest.mark.parametrize(
+    ("calories", "protein", "carbs", "fat", "expected"),
+    [
+        (150, 1.6, 13, 0, False),  # higher than the macros: alcohol, never flagged
+        (200, 100, 0, 0, False),  # exactly half of 400: allowed
+        (199, 100, 0, 0, True),  # under half
+        (0, 12, 0, 0, False),  # 48 kcal of macros: too small to judge
+        (0, 12.5, 0, 0, True),  # 50 kcal of macros and nothing logged
+    ],
+)
+def test_calories_implausibly_low(
+    calories: float, protein: float, carbs: float, fat: float, expected: bool
+) -> None:
+    assert calories_implausibly_low(calories, protein, carbs, fat) is expected
+
 
 CHICKEN_100G = Nutrients(calories=165, protein=31.0, carbs=0.0, fat=3.6)
 

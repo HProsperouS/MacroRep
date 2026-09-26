@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.nutrition import Nutrients, scale_nutrients
 from app.identity.dependencies import ActorContext
+from app.shared.validation import ensure_plausible_calories
 
 from .models import Food, FoodEntry, FoodSource
 from .repository import FoodEntryRepository, FoodRepository
@@ -203,6 +204,13 @@ class FoodService:
                 )
             for field, value in payload.entered_values().items():
                 setattr(entry, field, value)
+            # Checked on the merged result: an edit may change calories or one macro alone.
+            try:
+                ensure_plausible_calories(
+                    entry.calories, float(entry.protein), float(entry.carbs), float(entry.fat)
+                )
+            except ValueError as exc:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
 
         if payload.date is not None:
             entry.log_date = payload.date

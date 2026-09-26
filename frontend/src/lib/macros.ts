@@ -20,6 +20,27 @@ export function caloriesMismatch(calories: number, macros: Macros, tolerance = 0
   return Math.abs(calories - computed) / computed > tolerance
 }
 
+/**
+ * True when calories are under half of what the macros imply — mirrors the server's rule
+ * (`calories_implausibly_low`), which rejects such entries. Only this direction is checked:
+ * calories *above* the macros are normal (alcohol has energy but no macros), and modest gaps
+ * below come from fibre and label rounding. Macro totals under 50 kcal aren't judged.
+ */
+export function caloriesImplausiblyLow(calories: number, macros: Macros) {
+  const computed = unroundedMacroCalories(macros)
+  return computed >= 50 && calories < computed * 0.5
+}
+
+/** The form error shown when `caloriesImplausiblyLow` is true. */
+export function implausibleCaloriesMessage(macros: Macros) {
+  return `Too low for these macros (they add up to ${caloriesFromMacros(macros).toLocaleString("en-SG")} kcal). Check for a missing digit.`
+}
+
+// Unrounded (unlike `caloriesFromMacros`), so the half-way comparison matches the server exactly.
+function unroundedMacroCalories({ protein, carbs, fat }: Macros) {
+  return protein * 4 + carbs * 4 + fat * 9
+}
+
 export function sumNutrition(items: Nutrition[]): Nutrition {
   return items.reduce(
     (total, item) => ({

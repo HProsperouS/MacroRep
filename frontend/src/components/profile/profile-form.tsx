@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
+import { TriangleAlert } from "lucide-react"
 import { Controller, useForm, useWatch, type Control, type UseFormRegisterReturn } from "react-hook-form"
 import { z } from "zod"
 
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { FieldDescription, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { toNumber } from "@/lib/format"
 import { requiredNumber } from "@/lib/zod-helpers"
 import { EXPERIENCE_LEVEL_LABELS, EXPERIENCE_LEVELS, GOAL_LABELS, GOALS, type Profile, type UpdateProfileInput } from "@/types/profile"
 import { EQUIPMENT, EQUIPMENT_LABELS, type Equipment } from "@/types/workout"
@@ -15,7 +17,8 @@ const profileSchema = z.object({
   name: z.string().trim().min(1, "Enter your name").max(60, "Keep it under 60 characters"),
   heightCm: requiredNumber("your height", 100, 250),
   goal: z.enum(GOALS),
-  weeklyRate: requiredNumber("a weekly rate", 0, 1),
+  // No health limit by design (see RateField's caution); 99.99 is what the server can store.
+  weeklyRate: requiredNumber("a weekly rate", 0, 99.99),
   trainingDaysPerWeek: z.preprocess(
     (value) => Number(value),
     z.number().int("Whole days only").min(1, "At least 1 day").max(7, "At most 7 days"),
@@ -188,20 +191,40 @@ type RateFieldProps = {
   register: UseFormRegisterReturn<"weeklyRate">
 }
 
+/**
+ * Beyond these weekly rates, common guidance warns of muscle loss (losing) or mostly fat
+ * gain (gaining). A caution, not a limit: the rate is the user's call.
+ */
+const USUAL_MAX_RATE_KG = { lose: 1, gain: 0.5 } as const
+
 /** Watches the goal only here, so switching goals doesn't re-render the whole form. */
 function RateField({ control, error, disabled, register }: RateFieldProps) {
-  const goal = useWatch({ control, name: "goal" })
+  const [goal, rateRaw] = useWatch({ control, name: ["goal", "weeklyRate"] })
   const maintain = goal === "maintain"
+  const rate = toNumber(rateRaw)
+  const usualMax = maintain ? undefined : USUAL_MAX_RATE_KG[goal]
+  const aboveUsual = usualMax !== undefined && rate !== undefined && rate > usualMax && !error
+
   return (
-    <TextField
-      id="profile-rate"
-      label={goal === "gain" ? "Gain per week" : "Loss per week"}
-      unit="kg"
-      inputMode="decimal"
-      description={maintain ? "Not used when maintaining" : "0.25–0.5 kg is sustainable for most people"}
-      error={maintain ? undefined : error}
-      disabled={disabled || maintain}
-      {...register}
-    />
+    <div className="flex flex-col gap-2">
+      <TextField
+        id="profile-rate"
+        label={goal === "gain" ? "Gain per week" : "Loss per week"}
+        unit="kg"
+        inputMode="decimal"
+        description={maintain ? "Not used when maintaining" : "0.25–0.5 kg is sustainable for most people"}
+        error={maintain ? undefined : error}
+        disabled={disabled || maintain}
+        {...register}
+      />
+      {aboveUsual ? (
+        <p className="flex items-start gap-2 text-sm text-carbs" role="status">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          {goal === "lose"
+            ? `Faster than the usual ${usualMax} kg a week. Losing this quickly tends to cost muscle and is hard to sustain.`
+            : `Faster than the usual ${usualMax} kg a week. Gaining this quickly tends to add mostly fat.`}
+        </p>
+      ) : null}
+    </div>
   )
 }

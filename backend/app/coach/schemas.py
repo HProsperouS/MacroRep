@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 
 from app.shared.schema import CamelModel
+from app.shared.validation import MAX_CHAT_LENGTH, MAX_PROPOSAL_VALUE, Identifier, MultilineText
 
 from .models import CheckInStatus, MessageRole, ProposalKind, ProposalStatus
 
@@ -53,13 +56,14 @@ class CheckIn(CamelModel):
 
 
 class ProposalChangeOverride(CamelModel):
-    id: str
-    after: float
+    id: Identifier
+    # A user-edited value: never negative (e.g. no negative calorie target).
+    after: float = Field(ge=0, le=MAX_PROPOSAL_VALUE)
 
 
 class ProposalDecisionInput(CamelModel):
-    decision: str
-    changes: list[ProposalChangeOverride] | None = None
+    decision: Literal["apply", "reject"]
+    changes: list[ProposalChangeOverride] | None = Field(default=None, max_length=20)
 
 
 class CoachMessage(CamelModel):
@@ -69,4 +73,4 @@ class CoachMessage(CamelModel):
 
 
 class AskCoachInput(CamelModel):
-    text: str = Field(min_length=1)
+    text: MultilineText = Field(min_length=1, max_length=MAX_CHAT_LENGTH)

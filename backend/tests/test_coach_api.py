@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers import register_user as _new_user
@@ -142,6 +143,48 @@ def test_idempotency_keys_are_scoped_per_user(client: TestClient) -> None:
         assert response.status_code == 201
         ids.append(response.json()["id"])
     assert ids[0] != ids[1]
+
+
+def _check_in_with_a_proposal(client: TestClient, headers: dict[str, str]) -> dict:
+    # Every day logged and the trend off a maintain goal: the placeholder proposes a calorie change.
+    for days_ago in range(7):
+        _log_food(client, headers, days_ago=days_ago)
+    _weigh_in(client, headers, days_ago=6, weight_kg=80)
+    _weigh_in(client, headers, days_ago=0, weight_kg=78)
+    check_in = _start(client, headers, "with-proposal").json()
+    assert len(check_in["proposals"]) == 1
+    return dict(check_in)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({"decision": "maybe"}, 422),
+        ({"decision": "apply", "changes": [{"id": "calories", "after": -1}]}, 422),
+        ({"decision": "apply", "changes": [{"id": "not-in-proposal", "after": 2000}]}, 422),
+        ({"decision": "apply", "changes": [{"id": "calories", "after": 0}]}, 200),
+    ],
+    ids=["unknown decision", "negative value", "value not in the proposal", "zero is allowed"],
+)
+def test_proposal_decisions_are_validated(client: TestClient, body: dict, expected: int) -> None:
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+    proposal_id = check_in["proposals"][0]["id"]
+    response = client.post(
+        f"{CHECK_INS}/{check_in['id']}/proposals/{proposal_id}/decision", headers=headers, json=body
+    )
+    assert response.status_code == expected, response.text
+
+
+@pytest.mark.parametrize(("text", "expected"), [("x" * 2_000, 200), ("x" * 2_001, 422), ("   ", 422)])
+def test_coach_messages_are_bounded(
+    client: TestClient, auth_headers: dict[str, str], text: str, expected: int
+) -> None:
+    check_in = client.get(f"{CHECK_INS}/current", headers=auth_headers).json()
+    response = client.post(
+        f"{CHECK_INS}/{check_in['id']}/messages", headers=auth_headers, json={"text": text}
+    )
+    assert response.status_code == expected
 
 
 def test_pending_proposals_block_a_new_check_in(client: TestClient) -> None:

@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
-from pydantic import Field, field_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from app.shared.schema import CamelModel, validate_choice
+from app.shared.validation import (
+    CLOCK_SKEW,
+    MAX_EXERCISES_PER_WORKOUT,
+    MAX_LABEL_LENGTH,
+    MAX_NAME_LENGTH,
+    MAX_REPS,
+    MAX_SET_WEIGHT_KG,
+    MAX_SETS_PER_EXERCISE,
+    Identifier,
+    PlainText,
+    ensure_unique,
+)
 
-from .models import EQUIPMENT, SetKind
+from .models import EQUIPMENT, MUSCLE_GROUPS, SetKind
 
 
 class PreviousSet(CamelModel):
@@ -32,14 +44,19 @@ class ExerciseRead(CamelModel):
 
 
 class CreateExerciseInput(CamelModel):
-    name: str = Field(min_length=1, max_length=255)
+    name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
     equipment: str
-    muscles: list[str] = Field(min_length=1)
+    muscles: list[str] = Field(min_length=1, max_length=len(MUSCLE_GROUPS))
 
     @field_validator("equipment")
     @classmethod
     def check_equipment(cls, value: str) -> str:
         return validate_choice(value, EQUIPMENT, "equipment")
+
+    @field_validator("muscles")
+    @classmethod
+    def check_muscles(cls, value: list[str]) -> list[str]:
+        return ensure_unique([validate_choice(item, MUSCLE_GROUPS, "muscles") for item in value], "muscles")
 
 
 class PlannedSet(CamelModel):
@@ -80,23 +97,35 @@ class PlannedWorkout(CamelModel):
 
 class LoggedSet(CamelModel):
     kind: SetKind
-    weight_kg: float = Field(ge=0)
-    reps: int = Field(ge=0)
+    weight_kg: float = Field(ge=0, le=MAX_SET_WEIGHT_KG)
+    # 0 is allowed: a failed attempt is still a set worth recording.
+    reps: int = Field(ge=0, le=MAX_REPS)
     rpe: float | None = Field(default=None, ge=1, le=10, multiple_of=0.5)
 
 
 class FinishWorkoutExercise(CamelModel):
-    exercise_id: str
-    name: str
-    sets: list[LoggedSet]
+    exercise_id: Identifier
+    name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
+    sets: list[LoggedSet] = Field(min_length=1, max_length=MAX_SETS_PER_EXERCISE)
 
 
 class FinishWorkoutInput(CamelModel):
-    plan_id: str | None
-    name: str = Field(min_length=1, max_length=255)
-    started_at: datetime
-    finished_at: datetime
-    exercises: list[FinishWorkoutExercise]
+    plan_id: Identifier | None
+    name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
+    # Timezone-aware only: a naive time can't be placed on the timeline reliably.
+    started_at: AwareDatetime
+    finished_at: AwareDatetime
+    exercises: list[FinishWorkoutExercise] = Field(min_length=1, max_length=MAX_EXERCISES_PER_WORKOUT)
+
+    @model_validator(mode="after")
+    def check_times(self) -> FinishWorkoutInput:
+        # No upper limit on duration: a session left open overnight and
+        # finished late is still a real workout, and rejecting it would lose it.
+        if self.finished_at < self.started_at:
+            raise ValueError("finishedAt must not be before startedAt")
+        if self.finished_at > datetime.now(UTC) + CLOCK_SKEW:
+            raise ValueError("a workout can't finish in the future")
+        return self
 
 
 class WorkoutSummary(CamelModel):
@@ -110,21 +139,21 @@ class WorkoutSummary(CamelModel):
 
 class PlanSetInput(CamelModel):
     kind: SetKind
-    target_weight_kg: float | None = Field(default=None, ge=0)
-    target_reps: int | None = Field(default=None, ge=1)
+    target_weight_kg: float | None = Field(default=None, ge=0, le=MAX_SET_WEIGHT_KG)
+    target_reps: int | None = Field(default=None, ge=1, le=MAX_REPS)
 
 
 class PlanExerciseInput(CamelModel):
-    exercise_id: str
+    exercise_id: Identifier
     rest_seconds: int = Field(ge=0, le=600)
-    sets: list[PlanSetInput] = Field(min_length=1)
+    sets: list[PlanSetInput] = Field(min_length=1, max_length=MAX_SETS_PER_EXERCISE)
 
 
 class SavePlanDayInput(CamelModel):
-    name: str = Field(min_length=1, max_length=255)
-    week_label: str = Field(min_length=1, max_length=64)
+    name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
+    week_label: PlainText = Field(min_length=1, max_length=MAX_LABEL_LENGTH)
     estimated_minutes: int = Field(ge=1, le=600)
-    exercises: list[PlanExerciseInput] = Field(min_length=1)
+    exercises: list[PlanExerciseInput] = Field(min_length=1, max_length=MAX_EXERCISES_PER_WORKOUT)
 
 
 class WeekPlanDay(CamelModel):

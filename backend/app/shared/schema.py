@@ -17,7 +17,12 @@ class CamelModel(BaseModel):
         alias_generator=to_camel,
         populate_by_name=True,
         from_attributes=True,
+        # Reject fields the contract doesn't define instead of silently ignoring them.
         extra="forbid",
+        # JSON has no NaN or Infinity, but Python's parser accepts them; they
+        # pass every `ge`/`le` bound they're not compared against and poison
+        # any calculation they reach, so no number field accepts them.
+        allow_inf_nan=False,
     )
 
 

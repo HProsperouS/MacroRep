@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import { formatNumber, toNumber } from "@/lib/format"
-import { caloriesFromMacros, caloriesMismatch, type Nutrition } from "@/lib/macros"
+import { caloriesFromMacros, caloriesImplausiblyLow, caloriesMismatch, implausibleCaloriesMessage, type Nutrition } from "@/lib/macros"
 import { MEAL_LABELS, MEAL_TYPES, type MealType } from "@/types/food"
 
 const toNumberOrNaN = (value: unknown) => toNumber(value) ?? (value === "" || value == null ? undefined : Number.NaN)
@@ -33,6 +33,13 @@ const quickAddSchema = z
   .refine((v) => (v.calories ?? 0) + (v.protein ?? 0) + (v.carbs ?? 0) + (v.fat ?? 0) > 0, {
     message: "Enter calories or at least one macro",
     path: ["calories"],
+  })
+  .superRefine((v, ctx) => {
+    const macros = { protein: v.protein ?? 0, carbs: v.carbs ?? 0, fat: v.fat ?? 0 }
+    // Blank calories are calculated from the macros, so only an entered value can be implausible.
+    if (v.calories !== undefined && caloriesImplausiblyLow(v.calories, macros)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: implausibleCaloriesMessage(macros), path: ["calories"] })
+    }
   })
 
 type QuickAddInput = z.input<typeof quickAddSchema>

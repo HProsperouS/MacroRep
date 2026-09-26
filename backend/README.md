@@ -31,6 +31,31 @@ backend/
 Each domain normally owns `models.py`, `schemas.py`, `repository.py`,
 `service.py`, and `router.py`.
 
+### Input validation
+
+Every request body and query parameter is validated against an **allow-list**
+before it reaches a service:
+
+- Unknown fields are rejected (`extra="forbid"` on the shared `CamelModel`),
+  as are `NaN` and `Infinity` in any number.
+- Fixed-choice fields (meal, units, equipment, muscles, goal, …) accept only
+  their listed values.
+- Every number has a plausible range and every text field is trimmed and
+  length-bounded, with no control characters or text-direction overrides
+  (chat keeps line breaks; emoji and any script are fine). Ids in request
+  bodies must look like ids (`[A-Za-z0-9_-]{1,64}`), and a NUL byte anywhere
+  in the URL is refused with a 400 (`app/shared/request_guard.py`): Postgres
+  can't store one, so it would otherwise surface as a 500. The ranges live in one place, `app/shared/validation.py`,
+  and each fits its database column, so an oversized value is a 422, never a
+  Postgres overflow. The frontend's forms mirror them.
+- Cross-field rules: a workout can't finish before it starts or in the
+  future, and calories can't be under half of what the macros imply (the
+  reverse is allowed: alcohol has calories but no macros).
+
+Validation errors return `{"message", "detail"}` without echoing the rejected
+input back (see `app/shared/errors.py`). `tests/test_input_validation.py`
+checks each limit from both sides.
+
 ### Known simplifications vs. a production system
 
 - **Coach AI is a placeholder.** `app/coach/pipeline.py` is a deterministic,

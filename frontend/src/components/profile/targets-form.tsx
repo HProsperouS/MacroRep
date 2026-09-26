@@ -8,16 +8,22 @@ import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { formatNumber, toNumber } from "@/lib/format"
-import { caloriesFromMacros, caloriesMismatch } from "@/lib/macros"
+import { caloriesFromMacros, caloriesImplausiblyLow, caloriesMismatch, implausibleCaloriesMessage } from "@/lib/macros"
 import { requiredNumber } from "@/lib/zod-helpers"
 import type { DailyTargets } from "@/types/food"
 
-const targetsSchema = z.object({
-  calories: requiredNumber("calories", 1000, 6000),
-  protein: requiredNumber("protein", 0, 500),
-  carbs: requiredNumber("carbs", 0, 1000),
-  fat: requiredNumber("fat", 0, 400),
-})
+const targetsSchema = z
+  .object({
+    calories: requiredNumber("calories", 1000, 6000),
+    protein: requiredNumber("protein", 0, 500),
+    carbs: requiredNumber("carbs", 0, 1000),
+    fat: requiredNumber("fat", 0, 400),
+  })
+  .superRefine((v, ctx) => {
+    if (caloriesImplausiblyLow(v.calories, v)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: implausibleCaloriesMessage(v), path: ["calories"] })
+    }
+  })
 
 type TargetsInput = z.input<typeof targetsSchema>
 type TargetsValues = z.output<typeof targetsSchema>
