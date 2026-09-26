@@ -70,3 +70,9 @@ export type WeighInInput = {
   date: string
   weightKg: number
 }
+
+/** A stored weigh-in, as listed for editing. */
+export type WeighIn = WeighInInput & {
+  id: string
+  trendKg: number
+}

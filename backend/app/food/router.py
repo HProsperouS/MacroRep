@@ -12,7 +12,14 @@ from app.identity.dependencies import ActorContext, get_current_actor
 from app.shared.persistence import get_session
 
 from .repository import FoodEntryRepository, FoodRepository
-from .schemas import CreateCustomFoodInput, CreateFoodEntryInput, FoodEntryRead, FoodLogResponse, FoodRead
+from .schemas import (
+    CreateCustomFoodInput,
+    CreateFoodEntryInput,
+    FoodEntryRead,
+    FoodLogResponse,
+    FoodRead,
+    UpdateFoodEntryInput,
+)
 from .service import FoodService
 
 router = APIRouter(prefix="/api", tags=["food"])
@@ -40,6 +47,13 @@ async def add_food_entry(
     return await service.add_entry(payload, actor)
 
 
+@router.patch("/food-log/entries/{entry_id}", response_model=FoodEntryRead)
+async def update_food_entry(
+    entry_id: str, payload: UpdateFoodEntryInput, actor: ActorDep, service: FoodServiceDep
+) -> FoodEntryRead:
+    return await service.update_entry(entry_id, payload, actor)
+
+
 @router.delete("/food-log/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_food_entry(entry_id: str, actor: ActorDep, service: FoodServiceDep) -> Response:
     await service.remove_entry(entry_id, actor)
@@ -54,6 +68,11 @@ async def search_foods(
     limit: Annotated[int, Query(ge=1, le=50)] = 8,
 ) -> list[FoodRead]:
     return await service.search_foods(actor, q, limit)
+
+
+@router.get("/foods/{food_id}", response_model=FoodRead)
+async def get_food(food_id: str, actor: ActorDep, service: FoodServiceDep) -> FoodRead:
+    return await service.get_food(food_id, actor)
 
 
 @router.post("/foods", response_model=FoodRead, status_code=status.HTTP_201_CREATED)

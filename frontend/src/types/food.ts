@@ -31,6 +31,9 @@ export type Food = {
   source: Exclude<FoodSource, "quick-add">
 }
 
+/** How a logged amount was entered: a count of the food's servings, or grams. */
+export type QuantityUnit = "serving" | "g"
+
 /** One logged item in a day's food log. */
 export type FoodEntry = Nutrition & {
   id: string
@@ -38,6 +41,10 @@ export type FoodEntry = Nutrition & {
   name: string
   amountLabel: string
   source: FoodSource
+  /** Set when logged from a saved food: editing the quantity re-scales the nutrition. */
+  foodId?: string | null
+  quantity?: number | null
+  quantityUnit?: QuantityUnit | null
 }
 
 export type DailyTargets = Nutrition

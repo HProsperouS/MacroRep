@@ -14,6 +14,8 @@ from app.shared.persistence import Base, TimestampMixin
 
 SERVING_UNITS = ("g", "ml", "piece", "bowl", "plate", "cup", "slice", "tbsp", "scoop")
 MEAL_TYPES = ("breakfast", "lunch", "dinner", "snacks")
+# How a food-log quantity was entered: a count of the food's servings, or grams.
+QUANTITY_UNITS = ("serving", "g")
 
 
 class FoodSource(StrEnum):
@@ -49,10 +51,19 @@ class Food(TimestampMixin, Base):
 
 
 class FoodEntry(TimestampMixin, Base):
-    """One logged item in a user's day."""
+    """One logged item in a user's day.
+
+    Name, amount label, and nutrition are stored on the entry itself, so the
+    log never changes when a food's catalog values do. An entry logged from a
+    saved food also keeps ``food_id`` and its quantity, which is what lets it
+    be re-scaled later; quick adds have neither and are edited value by value.
+    """
 
     __tablename__ = "food_entries"
-    __table_args__ = (Index("ix_food_entries_owner_date", "owner_id", "log_date"),)
+    __table_args__ = (
+        Index("ix_food_entries_owner_date", "owner_id", "log_date"),
+        Index("ix_food_entries_food", "food_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -65,3 +76,8 @@ class FoodEntry(TimestampMixin, Base):
     protein: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
     carbs: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
     fat: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
+    food_id: Mapped[str | None] = mapped_column(ForeignKey("foods.id", ondelete="SET NULL"), nullable=True)
+    quantity: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
+    quantity_unit: Mapped[str | None] = mapped_column(
+        SAEnum(*QUANTITY_UNITS, name="quantity_unit"), nullable=True
+    )

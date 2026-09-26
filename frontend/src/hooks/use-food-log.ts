@@ -1,9 +1,23 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
 
-import { foodApi, type CreateCustomFoodInput, type FoodLogResponse } from "@/api/food-api"
+import { foodApi, type CreateCustomFoodInput, type CreateFoodEntryInput, type FoodLogResponse, type UpdateFoodEntryInput } from "@/api/food-api"
 import { foodKeys } from "@/api/query-keys"
 import type { FoodEntry } from "@/types/food"
+
+type NewFoodEntry = Omit<FoodEntry, "id">
+
+/**
+ * A saved food's entry is sent as food + quantity only; the server derives the rest, so the
+ * locally computed values are just the optimistic preview.
+ */
+function toCreateInput(entry: NewFoodEntry, date: string): CreateFoodEntryInput {
+  if (entry.foodId && entry.quantity != null) {
+    return { date, meal: entry.meal, foodId: entry.foodId, quantity: entry.quantity, quantityUnit: entry.quantityUnit ?? "serving" }
+  }
+  const { meal, name, amountLabel, source, calories, protein, carbs, fat } = entry
+  return { date, meal, name, amountLabel, source, calories, protein, carbs, fat }
+}
 
 export function dateKey(date: Date) {
   return format(date, "yyyy-MM-dd")
@@ -42,7 +56,7 @@ export function useAddFoodEntry(date: Date) {
   const queryKey = foodKeys.log(key)
 
   return useMutation({
-    mutationFn: (entry: Omit<FoodEntry, "id">) => foodApi.addEntry({ ...entry, date: key }),
+    mutationFn: (entry: NewFoodEntry) => foodApi.addEntry(toCreateInput(entry, key)),
     onMutate: async (entry) => {
       await queryClient.cancelQueries({ queryKey })
       const previous = queryClient.getQueryData<FoodLogResponse>(queryKey)
@@ -79,6 +93,30 @@ export function useRemoveFoodEntry(date: Date) {
       queryClient.setQueryData(queryKey, context?.previous)
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  })
+}
+
+/** Edits an entry. Not optimistic: a saved food's nutrition is only known once the server re-scales it. */
+export function useUpdateFoodEntry() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ entryId, input }: { entryId: string; input: UpdateFoodEntryInput }) => foodApi.updateEntry(entryId, input),
+    // Every day's log, not just this one: the entry may have moved to another day.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: foodKeys.logs() }),
+        queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "daily-calories"] }),
+      ]),
+  })
+}
+
+/** A single saved food, for re-scaling an entry logged from it. */
+export function useFood(foodId: string | null | undefined) {
+  return useQuery({
+    queryKey: foodKeys.food(foodId ?? ""),
+    queryFn: ({ signal }) => foodApi.getFood(foodId as string, signal),
+    enabled: Boolean(foodId),
+    staleTime: 5 * 60_000,
   })
 }
 

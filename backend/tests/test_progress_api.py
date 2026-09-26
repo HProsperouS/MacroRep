@@ -1,24 +1,11 @@
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi.testclient import TestClient
 
 from app.analytics.training import week_start
-
-
-def _new_user(client: TestClient) -> dict[str, str]:
-    registered = client.post(
-        "/api/auth/register",
-        json={
-            "name": "Progress Tester",
-            "email": f"{uuid.uuid4().hex}@example.com",
-            "password": "long-enough-pw",
-        },
-    )
-    assert registered.status_code == 201
-    return {"Authorization": f"Bearer {registered.json()['accessToken']}"}
+from tests.helpers import register_user as _new_user
 
 
 def _log_session(client: TestClient, headers: dict[str, str], day: date, weight_kg: float, reps: int) -> None:

@@ -10,6 +10,7 @@ import { QueryError } from "@/components/layout/query-error"
 import { Stat } from "@/components/layout/stat"
 import { CheckInHistory } from "@/components/progress/check-in-history"
 import { StrengthList } from "@/components/progress/strength-list"
+import { WeighInList } from "@/components/progress/weigh-in-list"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -162,6 +163,7 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
       <div className="grid items-start gap-4 lg:grid-cols-2 lg:gap-6">
         <StrengthList lifts={data.strength} />
         <CheckInHistory items={data.checkIns} />
+        <WeighInList from={data.from} to={data.to} />
       </div>
     </>
   )

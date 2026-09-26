@@ -1,26 +1,12 @@
 from __future__ import annotations
 
-import uuid
 from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
+from tests.helpers import register_user as _new_user
+
 CHECK_INS = "/api/coach/check-ins"
-
-
-def _new_user(client: TestClient) -> dict[str, str]:
-    """A fresh account, so check-in tests don't see each other's (or the seed's) data."""
-
-    registered = client.post(
-        "/api/auth/register",
-        json={
-            "name": "Check-in Tester",
-            "email": f"{uuid.uuid4().hex}@example.com",
-            "password": "long-enough-pw",
-        },
-    )
-    assert registered.status_code == 201
-    return {"Authorization": f"Bearer {registered.json()['accessToken']}"}
 
 
 def _log_food(client: TestClient, headers: dict[str, str], days_ago: int, calories: int = 2000) -> None:

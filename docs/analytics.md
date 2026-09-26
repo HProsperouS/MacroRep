@@ -37,6 +37,23 @@ rate (kg/week) = trend change over the period ÷ (days in period ÷ 7)
 
 ## Nutrition — `analytics/nutrition.py`
 
+### Portion scaling
+
+An entry logged from a saved food stores the food and the quantity; the server
+derives its nutrition, so it can be re-scaled when the quantity is edited:
+
+```
+servings = quantity                          (entered in servings)
+servings = grams ÷ grams per serving         (entered in grams)
+nutrient = per-serving value × servings
+```
+
+Calories round to whole kcal and macros to 0.1 g, **halves rounding up**. The
+browser shows a live preview with `Math.round`, which also rounds halves up;
+Python's `round()` rounds halves to even and would disagree (82.5 kcal → 82
+instead of 83). Grams need a known serving weight; a food without one can only
+be logged in servings.
+
 ### Average daily intake
 
 The mean calories over days **with food logged**. Unlogged days are excluded,

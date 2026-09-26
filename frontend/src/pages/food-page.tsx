@@ -1,22 +1,26 @@
-import { addDays, format, isToday, isYesterday } from "date-fns"
+import { addDays, format, isToday, isYesterday, parseISO } from "date-fns"
 import { Barcode, Camera, ChevronLeft, ChevronRight, RotateCw, Search, Zap } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { apiErrorMessage } from "@/api/client"
+import type { UpdateFoodEntryInput } from "@/api/food-api"
 import type { CustomFoodSubmit } from "@/components/food/custom-food-form"
 import { DailySummaryCard, DailySummarySkeleton } from "@/components/food/daily-summary-card"
+import { EditFoodEntryForm } from "@/components/food/edit-food-entry-form"
 import { FoodSearchPanel, type FoodSearchPanelProps } from "@/components/food/food-search-panel"
 import { ManualEntry, type ManualEntryTab, type OverlayLayout } from "@/components/food/manual-entry"
 import { MealSection, MealSectionSkeleton } from "@/components/food/meal-section"
 import type { QuickAddDraft, QuickAddResult } from "@/components/food/quick-add-form"
 import { PageHeader } from "@/components/layout/page-header"
+import { ResponsiveOverlay } from "@/components/layout/responsive-overlay"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
-import { useAddFoodEntry, useCreateCustomFood, useFoodLog, useNutritionTargets, useRemoveFoodEntry } from "@/hooks/use-food-log"
+import { dateKey, useAddFoodEntry, useCreateCustomFood, useFoodLog, useNutritionTargets, useRemoveFoodEntry, useUpdateFoodEntry } from "@/hooks/use-food-log"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
+import { amountLabelFor } from "@/hooks/use-serving-amount"
 import { EMPTY_ENTRIES, groupEntries, mealForTime } from "@/lib/food-log"
 import { formatNumber } from "@/lib/format"
 import { MEAL_LABELS, MEAL_TYPES, type FoodEntry, type MealType } from "@/types/food"
@@ -48,7 +52,9 @@ export default function FoodPage() {
   const targets = useNutritionTargets()
   const addEntry = useAddFoodEntry(date)
   const removeEntry = useRemoveFoodEntry(date)
+  const updateEntry = useUpdateFoodEntry()
   const createCustomFood = useCreateCustomFood()
+  const [editing, setEditing] = useState<{ entry: FoodEntry; layout: OverlayLayout } | null>(null)
 
   const entries = foodLog.data?.entries ?? EMPTY_ENTRIES
   const { totals, byMeal } = useMemo(() => groupEntries(entries), [entries])
@@ -77,6 +83,22 @@ export default function FoodPage() {
     })
   }
 
+  function handleEdit(input: UpdateFoodEntryInput) {
+    if (!editing) return
+    const { entry } = editing
+    updateEntry.mutate(
+      { entryId: entry.id, input },
+      {
+        onSuccess: (updated) => {
+          setEditing(null)
+          const movedTo = input.date ? ` to ${dayTitle(parseISO(input.date))}` : ""
+          toast.success(`Updated ${updated.name}${movedTo}`, { description: `${formatNumber(updated.calories)} kcal` })
+        },
+        onError: (error) => toast.error(`Couldn’t update ${entry.name}`, { description: apiErrorMessage(error) }),
+      },
+    )
+  }
+
   function handleRemove(entryId: string) {
     removeEntry.mutate(entryId, {
       onError: (error) => toast.error("Couldn’t remove that item", { description: apiErrorMessage(error) }),
@@ -93,13 +115,16 @@ export default function FoodPage() {
       const created = await createCustomFood.mutateAsync(food)
       setManual((prev) => ({ ...prev, open: false }))
       if (logTo) {
-        const weight = created.servingWeightG != null && created.servingUnit !== "g" ? ` · ${formatNumber(created.servingWeightG)} g` : ""
+        // Logged as one serving of the saved food, so its amount can be changed later.
         logEntry({
           meal: logTo,
           name: created.name,
-          amountLabel: `${formatNumber(created.servingSize, 2)} ${created.servingUnit}${weight}`,
+          amountLabel: amountLabelFor(created, 1, "serving"),
           source: "custom",
           ...created.nutrition,
+          foodId: created.id,
+          quantity: 1,
+          quantityUnit: "serving",
         })
       } else {
         toast.success(`Saved ${created.name}`, { description: "Find it in search under My food." })
@@ -195,7 +220,14 @@ export default function FoodPage() {
           {foodLog.isPending
             ? MEAL_TYPES.map((mealType) => <MealSectionSkeleton key={mealType} />)
             : MEAL_TYPES.map((mealType) => (
-                <MealSection key={mealType} meal={mealType} entries={byMeal[mealType]} onAdd={focusSearchFor} onRemove={handleRemove} />
+                <MealSection
+                  key={mealType}
+                  meal={mealType}
+                  entries={byMeal[mealType]}
+                  onAdd={focusSearchFor}
+                  onEdit={(entry) => setEditing({ entry, layout: isDesktop ? "dialog" : "drawer" })}
+                  onRemove={handleRemove}
+                />
               ))}
         </div>
 
@@ -237,6 +269,29 @@ export default function FoodPage() {
         onSaveAsCustom={(draft) => openManual("custom", draft)}
         onCustomSubmit={handleCustomSubmit}
       />
+
+      <ResponsiveOverlay
+        open={editing !== null}
+        onOpenChange={(open) => (open ? undefined : setEditing(null))}
+        layout={editing?.layout ?? "dialog"}
+        title="Edit food"
+        description={
+          editing?.entry.foodId
+            ? "Change the amount and the nutrition updates to match. You can also move it to another meal or day."
+            : "Adjust the values, or move it to another meal or day."
+        }
+      >
+        {editing ? (
+          <EditFoodEntryForm
+            key={editing.entry.id}
+            entry={editing.entry}
+            date={dateKey(date)}
+            submitting={updateEntry.isPending}
+            onCancel={() => setEditing(null)}
+            onSubmit={handleEdit}
+          />
+        ) : null}
+      </ResponsiveOverlay>
     </>
   )
 }

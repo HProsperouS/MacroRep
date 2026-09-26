@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { format, parseISO } from "date-fns"
 import { CircleUser } from "lucide-react"
 import { useState } from "react"
 import { Link } from "react-router-dom"
@@ -22,6 +22,7 @@ import { useAddWeighIn, useProgress } from "@/hooks/use-progress"
 import { useTodayWorkout } from "@/hooks/use-workout"
 import { groupEntries } from "@/lib/food-log"
 import { MEAL_TYPES, type MealType } from "@/types/food"
+import type { WeighInInput } from "@/types/progress"
 
 /** Meals whose usual time has passed: breakfast after 10:00, lunch after 15:00, dinner after 21:00. */
 const MEAL_DEADLINES: Partial<Record<MealType, number>> = { breakfast: 10, lunch: 15, dinner: 21 }
@@ -47,17 +48,15 @@ export default function HomePage() {
   const hour = today.getHours()
   const missingMeal = byMeal ? MEAL_TYPES.find((meal) => (MEAL_DEADLINES[meal] ?? 24) <= hour && byMeal[meal].length === 0) : undefined
 
-  function saveWeighIn(weightKg: number) {
-    addWeighIn.mutate(
-      { date: todayKey, weightKg },
-      {
-        onSuccess: () => {
-          setWeighInLayout(null)
-          toast.success("Weigh-in saved", { description: `${weightKg} kg added to your trend.` })
-        },
-        onError: (error) => toast.error("Couldn’t save your weigh-in", { description: apiErrorMessage(error) }),
+  function saveWeighIn(input: WeighInInput) {
+    addWeighIn.mutate(input, {
+      onSuccess: () => {
+        setWeighInLayout(null)
+        const day = input.date === todayKey ? "" : ` for ${format(parseISO(input.date), "EEE d MMM")}`
+        toast.success("Weigh-in saved", { description: `${input.weightKg} kg added to your trend${day}.` })
       },
-    )
+      onError: (error) => toast.error("Couldn’t save your weigh-in", { description: apiErrorMessage(error) }),
+    })
   }
 
   const actionCards = (

@@ -12,10 +12,11 @@ type MealSectionProps = {
   meal: MealType
   entries: FoodEntry[]
   onAdd: (meal: MealType) => void
+  onEdit: (entry: FoodEntry) => void
   onRemove: (entryId: string) => void
 }
 
-export function MealSection({ meal, entries, onAdd, onRemove }: MealSectionProps) {
+export function MealSection({ meal, entries, onAdd, onEdit, onRemove }: MealSectionProps) {
   const label = MEAL_LABELS[meal]
   const calories = entries.reduce((sum, entry) => sum + entry.calories, 0)
 
@@ -40,7 +41,7 @@ export function MealSection({ meal, entries, onAdd, onRemove }: MealSectionProps
         <CardContent className="border-t px-0">
           <ul className="divide-y">
             {entries.map((entry) => (
-              <FoodRow key={entry.id} entry={entry} onRemove={onRemove} />
+              <FoodRow key={entry.id} entry={entry} onEdit={onEdit} onRemove={onRemove} />
             ))}
           </ul>
         </CardContent>

@@ -25,6 +25,14 @@ class FoodRepository:
         statement = statement.order_by(Food.name.asc()).limit(limit)
         return list(await self.session.scalars(statement))
 
+    async def get_visible(self, food_id: str, owner_id: str) -> Food | None:
+        """A food by id, if it's in the global catalog or is this user's own custom food."""
+
+        food = await self.session.get(Food, food_id)
+        if food is None or (food.owner_id is not None and food.owner_id != owner_id):
+            return None
+        return food
+
     async def add(self, food: Food) -> Food:
         self.session.add(food)
         await self.session.flush()

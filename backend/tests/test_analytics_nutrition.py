@@ -4,7 +4,28 @@ from datetime import date
 
 import pytest
 
-from app.analytics.nutrition import average_daily_calories, estimate_expenditure, logging_adherence_percent
+from app.analytics.nutrition import (
+    Nutrients,
+    average_daily_calories,
+    estimate_expenditure,
+    logging_adherence_percent,
+    scale_nutrients,
+)
+
+CHICKEN_100G = Nutrients(calories=165, protein=31.0, carbs=0.0, fat=3.6)
+
+
+def test_scaling_multiplies_every_nutrient() -> None:
+    assert scale_nutrients(CHICKEN_100G, 2) == Nutrients(330, 62.0, 0.0, 7.2)
+
+
+def test_scaling_rounds_halves_up_like_the_frontend_preview() -> None:
+    # 165 * 0.5 = 82.5: Python's round() would give 82, the browser's Math.round 83.
+    assert scale_nutrients(CHICKEN_100G, 0.5) == Nutrients(83, 15.5, 0.0, 1.8)
+
+
+def test_scaling_by_zero_servings_is_zero() -> None:
+    assert scale_nutrients(CHICKEN_100G, 0) == Nutrients(0, 0.0, 0.0, 0.0)
 
 
 def test_average_skips_unlogged_days_instead_of_counting_them_as_zero() -> None:
