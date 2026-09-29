@@ -32,6 +32,23 @@ export type CheckInHistoryItem = {
   outcome: CheckInOutcome
 }
 
+/**
+ * How fully a day was logged. Partial = under half the calorie target; it still counts as eaten.
+ * Today is in progress until it ends.
+ */
+export type DayStatus = "complete" | "partial" | "missing" | "in-progress"
+
+/** Finished days only: today isn't counted. */
+export type LoggingSummary = {
+  completeDays: number
+  partialDays: number
+  missingDays: number
+  /** Logged days within ±10% of the calorie target; null with nothing logged. */
+  targetAdherencePercent: number | null
+  /** Intake minus target summed over logged days: negative means under target. */
+  targetGapKcal: number
+}
+
 export type ProgressResponse = {
   range: ProgressRange
   from: string
@@ -44,7 +61,9 @@ export type ProgressResponse = {
     goalRatePerWeekKg: number
   }
   expenditureKcalPerDay: number
+  /** Share of finished days with any food logged. */
   adherencePercent: number
+  logging: LoggingSummary
   workouts: { done: number; planned: number }
   volume: {
     weeks: VolumeWeek[]
@@ -64,6 +83,14 @@ export type ProgressResponse = {
 export type DailyCalories = {
   date: string
   calories: number
+  status: DayStatus
+}
+
+export type DailyCaloriesResponse = {
+  days: DailyCalories[]
+  targetCalories: number
+  /** Intake minus target over the finished logged days: negative means under target. */
+  targetGapKcal: number
 }
 
 export type WeighInInput = {

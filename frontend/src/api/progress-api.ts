@@ -1,5 +1,5 @@
 import { apiClient } from "@/api/client"
-import type { DailyCalories, ProgressRange, ProgressResponse, WeighIn, WeighInInput, WeightPoint } from "@/types/progress"
+import type { DailyCaloriesResponse, ProgressRange, ProgressResponse, WeighIn, WeighInInput, WeightPoint } from "@/types/progress"
 
 export const progressApi = {
   async getProgress(range: ProgressRange, signal?: AbortSignal) {
@@ -8,7 +8,7 @@ export const progressApi = {
   },
 
   async getDailyCalories(days: number, signal?: AbortSignal) {
-    const { data } = await apiClient.get<DailyCalories[]>("/nutrition/daily-calories", { params: { days }, signal })
+    const { data } = await apiClient.get<DailyCaloriesResponse>("/nutrition/daily-calories", { params: { days }, signal })
     return data
   },
 

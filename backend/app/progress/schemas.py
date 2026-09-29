@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from app.analytics.nutrition import DayStatus
 from app.body.schemas import WeightPoint as WeightPoint
 from app.shared.schema import CamelModel
 
@@ -59,13 +60,27 @@ class CheckInHistoryItem(CamelModel):
     outcome: str
 
 
+class LoggingSummary(CamelModel):
+    """Finished days only: today is still being logged and isn't counted."""
+
+    complete_days: int
+    partial_days: int
+    missing_days: int
+    # Logged days within ±10% of the calorie target; null with nothing logged.
+    target_adherence_percent: float | None
+    # Intake minus target summed over logged days: negative means under target.
+    target_gap_kcal: int
+
+
 class ProgressResponse(CamelModel):
     range: ProgressRange
     date_from: date_ = Field(alias="from")
     date_to: date_ = Field(alias="to")
     weight: WeightSummary
     expenditure_kcal_per_day: float
+    # Share of finished days with any food logged.
     adherence_percent: float
+    logging: LoggingSummary
     workouts: WorkoutsSummary
     volume: VolumeSummary
     strength: list[StrengthLift]
@@ -75,3 +90,11 @@ class ProgressResponse(CamelModel):
 class DailyCalories(CamelModel):
     date: date_
     calories: int
+    status: DayStatus
+
+
+class DailyCaloriesResponse(CamelModel):
+    days: list[DailyCalories]
+    target_calories: int
+    # Intake minus target over the finished logged days: negative means under target.
+    target_gap_kcal: int

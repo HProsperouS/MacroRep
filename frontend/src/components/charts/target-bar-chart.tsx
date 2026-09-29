@@ -1,4 +1,4 @@
-import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 import { ChartTooltipBox } from "@/components/charts/chart-tooltip"
 
@@ -7,6 +7,10 @@ export type TargetBarDatum = {
   label: string
   tooltipTitle: string
   value: number
+  /** Draws the bar faded, e.g. a day that may not be fully logged. */
+  muted?: boolean
+  /** Shown in the tooltip under the values. */
+  note?: string
 }
 
 type TargetBarChartProps = {
@@ -50,11 +54,16 @@ export function TargetBarChart({ data, target, targetLabel = "Target", seriesLab
                     { label: seriesLabel, value: formatValue(datum.value), swatchClassName: "bg-protein" },
                     { label: targetLabel, value: formatValue(target), swatchClassName: "bg-muted-foreground" },
                   ]}
+                  note={datum.note}
                 />
               )
             }} cursor={{ fill: "var(--muted)", opacity: 0.5 }} />
           <ReferenceLine y={target} stroke="var(--muted-foreground)" strokeDasharray="4 4" />
-          <Bar dataKey="value" name={seriesLabel} fill="var(--protein)" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false} />
+          <Bar dataKey="value" name={seriesLabel} fill="var(--protein)" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false}>
+            {data.map((datum) => (
+              <Cell key={datum.key} fillOpacity={datum.muted ? 0.4 : 1} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>

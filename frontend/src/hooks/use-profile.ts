@@ -29,6 +29,11 @@ export function useUpdateTargets() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: DailyTargets) => profileApi.updateTargets(input),
-    onSuccess: (targets) => queryClient.setQueryData(foodKeys.targets(), targets),
+    onSuccess: (targets) => {
+      queryClient.setQueryData(foodKeys.targets(), targets)
+      // Days are judged complete or partial, and the gap measured, against the calorie target.
+      void queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "daily-calories"] })
+      void queryClient.invalidateQueries({ queryKey: progressKeys.all })
+    },
   })
 }

@@ -5,13 +5,20 @@ from datetime import date
 import pytest
 
 from app.analytics.nutrition import (
+    DayStatus,
+    LoggingCompleteness,
     Nutrients,
     average_daily_calories,
     calories_implausibly_low,
+    classify_day,
+    day_statuses,
     estimate_expenditure,
     logging_adherence_percent,
+    logging_completeness,
     macro_calories,
     scale_nutrients,
+    target_adherence_percent,
+    target_gap_kcal,
 )
 
 
@@ -66,6 +73,62 @@ def test_average_is_unknown_when_nothing_is_logged() -> None:
 )
 def test_logging_adherence_percent(logged: int, total: int, expected: float) -> None:
     assert logging_adherence_percent(logged, total) == expected
+
+
+@pytest.mark.parametrize(
+    ("calories", "target", "expected"),
+    [
+        (None, 2000, DayStatus.MISSING),  # nothing logged
+        (999, 2000, DayStatus.PARTIAL),  # just under half
+        (1000, 2000, DayStatus.COMPLETE),  # exactly half
+        (3500, 2000, DayStatus.COMPLETE),  # over target is still a fully logged day
+        (0, 2000, DayStatus.PARTIAL),  # a zero-calorie entry (e.g. black coffee) alone
+        (300, 0, DayStatus.COMPLETE),  # no target to compare against
+    ],
+)
+def test_classify_day(calories: float | None, target: float, expected: DayStatus) -> None:
+    assert classify_day(calories, target) is expected
+
+
+def test_today_is_in_progress_whatever_was_logged() -> None:
+    assert classify_day(None, 2000, in_progress=True) is DayStatus.IN_PROGRESS
+    assert classify_day(300, 2000, in_progress=True) is DayStatus.IN_PROGRESS
+
+
+def test_day_statuses_cover_every_day_and_leave_today_in_progress() -> None:
+    today = date(2024, 1, 4)
+    logged = {date(2024, 1, 1): 2000, date(2024, 1, 2): 400}
+    statuses = day_statuses(logged, date(2024, 1, 1), today, 2000, today)
+    assert statuses == {
+        date(2024, 1, 1): DayStatus.COMPLETE,
+        date(2024, 1, 2): DayStatus.PARTIAL,
+        date(2024, 1, 3): DayStatus.MISSING,
+        today: DayStatus.IN_PROGRESS,
+    }
+    assert logging_completeness(statuses.values()) == LoggingCompleteness(complete=1, partial=1, missing=1)
+
+
+@pytest.mark.parametrize(
+    ("logged", "expected"),
+    [
+        ([2000, 2200, 1800], 100.0),  # both edges of ±10% count
+        ([2000, 2201, 1799, 900], 25.0),  # just outside either edge, and a partial day
+        ([], None),  # nothing logged: unknown, not 0%
+    ],
+)
+def test_target_adherence_percent(logged: list[float], expected: float | None) -> None:
+    assert target_adherence_percent(logged, 2000) == expected
+
+
+def test_target_adherence_needs_a_target() -> None:
+    assert target_adherence_percent([1500], 0) is None
+
+
+def test_target_gap_counts_partial_days_as_real_intake() -> None:
+    # 2000 on target, 1500 is 500 under, a 600 kcal partial day is 1400 under.
+    assert target_gap_kcal([2000, 1500, 600], 2000) == -1900
+    assert target_gap_kcal([2300], 2000) == 300
+    assert target_gap_kcal([], 2000) == 0
 
 
 def test_losing_weight_means_expenditure_exceeded_intake() -> None:

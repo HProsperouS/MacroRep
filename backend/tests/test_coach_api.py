@@ -187,6 +187,37 @@ def test_coach_messages_are_bounded(
     assert response.status_code == expected
 
 
+def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
+    headers = _new_user(client)
+    for days_ago in (0, 1, 3, 4, 5, 6):
+        _log_food(client, headers, days_ago=days_ago)
+    # A light day, logged under half the 2000 kcal target: still counted as eaten.
+    light_day = client.post(
+        "/api/food-log/entries",
+        headers=headers,
+        json={
+            "date": (date.today() - timedelta(days=2)).isoformat(),
+            "meal": "lunch",
+            "name": "Soup",
+            "amountLabel": "1 bowl",
+            "source": "quick-add",
+            "calories": 600,
+            "protein": 30,
+            "carbs": 70,
+            "fat": 20,
+        },
+    )
+    assert light_day.status_code == 201
+    _weigh_in(client, headers, days_ago=6, weight_kg=80)
+    _weigh_in(client, headers, days_ago=0, weight_kg=80)
+
+    check_in = _start(client, headers, "gap").json()
+    stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
+    assert stats["Vs target"] == "-1,400 kcal"
+    assert "1,400 kcal under target" in check_in["summary"]
+    assert "1 of them fell under half the target" in check_in["summary"]
+
+
 def test_pending_proposals_block_a_new_check_in(client: TestClient) -> None:
     headers = _new_user(client)
     # Every day logged (100% adherence) and the trend dropping 0.2 kg against a

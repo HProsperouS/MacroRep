@@ -156,6 +156,8 @@ async def seed_demo_data() -> None:
                 avg_calories=2410,
                 target_calories=2350,
                 adherence_percent=85,
+                partial_days=0,
+                target_gap_kcal=360,
                 workouts_done=3,
                 workouts_planned=3,
                 weight_change_kg=-0.3,

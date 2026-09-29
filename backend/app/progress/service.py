@@ -7,9 +7,19 @@ request from the owning domains' own records.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, timedelta
 
-from app.analytics.nutrition import average_daily_calories, estimate_expenditure, logging_adherence_percent
+from app.analytics.nutrition import (
+    DayStatus,
+    average_daily_calories,
+    day_statuses,
+    estimate_expenditure,
+    logging_adherence_percent,
+    logging_completeness,
+    target_adherence_percent,
+    target_gap_kcal,
+)
 from app.analytics.training import percent_change, week_start
 from app.analytics.weight import rate_per_week
 from app.body.service import trend_by_date
@@ -22,6 +32,8 @@ from .repository import ProgressRepository
 from .schemas import (
     CheckInHistoryItem,
     DailyCalories,
+    DailyCaloriesResponse,
+    LoggingSummary,
     ProgressRange,
     ProgressResponse,
     StrengthLift,
@@ -83,9 +95,18 @@ class ProgressService:
         target_calories = profile.target_calories if profile else 2000
 
         calories_by_date = await self.repository.daily_calories(actor.actor_id, date_from, date_to)
-        logged_days = len([d for d in calories_by_date if d <= today])
-        elapsed_days = max((min(today, date_to) - date_from).days + 1, 1)
-        adherence_percent = logging_adherence_percent(logged_days, elapsed_days)
+        status_by_date = day_statuses(calories_by_date, date_from, date_to, target_calories, today)
+        completeness = logging_completeness(status_by_date.values())
+        logged_days = completeness.complete + completeness.partial
+        adherence_percent = logging_adherence_percent(logged_days, sum(completeness))
+        finished_logged = _finished_logged_calories(calories_by_date, status_by_date)
+        logging = LoggingSummary(
+            complete_days=completeness.complete,
+            partial_days=completeness.partial,
+            missing_days=completeness.missing,
+            target_adherence_percent=target_adherence_percent(finished_logged, target_calories),
+            target_gap_kcal=target_gap_kcal(finished_logged, target_calories),
+        )
         avg_calories = average_daily_calories(calories_by_date)
         expenditure_kcal_per_day = estimate_expenditure(
             avg_calories if avg_calories is not None else target_calories, change_kg, days_in_range
@@ -157,6 +178,7 @@ class ProgressService:
             ),
             expenditure_kcal_per_day=expenditure_kcal_per_day,
             adherence_percent=adherence_percent,
+            logging=logging,
             workouts=WorkoutsSummary(done=workouts_done, planned=workouts_planned),
             volume=VolumeSummary(
                 weeks=weeks,
@@ -168,14 +190,31 @@ class ProgressService:
             check_ins=check_ins,
         )
 
-    async def get_daily_calories(self, actor: ActorContext, days: int) -> list[DailyCalories]:
+    async def get_daily_calories(self, actor: ActorContext, days: int) -> DailyCaloriesResponse:
         today = date.today()
         start = today - timedelta(days=days - 1)
         calories_by_date = await self.repository.daily_calories(actor.actor_id, start, today)
-        return [
-            DailyCalories(
-                date=start + timedelta(days=offset),
-                calories=calories_by_date.get(start + timedelta(days=offset), 0),
-            )
-            for offset in range(days)
-        ]
+        profile = await self.profiles.get(actor.actor_id)
+        target_calories = profile.target_calories if profile else 2000
+        status_by_date = day_statuses(calories_by_date, start, today, target_calories, today)
+        finished_logged = _finished_logged_calories(calories_by_date, status_by_date)
+        return DailyCaloriesResponse(
+            days=[
+                DailyCalories(date=day, calories=calories_by_date.get(day, 0), status=status)
+                for day, status in status_by_date.items()
+            ],
+            target_calories=target_calories,
+            target_gap_kcal=target_gap_kcal(finished_logged, target_calories),
+        )
+
+
+def _finished_logged_calories(
+    calories_by_date: Mapping[date, int], statuses: Mapping[date, DayStatus]
+) -> list[int]:
+    """Intake of each logged day that's over: today is left out until it ends."""
+
+    return [
+        calories_by_date[day]
+        for day, status in statuses.items()
+        if status in (DayStatus.COMPLETE, DayStatus.PARTIAL)
+    ]

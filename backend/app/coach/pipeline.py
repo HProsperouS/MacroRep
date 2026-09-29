@@ -46,6 +46,8 @@ class CheckInDraft:
 
 _CALORIE_ADJUST_STEP = 50
 _ADHERENCE_HIGH = 80
+# A week's total shortfall below this is within normal day-to-day noise.
+_NOTABLE_WEEKLY_GAP_KCAL = 500
 
 
 def draft_check_in(
@@ -54,6 +56,8 @@ def draft_check_in(
     avg_calories: float,
     target_calories: int,
     adherence_percent: float,
+    partial_days: int,
+    target_gap_kcal: int,
     workouts_done: int,
     workouts_planned: int,
     weight_change_kg: float,
@@ -75,7 +79,7 @@ def draft_check_in(
         {
             "id": "analyze",
             "title": "Analyze adherence & trend",
-            "detail": f"{adherence_percent:.0f}% logging adherence.",
+            "detail": f"{adherence_percent:.0f}% of days logged, {partial_days} under half the target.",
             "status": "done",
         },
         {
@@ -94,10 +98,18 @@ def draft_check_in(
         f"with {adherence_percent:.0f}% of days logged and {workouts_done}/{workouts_planned} "
         "planned workouts completed."
     )
+    if target_gap_kcal <= -_NOTABLE_WEEKLY_GAP_KCAL:
+        summary += f" Logged days came in {-target_gap_kcal:,} kcal under target in total."
+        if partial_days:
+            summary += (
+                f" {partial_days} of them fell under half the target; if some food went unlogged,"
+                " the real shortfall is smaller."
+            )
 
     stats = [
         {"label": "Avg calories", "value": f"{avg_calories:.0f} kcal"},
-        {"label": "Adherence", "value": f"{adherence_percent:.0f}%"},
+        {"label": "Vs target", "value": f"{target_gap_kcal:+,} kcal"},
+        {"label": "Days logged", "value": f"{adherence_percent:.0f}%"},
         {"label": "Workouts", "value": f"{workouts_done}/{workouts_planned}"},
         {"label": "Weight change", "value": f"{weight_change_kg:+.2f} kg"},
     ]
@@ -123,7 +135,9 @@ def draft_check_in(
                 evidence=[
                     f"Trend weight changed {weight_change_kg:+.2f} kg vs "
                     f"a {goal_rate_kg_per_week:+.2f} kg/week goal.",
-                    f"Logging adherence was {adherence_percent:.0f}%, high enough to trust the intake data.",
+                    f"Food was logged on {adherence_percent:.0f}% of days, enough to trust the intake data.",
+                    f"Logged days totalled {target_gap_kcal:+,} kcal against target"
+                    + (f", with {partial_days} under half the target." if partial_days else "."),
                 ],
                 reviewer_note="Placeholder rule-based proposal — replace with the multi-agent pipeline.",
             )

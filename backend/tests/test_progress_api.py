@@ -10,6 +10,11 @@ from tests.helpers import register_user as _new_user
 
 def _log_session(client: TestClient, headers: dict[str, str], day: date, weight_kg: float, reps: int) -> None:
     started = datetime.combine(day, time(12, 0), tzinfo=UTC)
+    finished = started + timedelta(hours=1)
+    if day == date.today():
+        # Noon may still be ahead, and a workout can't finish in the future.
+        finished = datetime.now(UTC)
+        started = finished - timedelta(minutes=1)
     response = client.post(
         "/api/workouts/sessions",
         headers=headers,
@@ -17,7 +22,7 @@ def _log_session(client: TestClient, headers: dict[str, str], day: date, weight_
             "planId": None,
             "name": "Session",
             "startedAt": started.isoformat(),
-            "finishedAt": (started + timedelta(hours=1)).isoformat(),
+            "finishedAt": finished.isoformat(),
             "exercises": [
                 {
                     "exerciseId": "exercise-bench-press",
@@ -69,4 +74,77 @@ def test_progress_rejects_bad_range(client: TestClient, auth_headers: dict[str, 
 def test_daily_calories(client: TestClient, auth_headers: dict[str, str]) -> None:
     response = client.get("/api/nutrition/daily-calories", headers=auth_headers, params={"days": 7})
     assert response.status_code == 200
-    assert len(response.json()) == 7
+    assert len(response.json()["days"]) == 7
+
+
+def _set_calorie_target(client: TestClient, headers: dict[str, str], calories: int) -> None:
+    response = client.put(
+        "/api/nutrition/targets",
+        headers=headers,
+        json={"calories": calories, "protein": 150, "carbs": 200, "fat": 60},
+    )
+    assert response.status_code == 200
+
+
+def _log_calories(client: TestClient, headers: dict[str, str], days_ago: int, calories: int) -> None:
+    response = client.post(
+        "/api/food-log/entries",
+        headers=headers,
+        json={
+            "date": (date.today() - timedelta(days=days_ago)).isoformat(),
+            "meal": "lunch",
+            "name": "Test meal",
+            "amountLabel": "1 plate",
+            "source": "quick-add",
+            "calories": calories,
+            "protein": 0,
+            "carbs": 0,
+            "fat": 0,
+        },
+    )
+    assert response.status_code == 201
+
+
+def _log_mixed_week(client: TestClient) -> dict[str, str]:
+    """A 2000 kcal target with one complete, one under-target, and one partial day, plus a snack today."""
+
+    headers = _new_user(client)
+    _set_calorie_target(client, headers, 2000)
+    _log_calories(client, headers, days_ago=1, calories=2000)  # complete, on target
+    _log_calories(client, headers, days_ago=2, calories=1500)  # complete, 500 under
+    _log_calories(client, headers, days_ago=3, calories=600)  # partial: under half the target
+    _log_calories(client, headers, days_ago=0, calories=300)  # today: in progress, not judged
+    return headers
+
+
+def test_progress_reports_logging_completeness_and_the_gap_to_target(client: TestClient) -> None:
+    headers = _log_mixed_week(client)
+
+    body = client.get("/api/progress", headers=headers, params={"range": "1M"}).json()
+    # 1M is 30 days ending today; the 29 finished ones are judged.
+    assert body["logging"] == {
+        "completeDays": 2,
+        "partialDays": 1,
+        "missingDays": 26,
+        "targetAdherencePercent": 33.3,  # only the 2000 kcal day is within ±10%
+        "targetGapKcal": -1900,  # the partial day's 600 kcal counts as eaten
+    }
+    assert body["adherencePercent"] == 10.3  # 3 of 29 finished days logged
+
+
+def test_daily_calories_label_each_day_and_total_the_gap(client: TestClient) -> None:
+    headers = _log_mixed_week(client)
+
+    body = client.get("/api/nutrition/daily-calories", headers=headers, params={"days": 7}).json()
+    assert body["targetCalories"] == 2000
+    assert body["targetGapKcal"] == -1900
+    assert [day["status"] for day in body["days"]] == [
+        "missing",
+        "missing",
+        "missing",
+        "partial",
+        "complete",
+        "complete",
+        "in-progress",
+    ]
+    assert body["days"][-1]["calories"] == 300

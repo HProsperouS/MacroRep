@@ -9,7 +9,14 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.nutrition import average_daily_calories, logging_adherence_percent
+from app.analytics.nutrition import (
+    DayStatus,
+    average_daily_calories,
+    day_statuses,
+    logging_adherence_percent,
+    logging_completeness,
+    target_gap_kcal,
+)
 from app.analytics.weight import trend_on_or_before
 from app.body.service import trend_by_date
 from app.identity.dependencies import ActorContext
@@ -104,6 +111,8 @@ class CoachService:
             avg_calories=cast(float, snapshot["avg_calories"]),
             target_calories=cast(int, snapshot["target_calories"]),
             adherence_percent=cast(float, snapshot["adherence_percent"]),
+            partial_days=cast(int, snapshot["partial_days"]),
+            target_gap_kcal=cast(int, snapshot["target_gap_kcal"]),
             workouts_done=cast(int, snapshot["workouts_done"]),
             workouts_planned=cast(int, snapshot["workouts_planned"]),
             weight_change_kg=cast(float, snapshot["weight_change_kg"]),
@@ -181,15 +190,28 @@ class CoachService:
         trend_end = trends[weigh_ins_in_window[-1].log_date]
 
         profile = await self.profiles.get(owner_id)
+        target_calories = profile.target_calories if profile else _FALLBACK_TARGET_CALORIES
         # Non-None: the data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days.
         avg_calories = cast(float, average_daily_calories(calories_by_date))
+        # `end` is today: still being logged, so it's left out of completeness and the target gap.
+        statuses = day_statuses(calories_by_date, start, end, target_calories, end)
+        completeness = logging_completeness(statuses.values())
+        finished_logged = [
+            calories_by_date[day]
+            for day, day_status in statuses.items()
+            if day_status in (DayStatus.COMPLETE, DayStatus.PARTIAL)
+        ]
         return {
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
             "avg_calories": round(avg_calories, 1),
-            "target_calories": profile.target_calories if profile else _FALLBACK_TARGET_CALORIES,
+            "target_calories": target_calories,
             "food_log_days": len(calories_by_date),
             "adherence_percent": logging_adherence_percent(len(calories_by_date), CHECK_IN_WINDOW_DAYS),
+            "complete_days": completeness.complete,
+            "partial_days": completeness.partial,
+            "missing_days": completeness.missing,
+            "target_gap_kcal": target_gap_kcal(finished_logged, target_calories),
             "weigh_ins": len(weigh_ins_in_window),
             "weight_change_kg": round(trend_end - trend_start, 2),
             "goal_rate_kg_per_week": float(profile.weekly_rate_kg) if profile else 0.0,

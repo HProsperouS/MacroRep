@@ -80,7 +80,10 @@ export default function ProgressPage() {
 }
 
 function ProgressContent({ data }: { data: ProgressResponse }) {
-  const { weight, volume } = data
+  const { weight, volume, logging } = data
+  const loggedDays = logging.completeDays + logging.partialDays
+  // Partial days count as eaten, so a light week shows as a real shortfall.
+  const avgGapKcal = loggedDays > 0 ? logging.targetGapKcal / loggedDays : null
   const volumeData = useMemo(
     () =>
       volume.weeks.map((week) => ({
@@ -99,7 +102,7 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
   return (
     <>
       <Card>
-        <CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-3 xl:grid-cols-5">
+        <CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-3 xl:grid-cols-6">
           <Stat label="Trend weight" value={formatNumber(weight.currentTrendKg, 1)} unit="kg" hint={`${formatSigned(weight.changeKg)} kg this period`} />
           <Stat
             label="Rate"
@@ -111,7 +114,18 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
               </span>
             }
           />
-          <Stat label="Adherence" value={data.adherencePercent} unit="%" hint="Days within ±10% of target" />
+          <Stat
+            label="Days logged"
+            value={data.adherencePercent}
+            unit="%"
+            hint={`${logging.completeDays} complete · ${logging.partialDays} under half target`}
+          />
+          <Stat
+            label="On target"
+            value={logging.targetAdherencePercent ?? "—"}
+            unit={logging.targetAdherencePercent != null ? "%" : undefined}
+            hint={avgGapKcal != null ? `${formatSigned(avgGapKcal, 0)} kcal / logged day vs target` : "Logged days within ±10%"}
+          />
           <Stat label="Workouts" value={`${data.workouts.done} / ${data.workouts.planned}`} hint="Planned sessions done" />
           <Stat
             label="Volume"

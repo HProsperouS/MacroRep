@@ -1,8 +1,8 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
 
 import { foodApi, type CreateCustomFoodInput, type CreateFoodEntryInput, type FoodLogResponse, type UpdateFoodEntryInput } from "@/api/food-api"
-import { foodKeys } from "@/api/query-keys"
+import { foodKeys, progressKeys } from "@/api/query-keys"
 import type { FoodEntry } from "@/types/food"
 
 type NewFoodEntry = Omit<FoodEntry, "id">
@@ -70,7 +70,7 @@ export function useAddFoodEntry(date: Date) {
     onError: (_error, _entry, context) => {
       queryClient.setQueryData(queryKey, context?.previous)
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => Promise.all([queryClient.invalidateQueries({ queryKey }), refreshIntakeViews(queryClient)]),
   })
 }
 
@@ -92,7 +92,7 @@ export function useRemoveFoodEntry(date: Date) {
     onError: (_error, _entryId, context) => {
       queryClient.setQueryData(queryKey, context?.previous)
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => Promise.all([queryClient.invalidateQueries({ queryKey }), refreshIntakeViews(queryClient)]),
   })
 }
 
@@ -102,12 +102,16 @@ export function useUpdateFoodEntry() {
   return useMutation({
     mutationFn: ({ entryId, input }: { entryId: string; input: UpdateFoodEntryInput }) => foodApi.updateEntry(entryId, input),
     // Every day's log, not just this one: the entry may have moved to another day.
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: foodKeys.logs() }),
-        queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "daily-calories"] }),
-      ]),
+    onSuccess: () => Promise.all([queryClient.invalidateQueries({ queryKey: foodKeys.logs() }), refreshIntakeViews(queryClient)]),
   })
+}
+
+/** Views computed from logged intake: the weekly calories card and the progress page. */
+function refreshIntakeViews(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "daily-calories"] }),
+    queryClient.invalidateQueries({ queryKey: progressKeys.all }),
+  ])
 }
 
 /** A single saved food, for re-scaling an entry logged from it. */

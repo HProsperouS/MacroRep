@@ -60,11 +60,58 @@ The mean calories over days **with food logged**. Unlogged days are excluded,
 not counted as zero: an unlogged day means "unknown", not "ate nothing"
 (`plan.md` §8.3). Returns no value when no day is logged.
 
+### Logging completeness
+
+Every day in a period gets one status (`plan.md` §8.3):
+
+| Status | Rule |
+|---|---|
+| missing | nothing logged |
+| partial | logged, but under 50% of the calorie target |
+| complete | logged, at least 50% of the calorie target (over target included) |
+| in progress | today, whatever was logged |
+
+Today is never judged: at 9 a.m. a logged breakfast would otherwise make every
+day read as partial. Counts, adherence, and the target gap below cover
+**finished days only**.
+
+"Partial" is only a label. A partial day's intake still counts everywhere
+(averages, expenditure, the target gap), because some days really are eaten
+well under target; the label flags that the day *may* be under-logged, not
+that it is. With no calorie target (0), no logged day is partial.
+
 ### Logging adherence
 
 ```
-adherence (%) = days with food logged ÷ days in period × 100, clamped to 0–100
+adherence (%) = finished days with food logged ÷ finished days × 100, clamped to 0–100
 ```
+
+Shown as **Days logged**. It measures logging consistency, not whether intake
+was on target.
+
+### Target adherence
+
+```
+on target (%) = logged days within ±10% of the calorie target ÷ logged days × 100
+```
+
+Unlogged days are left out (unknown, not off target). No value when nothing
+is logged or there is no target. Shown as **On target**.
+
+### Gap to target
+
+```
+target gap (kcal) = Σ (intake − calorie target) over finished logged days
+```
+
+Negative means under target. Unlogged days add nothing. Partial days count at
+their logged intake, so a week with light days shows as a real shortfall. The
+Home card shows it for the last 7 days, the check-in for its 7-day window, and
+the Progress page as an average per logged day.
+
+**Limitation:** every day is judged against the **current** calorie target,
+not the target in effect that day, because targets aren't versioned yet.
+Changing the target re-labels past days.
 
 ### Estimated energy expenditure
 

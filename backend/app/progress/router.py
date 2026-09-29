@@ -13,7 +13,7 @@ from app.profile.repository import ProfileRepository
 from app.shared.persistence import get_session
 
 from .repository import ProgressRepository
-from .schemas import DailyCalories, ProgressRange, ProgressResponse
+from .schemas import DailyCaloriesResponse, ProgressRange, ProgressResponse
 from .service import ProgressService
 
 router = APIRouter(prefix="/api", tags=["progress"])
@@ -40,8 +40,8 @@ async def get_progress(
     return await service.get_progress(actor, range)  # type: ignore[arg-type]
 
 
-@router.get("/nutrition/daily-calories", response_model=list[DailyCalories])
+@router.get("/nutrition/daily-calories", response_model=DailyCaloriesResponse)
 async def get_daily_calories(
     actor: ActorDep, service: ProgressServiceDep, days: Annotated[int, Query(ge=1, le=365)] = 14
-) -> list[DailyCalories]:
+) -> DailyCaloriesResponse:
     return await service.get_daily_calories(actor, days)

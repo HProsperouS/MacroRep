@@ -1,10 +1,12 @@
-"""Portion scaling, intake averages, logging adherence, and estimated energy expenditure."""
+"""Portion scaling, intake averages, logging adherence and completeness, target
+comparison, and estimated energy expenditure."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import date
+from collections.abc import Iterable, Mapping
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from enum import StrEnum
 from typing import NamedTuple
 
 # Approximate energy content of one kilogram of body-mass change. A widely
@@ -85,6 +87,91 @@ def logging_adherence_percent(logged_days: int, total_days: int) -> float:
     if total_days <= 0:
         return 0.0
     return round(min(max(logged_days / total_days, 0.0), 1.0) * 100, 1)
+
+
+class DayStatus(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    MISSING = "missing"
+    # Today: still being logged, so judging it would flag every morning as partial.
+    IN_PROGRESS = "in-progress"
+
+
+# A finished day logged under this share of the calorie target is "partial".
+PARTIAL_BELOW_TARGET_SHARE = 0.5
+# A logged day within this fraction of the calorie target counts as on target.
+ON_TARGET_TOLERANCE = 0.10
+
+
+def classify_day(calories: float | None, target_calories: float, *, in_progress: bool = False) -> DayStatus:
+    """How fully one day was logged.
+
+    ``calories`` is None when nothing was logged that day. A partial day is
+    only a label: its intake still counts as real everywhere else, since some
+    days are genuinely eaten under target, not just under-logged.
+    """
+
+    if in_progress:
+        return DayStatus.IN_PROGRESS
+    if calories is None:
+        return DayStatus.MISSING
+    if target_calories > 0 and calories < target_calories * PARTIAL_BELOW_TARGET_SHARE:
+        return DayStatus.PARTIAL
+    return DayStatus.COMPLETE
+
+
+def day_statuses(
+    calories_by_date: Mapping[date, float], start: date, end: date, target_calories: float, today: date
+) -> dict[date, DayStatus]:
+    """Status of every day from ``start`` to ``end`` inclusive. ``today`` is in progress."""
+
+    statuses: dict[date, DayStatus] = {}
+    day = start
+    while day <= end:
+        statuses[day] = classify_day(calories_by_date.get(day), target_calories, in_progress=day == today)
+        day += timedelta(days=1)
+    return statuses
+
+
+class LoggingCompleteness(NamedTuple):
+    complete: int
+    partial: int
+    missing: int
+
+
+def logging_completeness(statuses: Iterable[DayStatus]) -> LoggingCompleteness:
+    """Counts of finished days by status; in-progress days aren't counted."""
+
+    counts = {status: 0 for status in DayStatus}
+    for status in statuses:
+        counts[status] += 1
+    return LoggingCompleteness(
+        counts[DayStatus.COMPLETE], counts[DayStatus.PARTIAL], counts[DayStatus.MISSING]
+    )
+
+
+def target_adherence_percent(logged_calories: Iterable[float], target_calories: float) -> float | None:
+    """Share of logged days within ±10% of the calorie target, as a percentage.
+
+    Unlogged days are left out (unknown, not off target). None when no day is
+    logged or there's no positive target to compare against.
+    """
+
+    days = list(logged_calories)
+    if not days or target_calories <= 0:
+        return None
+    tolerance = target_calories * ON_TARGET_TOLERANCE
+    on_target = sum(1 for calories in days if abs(calories - target_calories) <= tolerance)
+    return round(on_target / len(days) * 100, 1)
+
+
+def target_gap_kcal(logged_calories: Iterable[float], target_calories: float) -> int:
+    """Total intake minus target over the logged days: negative means under target.
+
+    Unlogged days add nothing, since their intake is unknown.
+    """
+
+    return round(sum(calories - target_calories for calories in logged_calories))
 
 
 def estimate_expenditure(avg_intake_kcal: float, trend_change_kg: float, days: int) -> float:

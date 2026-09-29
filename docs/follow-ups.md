@@ -22,12 +22,6 @@ because it only allows ±25% of the current value (±25% of 0 is 0).
 - **Open question:** raise only the form's upper limit to 10,000 (so a large
   athlete can set 6,500) while keeping the 1,000 floor?
 
-### Logging completeness (step 3)
-
-Needs a definition of a *complete*, *partial*, and *missing* day. Suggested:
-missing = nothing logged; partial = under 50% of the calorie target;
-complete = otherwise.
-
 ### Password rules
 
 Passwords only need 8–128 characters, so `password`, `12345678`, the account's
@@ -49,9 +43,6 @@ against a common-password list (NIST SP 800-63B), either a small built-in list
 - **Adding a weigh-in:** only possible from Home, and only while today has no
   weigh-in. Add an "Add weigh-in" button to the Progress page's Weigh-ins list
   and the Home trend-weight card, so missed days can always be filled in.
-- **Adherence label:** the Progress page's Adherence stat says "Days within
-  ±10% of target", but it measures days with *any* food logged. Fix the
-  wording, or compute the real figure, as part of step 3.
 - **Apply doesn't change the plan:** applying a coach proposal records the
   decision but doesn't update targets or the workout plan yet.
 
