@@ -2,9 +2,12 @@ import { Outlet } from "react-router-dom"
 
 import { BottomTabBar } from "@/components/layout/bottom-tab-bar"
 import { SidebarNav } from "@/components/layout/sidebar-nav"
+import { useSyncTimezone } from "@/hooks/use-profile"
 
 /** Sidebar on md+ screens, bottom tab bar on mobile. */
 export function AppShell() {
+  useSyncTimezone()
+
   return (
     <div className="flex min-h-dvh bg-background">
       <SidebarNav className="hidden md:flex" />

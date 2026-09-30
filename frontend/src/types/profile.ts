@@ -29,6 +29,8 @@ export type Profile = {
   experienceLevel: ExperienceLevel
   /** Equipment the user has access to; steers what the coach proposes. */
   equipment: Equipment[]
+  /** IANA timezone, e.g. "Asia/Singapore"; synced from the browser, decides the user's calendar days. */
+  timezone: string
 }
 
-export type UpdateProfileInput = Omit<Profile, "email">
+export type UpdateProfileInput = Omit<Profile, "email" | "timezone">

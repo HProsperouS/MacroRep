@@ -140,7 +140,7 @@ function CheckInView({ checkIn }: { checkIn: CheckIn }) {
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <p className="text-base leading-relaxed">{checkIn.summary}</p>
-              <dl className="grid grid-cols-2 gap-3 border-t pt-4 sm:grid-cols-3 xl:grid-cols-5">
+              <dl className="grid grid-cols-2 gap-3 border-t pt-4 sm:grid-cols-3 xl:grid-cols-6">
                 {checkIn.stats.map((stat) => (
                   <div key={stat.label} className="flex min-w-0 flex-col gap-1">
                     <dt className="text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">{stat.label}</dt>

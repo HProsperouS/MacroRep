@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.helpers import plan_every_day
 from tests.helpers import register_user as _new_user
 
 CHECK_INS = "/api/coach/check-ins"
@@ -189,6 +190,12 @@ def test_coach_messages_are_bounded(
 
 def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
     headers = _new_user(client)
+    targets = client.put(
+        "/api/nutrition/targets",
+        headers=headers,
+        json={"calories": 2000, "protein": 150, "carbs": 200, "fat": 60},
+    )
+    assert targets.status_code == 200
     for days_ago in (0, 1, 3, 4, 5, 6):
         _log_food(client, headers, days_ago=days_ago)
     # A light day, logged under half the 2000 kcal target: still counted as eaten.
@@ -216,6 +223,61 @@ def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
     assert stats["Vs target"] == "-1,400 kcal"
     assert "1,400 kcal under target" in check_in["summary"]
     assert "1 of them fell under half the target" in check_in["summary"]
+
+
+def _log_workout(client: TestClient, headers: dict[str, str], days_ago: int, rpe: float | None) -> None:
+    started = datetime.combine(date.today() - timedelta(days=days_ago), time(12, 0), tzinfo=UTC)
+    response = client.post(
+        "/api/workouts/sessions",
+        headers=headers,
+        json={
+            "planId": None,
+            "name": "Session",
+            "startedAt": started.isoformat(),
+            "finishedAt": (started + timedelta(hours=1)).isoformat(),
+            "exercises": [
+                {
+                    "exerciseId": "exercise-bench-press",
+                    "name": "Barbell Bench Press",
+                    "sets": [{"kind": "working", "weightKg": 60, "reps": 8, "rpe": rpe}],
+                }
+            ],
+        },
+    )
+    assert response.status_code == 201
+
+
+def test_check_in_reports_completion_and_effort(client: TestClient) -> None:
+    headers = _new_user(client)
+    plan_every_day(client, headers)
+    for days_ago in range(4):
+        _log_food(client, headers, days_ago=days_ago)
+    _weigh_in(client, headers, days_ago=6, weight_kg=80)
+    _weigh_in(client, headers, days_ago=0, weight_kg=80)
+    _log_workout(client, headers, days_ago=1, rpe=8)
+    _log_workout(client, headers, days_ago=2, rpe=9)
+
+    check_in = _start(client, headers, "effort").json()
+    stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
+    # 6 finished plan days in the 7-day window; today isn't due until trained.
+    assert stats["Workouts"] == "2/6 (33%)"
+    assert stats["Avg RPE"] == "8.5"
+    assert "Average effort was RPE 8.5." in check_in["summary"]
+
+
+def test_check_in_without_rpe_or_a_plan(client: TestClient) -> None:
+    headers = _new_user(client)
+    for days_ago in range(4):
+        _log_food(client, headers, days_ago=days_ago)
+    _weigh_in(client, headers, days_ago=6, weight_kg=80)
+    _weigh_in(client, headers, days_ago=0, weight_kg=80)
+    _log_workout(client, headers, days_ago=1, rpe=None)
+
+    check_in = _start(client, headers, "no-rpe").json()
+    stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
+    assert stats["Workouts"] == "1/0"
+    assert stats["Avg RPE"] == "—"
+    assert "RPE" not in check_in["summary"]
 
 
 def test_pending_proposals_block_a_new_check_in(client: TestClient) -> None:

@@ -12,7 +12,7 @@ from app.identity.repository import UserRepository
 from app.shared.persistence import get_session
 
 from .repository import ProfileRepository
-from .schemas import DailyTargets, ProfileRead, UpdateProfileInput, UpdateTargetsInput
+from .schemas import DailyTargets, ProfileRead, TimezoneInput, UpdateProfileInput, UpdateTargetsInput
 from .service import ProfileService
 
 router = APIRouter(prefix="/api", tags=["profile"])
@@ -36,6 +36,13 @@ async def update_profile(
     payload: UpdateProfileInput, actor: ActorDep, service: ProfileServiceDep
 ) -> ProfileRead:
     return await service.update(payload, actor)
+
+
+@router.put("/profile/timezone", response_model=ProfileRead)
+async def set_timezone(payload: TimezoneInput, actor: ActorDep, service: ProfileServiceDep) -> ProfileRead:
+    """Record the browser's IANA timezone, which decides the user's calendar days."""
+
+    return await service.set_timezone(payload, actor)
 
 
 @router.get("/nutrition/targets", response_model=DailyTargets)

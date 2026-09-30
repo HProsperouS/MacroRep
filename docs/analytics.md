@@ -173,20 +173,37 @@ shown. The API also has a `targetTonnes` field, currently always null,
 reserved for a real weekly volume goal (e.g. derived from the workout plan);
 the chart switches to it automatically once it is populated.
 
-### Average RPE per week
+### Average RPE
 
-The mean RPE of working sets that have an RPE logged, grouped by week. Sets
+The mean RPE of working sets that have an RPE logged, to one decimal. Sets
 without an RPE are left out: logging RPE is optional, and a missing value is
-not a low effort.
+not a low effort. No value when no set has an RPE.
+
+- **Per week** (grouped by the session's ISO week): shown in each weekly
+  volume bar's tooltip on the Progress page.
+- **Avg RPE stat:** the **current week so far**, compared with last week
+  **in RPE points** (8.0 → 8.5 is +0.5), not a percentage. Unlike volume,
+  which is a total and so reads low for a half-finished week, RPE is an
+  average: two sets at RPE 8 on a Wednesday already mean the week averages 8.
+  No value until a set with an RPE is logged this week, and no change unless
+  last week had RPE too.
+- **Check-in:** the mean over the check-in's 7-day window.
 
 ### Workout completion
 
 ```
-completion (%) = workouts done ÷ workouts planned × 100
+planned        = plan days that fell due in the period (see below)
+completion (%) = workouts done ÷ planned × 100
 ```
 
-Not capped at 100%: training more often than planned is reported as such.
-Returns no value when nothing was planned.
+- **Done** counts every logged session in the period, planned or not, so
+  an extra session can make up for a skipped one.
+- **Planned** counts each day in the period whose weekday has a planned
+  workout, up to yesterday. **Today** counts only once a workout has been
+  logged today, so a planned day isn't a miss before there's been a chance
+  to train.
+- Not capped at 100%: training more often than planned is reported as such.
+  No value when nothing was planned.
 
 ## Limitations
 
@@ -196,5 +213,14 @@ Returns no value when nothing was planned.
 - **7700 kcal/kg assumes typical tissue composition.** Early in a diet, water
   and glycogen changes make weight move faster than this predicts.
 - **e1RM is an estimate,** most reliable between 1 and 10 reps.
-- **Dates use the session's UTC start time.** A late-evening session in a
-  timezone ahead of or behind UTC can fall into the neighbouring day or week.
+- **Planned workouts use the current plan.** Plans aren't versioned yet, so
+  editing the plan changes the planned count, and completion, for past weeks
+  too.
+- **Days follow the user's timezone.** "Today", weeks, and which day a
+  workout belongs to use the IANA timezone on the profile, which the browser
+  keeps in sync (`app/shared/timezones.py`), so a 7 a.m. Monday session in
+  Singapore counts as Monday even though it is Sunday in UTC. Food and
+  weigh-in dates are the browser's local dates as sent. Until a user's
+  browser reports its zone, they are on UTC. Past sessions are re-dated in
+  the current zone, so someone who moves timezone may see a late-night
+  session shift a day.

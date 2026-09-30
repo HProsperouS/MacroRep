@@ -60,6 +60,8 @@ def draft_check_in(
     target_gap_kcal: int,
     workouts_done: int,
     workouts_planned: int,
+    completion_percent: float | None,
+    avg_rpe: float | None,
     weight_change_kg: float,
     goal_rate_kg_per_week: float,
 ) -> CheckInDraft:
@@ -105,12 +107,19 @@ def draft_check_in(
                 f" {partial_days} of them fell under half the target; if some food went unlogged,"
                 " the real shortfall is smaller."
             )
+    if avg_rpe is not None:
+        summary += f" Average effort was RPE {avg_rpe:.1f}."
+
+    workouts = f"{workouts_done}/{workouts_planned}"
+    if completion_percent is not None:
+        workouts += f" ({completion_percent:.0f}%)"
 
     stats = [
         {"label": "Avg calories", "value": f"{avg_calories:.0f} kcal"},
         {"label": "Vs target", "value": f"{target_gap_kcal:+,} kcal"},
         {"label": "Days logged", "value": f"{adherence_percent:.0f}%"},
-        {"label": "Workouts", "value": f"{workouts_done}/{workouts_planned}"},
+        {"label": "Workouts", "value": workouts},
+        {"label": "Avg RPE", "value": f"{avg_rpe:.1f}" if avg_rpe is not None else "—"},
         {"label": "Weight change", "value": f"{weight_change_kg:+.2f} kg"},
     ]
 

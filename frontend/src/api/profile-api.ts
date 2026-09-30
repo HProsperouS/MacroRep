@@ -13,6 +13,11 @@ export const profileApi = {
     return data
   },
 
+  async setTimezone(timezone: string) {
+    const { data } = await apiClient.put<Profile>("/profile/timezone", { timezone })
+    return data
+  },
+
   async updateTargets(input: DailyTargets) {
     const { data } = await apiClient.put<DailyTargets>("/nutrition/targets", input)
     return data

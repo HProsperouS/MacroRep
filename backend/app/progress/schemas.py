@@ -25,6 +25,8 @@ class WeightSummary(CamelModel):
 class VolumeWeek(CamelModel):
     week_start: date_
     tonnes: float
+    # Mean RPE of the week's working sets with an RPE logged; null if none was.
+    avg_rpe: float | None = None
 
 
 class VolumeSummary(CamelModel):
@@ -47,9 +49,20 @@ class StrengthLift(CamelModel):
     change_kg: float
 
 
+class RpeSummary(CamelModel):
+    # The current Monday-Sunday week so far; null until a set with an RPE is logged.
+    this_week_avg: float | None
+    # RPE points vs last week (e.g. +0.5); null unless both weeks have RPE logged.
+    change: float | None
+
+
 class WorkoutsSummary(CamelModel):
+    # Every logged session, planned or not.
     done: int
+    # Plan days that fell due in the range; today only once trained.
     planned: int
+    # done / planned, not capped at 100; null with nothing planned.
+    completion_percent: float | None
 
 
 class CheckInHistoryItem(CamelModel):
@@ -83,6 +96,7 @@ class ProgressResponse(CamelModel):
     logging: LoggingSummary
     workouts: WorkoutsSummary
     volume: VolumeSummary
+    rpe: RpeSummary
     strength: list[StrengthLift]
     check_ins: list[CheckInHistoryItem]
 

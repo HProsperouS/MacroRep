@@ -10,7 +10,7 @@ from app.identity.repository import UserRepository
 
 from .models import ExperienceLevel, Goal, Profile
 from .repository import ProfileRepository
-from .schemas import DailyTargets, ProfileRead, UpdateProfileInput
+from .schemas import DailyTargets, ProfileRead, TimezoneInput, UpdateProfileInput
 
 _DEFAULT_TARGETS = DailyTargets(calories=2200, protein=150, carbs=230, fat=70)
 
@@ -57,6 +57,7 @@ class ProfileService:
             training_days_per_week=profile.training_days_per_week,
             experience_level=profile.experience_level,
             equipment=list(profile.equipment),
+            timezone=profile.timezone,
         )
 
     async def get(self, actor: ActorContext) -> ProfileRead:
@@ -75,6 +76,15 @@ class ProfileService:
         profile.touch()
         await self.session.commit()
         await self.session.refresh(profile)
+        return await self._to_read(profile, actor)
+
+    async def set_timezone(self, payload: TimezoneInput, actor: ActorContext) -> ProfileRead:
+        profile = await self._get_or_create(actor)
+        if profile.timezone != payload.timezone:
+            profile.timezone = payload.timezone
+            profile.touch()
+            await self.session.commit()
+            await self.session.refresh(profile)
         return await self._to_read(profile, actor)
 
     async def get_targets(self, actor: ActorContext) -> DailyTargets:

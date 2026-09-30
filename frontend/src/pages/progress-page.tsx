@@ -80,7 +80,7 @@ export default function ProgressPage() {
 }
 
 function ProgressContent({ data }: { data: ProgressResponse }) {
-  const { weight, volume, logging } = data
+  const { weight, volume, logging, rpe } = data
   const loggedDays = logging.completeDays + logging.partialDays
   // Partial days count as eaten, so a light week shows as a real shortfall.
   const avgGapKcal = loggedDays > 0 ? logging.targetGapKcal / loggedDays : null
@@ -91,6 +91,7 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
         label: format(parseISO(week.weekStart), "d MMM"),
         tooltipTitle: `Week of ${format(parseISO(week.weekStart), "d MMM")}`,
         value: week.tonnes,
+        note: week.avgRpe != null ? `Avg RPE ${formatNumber(week.avgRpe, 1)}` : undefined,
       })),
     [volume.weeks],
   )
@@ -102,7 +103,7 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
   return (
     <>
       <Card>
-        <CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-3 xl:grid-cols-6">
+        <CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-4">
           <Stat label="Trend weight" value={formatNumber(weight.currentTrendKg, 1)} unit="kg" hint={`${formatSigned(weight.changeKg)} kg this period`} />
           <Stat
             label="Rate"
@@ -126,12 +127,21 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
             unit={logging.targetAdherencePercent != null ? "%" : undefined}
             hint={avgGapKcal != null ? `${formatSigned(avgGapKcal, 0)} kcal / logged day vs target` : "Logged days within ±10%"}
           />
-          <Stat label="Workouts" value={`${data.workouts.done} / ${data.workouts.planned}`} hint="Planned sessions done" />
+          <Stat
+            label="Workouts"
+            value={`${data.workouts.done} / ${data.workouts.planned}`}
+            hint={data.workouts.completionPercent != null ? `${formatNumber(data.workouts.completionPercent, 0)}% of planned` : "No plan set"}
+          />
           <Stat
             label="Volume"
             value={formatNumber(volume.lastWeekTonnes, 1)}
             unit="t / wk"
             hint={volume.changePercent != null ? `Last full week · ${formatSigned(volume.changePercent, 0)}% vs prior` : "Last full week"}
+          />
+          <Stat
+            label="Avg RPE"
+            value={rpe.thisWeekAvg != null ? formatNumber(rpe.thisWeekAvg, 1) : "—"}
+            hint={rpe.thisWeekAvg == null ? "No RPE logged this week yet" : rpe.change != null ? `This week · ${formatSigned(rpe.change, 1)} vs last week` : "This week"}
           />
         </CardContent>
       </Card>

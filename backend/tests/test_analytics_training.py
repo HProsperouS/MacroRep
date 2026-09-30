@@ -5,12 +5,14 @@ from datetime import date
 import pytest
 
 from app.analytics.training import (
+    average_rpe,
     average_rpe_by_week,
     best_estimated_one_rep_max,
     completion_percent,
     estimated_one_rep_max,
     is_personal_record,
     percent_change,
+    planned_sessions,
     volume_kg,
     week_start,
     weekly_volume_kg,
@@ -86,6 +88,42 @@ def test_weekly_volume_groups_sets_by_week() -> None:
 def test_average_rpe_by_week() -> None:
     entries = [(date(2024, 1, 1), 8.0), (date(2024, 1, 3), 9.0), (date(2024, 1, 8), 7.0)]
     assert average_rpe_by_week(entries) == {WEEK_1: 8.5, WEEK_2: 7.0}
+
+
+def test_average_rpe() -> None:
+    assert average_rpe([8, 8.5, 9]) == 8.5
+    assert average_rpe([7, 7.5, 7.5]) == 7.3  # 7.333… to one decimal
+    assert average_rpe([]) is None  # nothing logged: unknown, not 0
+
+
+MON_WED_FRI = {0, 2, 4}
+WEDNESDAY_WEEK_2 = date(2024, 1, 10)
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "trained_today", "expected"),
+    [
+        # Week 1 in full (Mon, Wed, Fri) plus week 2's Monday; Wednesday is today, not yet trained.
+        (WEEK_1, WEDNESDAY_WEEK_2, False, 4),
+        # Once a workout is logged today, today's planned session counts too.
+        (WEEK_1, WEDNESDAY_WEEK_2, True, 5),
+        # A range starting midweek only counts the plan days inside it.
+        (date(2024, 1, 3), date(2024, 1, 7), False, 2),
+        # Days after today haven't fallen due yet.
+        (WEEK_2, date(2024, 1, 14), False, 1),
+    ],
+)
+def test_planned_sessions(start: date, end: date, trained_today: bool, expected: int) -> None:
+    assert planned_sessions(MON_WED_FRI, start, end, WEDNESDAY_WEEK_2, trained_today) == expected
+
+
+def test_planned_sessions_ignores_today_when_it_is_not_a_plan_day() -> None:
+    tuesday = date(2024, 1, 9)
+    assert planned_sessions(MON_WED_FRI, WEEK_2, tuesday, tuesday, trained_today=True) == 1
+
+
+def test_no_plan_means_nothing_planned() -> None:
+    assert planned_sessions(set(), WEEK_1, WEDNESDAY_WEEK_2, WEDNESDAY_WEEK_2, trained_today=True) == 0
 
 
 @pytest.mark.parametrize(

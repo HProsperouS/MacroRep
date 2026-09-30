@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -11,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import best_estimated_one_rep_max, is_personal_record, volume_kg
 from app.identity.dependencies import ActorContext
+from app.profile.repository import ProfileRepository
+from app.shared.timezones import local_today, user_zone
 
 from .models import Exercise, SetKind, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutSession, WorkoutSetLog
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
@@ -47,11 +50,24 @@ class WorkoutService:
         exercises: ExerciseRepository,
         plans: WorkoutPlanRepository,
         sessions: WorkoutSessionRepository,
+        profiles: ProfileRepository,
     ) -> None:
         self.session = session
         self.exercises = exercises
         self.plans = plans
         self.sessions = sessions
+        self.profiles = profiles
+
+    async def _zone(self, actor: ActorContext) -> ZoneInfo:
+        profile = await self.profiles.get(actor.actor_id)
+        return user_zone(profile.timezone if profile else None)
+
+    async def _last_sessions(
+        self, actor: ActorContext, exercise_ids: list[str]
+    ) -> dict[str, tuple[str, list[WorkoutSetLog]]]:
+        return await self.exercises.last_session_sets_bulk(
+            actor.actor_id, exercise_ids, await self._zone(actor)
+        )
 
     async def search_exercises(
         self, actor: ActorContext, query: str, muscle: str | None, equipment: str | None, limit: int
@@ -61,7 +77,7 @@ class WorkoutService:
             rows = [row for row in rows if muscle in row.muscles]
         rows = rows[:limit]
 
-        last_sessions = await self.exercises.last_session_sets_bulk(actor.actor_id, [row.id for row in rows])
+        last_sessions = await self._last_sessions(actor, [row.id for row in rows])
         results = []
         for row in rows:
             found = last_sessions.get(row.id)
@@ -93,7 +109,7 @@ class WorkoutService:
         return _to_exercise_read(exercise, None)
 
     async def get_today(self, actor: ActorContext) -> PlannedWorkout | None:
-        day_of_week = date.today().weekday()
+        day_of_week = local_today(await self._zone(actor)).weekday()
         plan_entry = await self.plans.get_for_day(actor.actor_id, day_of_week)
         if plan_entry is None:
             return None
@@ -109,7 +125,7 @@ class WorkoutService:
         plan_exercises_by_entry = await self.plans.list_exercises_for_entries([entry.id for entry in entries])
         all_exercise_ids = [pe.exercise_id for pes in plan_exercises_by_entry.values() for pe in pes]
         exercises_by_id = await self.exercises.get_many(all_exercise_ids)
-        last_sessions = await self.exercises.last_session_sets_bulk(actor.actor_id, all_exercise_ids)
+        last_sessions = await self._last_sessions(actor, all_exercise_ids)
 
         result: list[WeekPlanDay] = []
         for day_of_week in range(7):
@@ -191,9 +207,7 @@ class WorkoutService:
         # Assemble from what we already have in memory (new_exercises, exercises_by_id)
         # instead of re-querying them via _build_planned_workout — only the last-session
         # data is actually new here.
-        last_sessions = await self.exercises.last_session_sets_bulk(
-            actor.actor_id, [e.exercise_id for e in payload.exercises]
-        )
+        last_sessions = await self._last_sessions(actor, [e.exercise_id for e in payload.exercises])
         plan = self._assemble_planned_workout(plan_entry, new_exercises, exercises_by_id, last_sessions)
         return WeekPlanDay(day_of_week=day_of_week, plan=plan)
 
@@ -210,7 +224,7 @@ class WorkoutService:
         plan_exercises = await self.plans.list_exercises(plan_entry.id)
         exercise_ids = [plan_exercise.exercise_id for plan_exercise in plan_exercises]
         exercises_by_id = await self.exercises.get_many(exercise_ids)
-        last_sessions = await self.exercises.last_session_sets_bulk(actor.actor_id, exercise_ids)
+        last_sessions = await self._last_sessions(actor, exercise_ids)
         return self._assemble_planned_workout(plan_entry, plan_exercises, exercises_by_id, last_sessions)
 
     def _assemble_planned_workout(
@@ -294,8 +308,10 @@ class WorkoutService:
             owner_id=actor.actor_id,
             plan_entry_id=payload.plan_id,
             name=payload.name,
-            started_at=payload.started_at,
-            finished_at=payload.finished_at,
+            # Stored as UTC whatever offset the client sent, so every reader can
+            # rely on it (SQLite keeps the wall-clock time and drops the offset).
+            started_at=payload.started_at.astimezone(UTC),
+            finished_at=payload.finished_at.astimezone(UTC),
         )
         await self.sessions.add_session(workout_session)
 

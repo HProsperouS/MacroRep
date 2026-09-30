@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import Field, field_validator, model_validator
 
 from app.shared.schema import CamelModel, validate_choice
+from app.shared.timezones import is_known_timezone
 from app.shared.validation import (
     MAX_ABS_WEEKLY_RATE_KG,
     MAX_CALORIES,
@@ -55,6 +56,18 @@ class ProfileRead(CamelModel):
     training_days_per_week: int
     experience_level: ExperienceLevel
     equipment: list[str]
+    timezone: str
+
+
+class TimezoneInput(CamelModel):
+    timezone: str = Field(min_length=1, max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def check_known(cls, value: str) -> str:
+        if not is_known_timezone(value):
+            raise ValueError("must be an IANA timezone name such as Asia/Singapore")
+        return value
 
 
 class UpdateProfileInput(CamelModel):

@@ -9,6 +9,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.persistence import Base, TimestampMixin
+from app.shared.timezones import DEFAULT_TIMEZONE
 
 
 class Goal(StrEnum):
@@ -38,6 +39,11 @@ class Profile(TimestampMixin, Base):
     # Equipment the user has access to, from workout.models.EQUIPMENT — used to
     # steer which exercises the (future) coach pipeline proposes.
     equipment: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # IANA name (e.g. "Asia/Singapore"), kept in sync from the browser. Decides
+    # the user's "today" and which day a workout falls on (app.shared.timezones).
+    timezone: Mapped[str] = mapped_column(
+        String(64), nullable=False, default=DEFAULT_TIMEZONE, server_default=DEFAULT_TIMEZONE
+    )
 
     target_calories: Mapped[int] = mapped_column(Integer, nullable=False)
     target_protein_g: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)

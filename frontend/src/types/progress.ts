@@ -13,6 +13,8 @@ export type VolumeWeek = {
   /** yyyy-MM-dd, Monday of the week */
   weekStart: string
   tonnes: number
+  /** Mean RPE of the week's working sets with an RPE logged; null if none was. */
+  avgRpe: number | null
 }
 
 export type StrengthLift = {
@@ -64,7 +66,14 @@ export type ProgressResponse = {
   /** Share of finished days with any food logged. */
   adherencePercent: number
   logging: LoggingSummary
-  workouts: { done: number; planned: number }
+  workouts: {
+    /** Every logged session, planned or not. */
+    done: number
+    /** Plan days that fell due in the range; today only once trained. */
+    planned: number
+    /** done / planned, not capped at 100; null with nothing planned. */
+    completionPercent: number | null
+  }
   volume: {
     weeks: VolumeWeek[]
     /** Mean of the weeks in range: a reference line, not a goal. */
@@ -75,6 +84,12 @@ export type ProgressResponse = {
     lastWeekTonnes: number
     /** lastWeekTonnes vs the week before it; null when that week had no volume. */
     changePercent: number | null
+  }
+  rpe: {
+    /** Average RPE over the current Monday–Sunday week so far; null until one is logged. */
+    thisWeekAvg: number | null
+    /** RPE points vs last week; null unless both weeks have RPE logged. */
+    change: number | null
   }
   strength: StrengthLift[]
   checkIns: CheckInHistoryItem[]

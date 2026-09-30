@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import estimated_one_rep_max
 from app.shared.db import escape_like
+from app.shared.timezones import local_date
 
 from .models import (
     Exercise,
@@ -49,10 +51,10 @@ class ExerciseRepository:
         return exercise
 
     async def last_session_sets_bulk(
-        self, owner_id: str, exercise_ids: list[str]
+        self, owner_id: str, exercise_ids: list[str], zone: ZoneInfo
     ) -> dict[str, tuple[str, list[WorkoutSetLog]]]:
         """The most recent logged session's sets for several exercises, in two queries
-        total instead of one round trip per exercise."""
+        total instead of one round trip per exercise. Dated in the user's ``zone``."""
 
         if not exercise_ids:
             return {}
@@ -98,7 +100,10 @@ class ExerciseRepository:
             sets_by_session.setdefault(row.session_id, []).append(row)
 
         return {
-            row.exercise_id: (row.started_at.date().isoformat(), sets_by_session.get(row.session_id, []))
+            row.exercise_id: (
+                local_date(row.started_at, zone).isoformat(),
+                sets_by_session.get(row.session_id, []),
+            )
             for row in latest_rows
         }
 

@@ -20,13 +20,20 @@ from app.analytics.nutrition import (
     target_adherence_percent,
     target_gap_kcal,
 )
-from app.analytics.training import percent_change, week_start
+from app.analytics.training import (
+    average_rpe_by_week,
+    completion_percent,
+    percent_change,
+    planned_sessions,
+    week_start,
+)
 from app.analytics.weight import rate_per_week
 from app.body.service import trend_by_date
 from app.coach.models import ProposalStatus
 from app.coach.repository import CoachRepository
 from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
+from app.shared.timezones import local_date, local_today, user_zone
 
 from .repository import ProgressRepository
 from .schemas import (
@@ -36,6 +43,7 @@ from .schemas import (
     LoggingSummary,
     ProgressRange,
     ProgressResponse,
+    RpeSummary,
     StrengthLift,
     VolumeSummary,
     VolumeWeek,
@@ -67,7 +75,9 @@ class ProgressService:
         return (today - timedelta(days=days - 1), today)
 
     async def get_progress(self, actor: ActorContext, progress_range: ProgressRange) -> ProgressResponse:
-        today = date.today()
+        profile = await self.profiles.get(actor.actor_id)
+        zone = user_zone(profile.timezone if profile else None)
+        today = local_today(zone)
         history = await self.repository.weigh_ins_up_to(actor.actor_id, today)
         earliest = history[0].log_date if history else None
         date_from, date_to = self._resolve_range(progress_range, earliest, today)
@@ -90,7 +100,6 @@ class ProgressService:
         change_kg = round(trend_at_end - trend_at_start, 2)
         rate_per_week_kg = rate_per_week(change_kg, days_in_range)
 
-        profile = await self.profiles.get(actor.actor_id)
         goal_rate = float(profile.weekly_rate_kg) if profile else 0.0
         target_calories = profile.target_calories if profile else 2000
 
@@ -112,13 +121,17 @@ class ProgressService:
             avg_calories if avg_calories is not None else target_calories, change_kg, days_in_range
         )
 
-        workouts_done = await self.repository.workouts_done(actor.actor_id, date_from, date_to)
-        planned_per_week = await self.repository.workouts_planned_per_week(actor.actor_id)
-        workouts_planned = round(planned_per_week * (days_in_range / 7))
+        workouts_done = await self.repository.workouts_done(actor.actor_id, date_from, date_to, zone)
+        trained_today = await self.repository.workouts_done(actor.actor_id, today, today, zone) > 0
+        workouts_planned = planned_sessions(
+            await self.repository.plan_weekdays(actor.actor_id), date_from, date_to, today, trained_today
+        )
 
-        weekly_volume = await self.repository.weekly_volume(actor.actor_id, date_from, date_to)
+        weekly_volume = await self.repository.weekly_volume(actor.actor_id, date_from, date_to, zone)
+        rpe_in_range = await self.repository.rpe_entries(actor.actor_id, date_from, date_to, zone)
+        weekly_rpe = average_rpe_by_week(rpe_in_range)
         weeks = [
-            VolumeWeek(week_start=week, tonnes=round(kg / 1000, 2))
+            VolumeWeek(week_start=week, tonnes=round(kg / 1000, 2), avg_rpe=weekly_rpe.get(week))
             for week, kg in sorted(weekly_volume.items())
         ]
         average_tonnes = round(sum(w.tonnes for w in weeks) / len(weeks), 2) if weeks else 0.0
@@ -127,13 +140,28 @@ class ProgressService:
         # comparison doesn't depend on the selected range covering both weeks.
         last_week = week_start(today) - timedelta(days=7)
         week_before = last_week - timedelta(days=7)
-        recent_volume = await self.repository.weekly_volume(
-            actor.actor_id, week_before, last_week + timedelta(days=6)
-        )
+        last_week_end = last_week + timedelta(days=6)
+        recent_volume = await self.repository.weekly_volume(actor.actor_id, week_before, last_week_end, zone)
         last_week_kg = recent_volume.get(last_week, 0.0)
         change_percent = percent_change(recent_volume.get(week_before, 0.0), last_week_kg)
+        # Unlike volume (a total, which a half-finished week understates), RPE is an
+        # average, so the current week is meaningful as soon as one set has an RPE.
+        this_week = week_start(today)
+        recent_rpe = average_rpe_by_week(
+            await self.repository.rpe_entries(actor.actor_id, last_week, today, zone)
+        )
+        this_week_rpe = recent_rpe.get(this_week)
+        last_week_rpe = recent_rpe.get(last_week)
+        rpe = RpeSummary(
+            this_week_avg=this_week_rpe,
+            change=(
+                round(this_week_rpe - last_week_rpe, 1)
+                if this_week_rpe is not None and last_week_rpe is not None
+                else None
+            ),
+        )
 
-        lifts = await self.repository.strength_lifts(actor.actor_id, date_from, date_to)
+        lifts = await self.repository.strength_lifts(actor.actor_id, date_from, date_to, zone)
         strength = [
             StrengthLift(
                 exercise=name, estimated1_rm_kg=round(current, 1), change_kg=round(current - before, 1)
@@ -141,7 +169,7 @@ class ProgressService:
             for name, (before, current) in lifts.items()
         ]
 
-        check_ins_rows = await self.repository.check_ins_in_range(actor.actor_id, date_from, date_to)
+        check_ins_rows = await self.repository.check_ins_in_range(actor.actor_id, date_from, date_to, zone)
         proposals_by_check_in = await self.coach.list_proposals_for_check_ins(
             [check_in.id for check_in in check_ins_rows]
         )
@@ -160,7 +188,7 @@ class ProgressService:
                 CheckInHistoryItem(
                     id=check_in.id,
                     week_label=check_in.week_label,
-                    date=check_in.created_utc.date(),
+                    date=local_date(check_in.created_utc, zone),
                     summary=check_in.summary,
                     outcome=outcome,
                 )
@@ -179,22 +207,27 @@ class ProgressService:
             expenditure_kcal_per_day=expenditure_kcal_per_day,
             adherence_percent=adherence_percent,
             logging=logging,
-            workouts=WorkoutsSummary(done=workouts_done, planned=workouts_planned),
+            workouts=WorkoutsSummary(
+                done=workouts_done,
+                planned=workouts_planned,
+                completion_percent=completion_percent(workouts_done, workouts_planned),
+            ),
             volume=VolumeSummary(
                 weeks=weeks,
                 average_tonnes=average_tonnes,
                 last_week_tonnes=round(last_week_kg / 1000, 2),
                 change_percent=change_percent,
             ),
+            rpe=rpe,
             strength=strength,
             check_ins=check_ins,
         )
 
     async def get_daily_calories(self, actor: ActorContext, days: int) -> DailyCaloriesResponse:
-        today = date.today()
+        profile = await self.profiles.get(actor.actor_id)
+        today = local_today(user_zone(profile.timezone if profile else None))
         start = today - timedelta(days=days - 1)
         calories_by_date = await self.repository.daily_calories(actor.actor_id, start, today)
-        profile = await self.profiles.get(actor.actor_id)
         target_calories = profile.target_calories if profile else 2000
         status_by_date = day_statuses(calories_by_date, start, today, target_calories, today)
         finished_logged = _finished_logged_calories(calories_by_date, status_by_date)

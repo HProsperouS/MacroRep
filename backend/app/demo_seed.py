@@ -160,6 +160,8 @@ async def seed_demo_data() -> None:
                 target_gap_kcal=360,
                 workouts_done=3,
                 workouts_planned=3,
+                completion_percent=100.0,
+                avg_rpe=8.0,
                 weight_change_kg=-0.3,
                 goal_rate_kg_per_week=-0.5,
             )

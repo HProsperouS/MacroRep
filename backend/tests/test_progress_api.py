@@ -5,10 +5,18 @@ from datetime import UTC, date, datetime, time, timedelta
 from fastapi.testclient import TestClient
 
 from app.analytics.training import week_start
+from tests.helpers import plan_every_day
 from tests.helpers import register_user as _new_user
 
 
-def _log_session(client: TestClient, headers: dict[str, str], day: date, weight_kg: float, reps: int) -> None:
+def _log_session(
+    client: TestClient,
+    headers: dict[str, str],
+    day: date,
+    weight_kg: float,
+    reps: int,
+    rpe: float | None = None,
+) -> None:
     started = datetime.combine(day, time(12, 0), tzinfo=UTC)
     finished = started + timedelta(hours=1)
     if day == date.today():
@@ -27,7 +35,7 @@ def _log_session(client: TestClient, headers: dict[str, str], day: date, weight_
                 {
                     "exerciseId": "exercise-bench-press",
                     "name": "Barbell Bench Press",
-                    "sets": [{"kind": "working", "weightKg": weight_kg, "reps": reps}],
+                    "sets": [{"kind": "working", "weightKg": weight_kg, "reps": reps, "rpe": rpe}],
                 }
             ],
         },
@@ -56,6 +64,57 @@ def test_volume_change_is_null_without_a_week_to_compare_against(client: TestCli
     volume = client.get("/api/progress", headers=headers, params={"range": "1M"}).json()["volume"]
     assert volume["lastWeekTonnes"] == 1.0
     assert volume["changePercent"] is None
+
+
+def test_completion_counts_plan_days_that_fell_due(client: TestClient) -> None:
+    headers = _new_user(client)
+    plan_every_day(client, headers)
+    _log_session(client, headers, date.today() - timedelta(days=1), 100, 5)
+    _log_session(client, headers, date.today() - timedelta(days=2), 100, 5)
+
+    # 1M is 30 days ending today: 29 finished plan days, and today isn't due until trained.
+    workouts = client.get("/api/progress", headers=headers, params={"range": "1M"}).json()["workouts"]
+    assert workouts == {"done": 2, "planned": 29, "completionPercent": 6.9}
+
+    _log_session(client, headers, date.today(), 100, 5)
+    workouts = client.get("/api/progress", headers=headers, params={"range": "1M"}).json()["workouts"]
+    assert workouts == {"done": 3, "planned": 30, "completionPercent": 10.0}
+
+
+def test_completion_is_null_without_a_plan(client: TestClient) -> None:
+    headers = _new_user(client)
+    _log_session(client, headers, date.today() - timedelta(days=1), 100, 5)
+
+    workouts = client.get("/api/progress", headers=headers, params={"range": "1M"}).json()["workouts"]
+    assert workouts == {"done": 1, "planned": 0, "completionPercent": None}
+
+
+def test_rpe_shows_this_week_so_far_against_last_week(client: TestClient) -> None:
+    headers = _new_user(client)
+    this_week = week_start(date.today())
+    last_week = this_week - timedelta(days=7)
+    _log_session(client, headers, last_week - timedelta(days=7), 100, 5, rpe=6)  # two weeks ago: not compared
+    _log_session(client, headers, last_week, 100, 5, rpe=7)
+    # Today is always in the current week, even on a Monday.
+    _log_session(client, headers, date.today(), 100, 5, rpe=8)
+    _log_session(client, headers, date.today(), 100, 5, rpe=9)
+    _log_session(client, headers, date.today(), 100, 5)  # no RPE: left out, not a 0
+
+    body = client.get("/api/progress", headers=headers, params={"range": "1M"}).json()
+    assert body["rpe"] == {"thisWeekAvg": 8.5, "change": 1.5}
+    rpe_by_week = {week["weekStart"]: week["avgRpe"] for week in body["volume"]["weeks"]}
+    assert rpe_by_week[this_week.isoformat()] == 8.5
+    assert rpe_by_week[last_week.isoformat()] == 7.0
+
+
+def test_rpe_is_null_until_logged_this_week(client: TestClient) -> None:
+    headers = _new_user(client)
+    _log_session(client, headers, week_start(date.today()) - timedelta(days=7), 100, 5, rpe=8)
+
+    assert client.get("/api/progress", headers=headers, params={"range": "1M"}).json()["rpe"] == {
+        "thisWeekAvg": None,
+        "change": None,
+    }
 
 
 def test_progress_smoke(client: TestClient, auth_headers: dict[str, str]) -> None:

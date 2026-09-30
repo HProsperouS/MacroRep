@@ -7,8 +7,9 @@ so a heavy warmup can neither inflate volume nor mask a genuine PR.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from datetime import date, timedelta
+from typing import cast
 
 
 def estimated_one_rep_max(weight_kg: float, reps: int) -> float | None:
@@ -67,20 +68,47 @@ def weekly_volume_kg(sets: Iterable[tuple[date, float, int]]) -> dict[date, floa
     return totals
 
 
-def average_rpe_by_week(entries: Iterable[tuple[date, float]]) -> dict[date, float]:
-    """Mean RPE per week from (session date, rpe) pairs, keyed by week start.
+def average_rpe(rpes: Iterable[float]) -> float | None:
+    """Mean RPE to one decimal, or None when none was logged.
 
     Sets without an RPE should not be passed in: logging RPE is optional, and a
     missing value is not a low effort.
     """
 
-    sums: dict[date, float] = {}
-    counts: dict[date, int] = {}
+    values = [float(rpe) for rpe in rpes]
+    if not values:
+        return None
+    return round(sum(values) / len(values), 1)
+
+
+def average_rpe_by_week(entries: Iterable[tuple[date, float]]) -> dict[date, float]:
+    """Mean RPE per week from (session date, rpe) pairs, keyed by week start."""
+
+    by_week: dict[date, list[float]] = {}
     for day, rpe in entries:
-        week = week_start(day)
-        sums[week] = sums.get(week, 0.0) + float(rpe)
-        counts[week] = counts.get(week, 0) + 1
-    return {week: round(sums[week] / counts[week], 1) for week in sums}
+        by_week.setdefault(week_start(day), []).append(rpe)
+    return {week: cast(float, average_rpe(rpes)) for week, rpes in by_week.items()}
+
+
+def planned_sessions(
+    plan_weekdays: Collection[int], start: date, end: date, today: date, trained_today: bool
+) -> int:
+    """Planned workouts that fell due from ``start`` to ``end`` inclusive.
+
+    Counts each day whose weekday (0=Monday) is in the plan, up to yesterday.
+    Today counts only once a workout has been logged, so a planned day isn't
+    a miss before there's been a chance to train.
+    """
+
+    count = 0
+    day = start
+    while day <= end and day < today:
+        if day.weekday() in plan_weekdays:
+            count += 1
+        day += timedelta(days=1)
+    if start <= today <= end and today.weekday() in plan_weekdays and trained_today:
+        count += 1
+    return count
 
 
 def completion_percent(done: int, planned: int) -> float | None:

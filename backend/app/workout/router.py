@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, st
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.identity.dependencies import ActorContext, get_current_actor
+from app.profile.repository import ProfileRepository
 from app.shared.persistence import get_session
 from app.shared.validation import MAX_SEARCH_LENGTH
 
@@ -33,6 +34,7 @@ def get_workout_service(session: Annotated[AsyncSession, Depends(get_session)]) 
         ExerciseRepository(session),
         WorkoutPlanRepository(session),
         WorkoutSessionRepository(session),
+        ProfileRepository(session),
     )
 
 

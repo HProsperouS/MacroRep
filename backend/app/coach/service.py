@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -17,11 +18,14 @@ from app.analytics.nutrition import (
     logging_completeness,
     target_gap_kcal,
 )
+from app.analytics.training import average_rpe, completion_percent, planned_sessions
 from app.analytics.weight import trend_on_or_before
 from app.body.service import trend_by_date
 from app.identity.dependencies import ActorContext
+from app.profile.models import Profile
 from app.profile.repository import ProfileRepository
 from app.progress.repository import ProgressRepository
+from app.shared.timezones import local_today, user_zone
 
 from . import pipeline
 from .models import CheckIn as CheckInModel
@@ -101,9 +105,11 @@ class CoachService:
                 "Your current check-in still has proposals to review. Apply or reject them first.",
             )
 
-        today = date.today()
+        profile = await self.profiles.get(actor.actor_id)
+        zone = user_zone(profile.timezone if profile else None)
+        today = local_today(zone)
         start = today - timedelta(days=CHECK_IN_WINDOW_DAYS - 1)
-        snapshot = await self._snapshot_week(actor.actor_id, start, today)
+        snapshot = await self._snapshot_week(actor.actor_id, profile, start, today, zone)
 
         week_label = f"Week {await self.repository.count_for_owner(actor.actor_id) + 1}"
         draft = pipeline.draft_check_in(
@@ -115,6 +121,8 @@ class CoachService:
             target_gap_kcal=cast(int, snapshot["target_gap_kcal"]),
             workouts_done=cast(int, snapshot["workouts_done"]),
             workouts_planned=cast(int, snapshot["workouts_planned"]),
+            completion_percent=cast("float | None", snapshot["completion_percent"]),
+            avg_rpe=cast("float | None", snapshot["avg_rpe"]),
             weight_change_kg=cast(float, snapshot["weight_change_kg"]),
             goal_rate_kg_per_week=cast(float, snapshot["goal_rate_kg_per_week"]),
         )
@@ -160,8 +168,13 @@ class CoachService:
         await self.session.commit()
         return await self._to_read(check_in), True
 
-    async def _snapshot_week(self, owner_id: str, start: date, end: date) -> dict[str, object]:
-        """Gather the week's metrics, refusing with 422 when there's too little data to judge."""
+    async def _snapshot_week(
+        self, owner_id: str, profile: Profile | None, start: date, end: date, zone: ZoneInfo
+    ) -> dict[str, object]:
+        """Gather the week's metrics, refusing with 422 when there's too little data to judge.
+
+        ``end`` is the user's today, in ``zone``.
+        """
 
         calories_by_date = await self.week_data.daily_calories(owner_id, start, end)
         history = await self.week_data.weigh_ins_up_to(owner_id, end)
@@ -189,7 +202,6 @@ class CoachService:
             trend_start = trends[weigh_ins_in_window[0].log_date]
         trend_end = trends[weigh_ins_in_window[-1].log_date]
 
-        profile = await self.profiles.get(owner_id)
         target_calories = profile.target_calories if profile else _FALLBACK_TARGET_CALORIES
         # Non-None: the data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days.
         avg_calories = cast(float, average_daily_calories(calories_by_date))
@@ -201,6 +213,15 @@ class CoachService:
             for day, day_status in statuses.items()
             if day_status in (DayStatus.COMPLETE, DayStatus.PARTIAL)
         ]
+        workouts_done = await self.week_data.workouts_done(owner_id, start, end, zone)
+        workouts_planned = planned_sessions(
+            await self.week_data.plan_weekdays(owner_id),
+            start,
+            end,
+            end,
+            trained_today=await self.week_data.workouts_done(owner_id, end, end, zone) > 0,
+        )
+        rpe_entries = await self.week_data.rpe_entries(owner_id, start, end, zone)
         return {
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
@@ -215,8 +236,10 @@ class CoachService:
             "weigh_ins": len(weigh_ins_in_window),
             "weight_change_kg": round(trend_end - trend_start, 2),
             "goal_rate_kg_per_week": float(profile.weekly_rate_kg) if profile else 0.0,
-            "workouts_done": await self.week_data.workouts_done(owner_id, start, end),
-            "workouts_planned": await self.week_data.workouts_planned_per_week(owner_id),
+            "workouts_done": workouts_done,
+            "workouts_planned": workouts_planned,
+            "completion_percent": completion_percent(workouts_done, workouts_planned),
+            "avg_rpe": average_rpe(rpe for _, rpe in rpe_entries),
         }
 
     async def _to_read(self, check_in: CheckInModel) -> CheckIn:
