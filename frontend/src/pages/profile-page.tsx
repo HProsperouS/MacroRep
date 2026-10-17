@@ -1,3 +1,5 @@
+import { LogOut } from "lucide-react"
+import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { apiErrorMessage } from "@/api/client"
@@ -5,12 +7,16 @@ import { PageHeader } from "@/components/layout/page-header"
 import { QueryError } from "@/components/layout/query-error"
 import { ProfileForm } from "@/components/profile/profile-form"
 import { TargetsForm } from "@/components/profile/targets-form"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useLogout } from "@/hooks/use-auth"
 import { useNutritionTargets } from "@/hooks/use-food-log"
 import { useProfile, useUpdateProfile, useUpdateTargets } from "@/hooks/use-profile"
 
 export default function ProfilePage() {
+  const navigate = useNavigate()
+  const logout = useLogout()
   const profile = useProfile()
   const targets = useNutritionTargets()
   const updateProfile = useUpdateProfile()
@@ -74,6 +80,17 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* The desktop sidebar already has Sign out. */}
+      <Button
+        variant="outline"
+        className="mt-6 h-11 w-full md:hidden"
+        disabled={logout.isPending}
+        onClick={() => logout.mutate(undefined, { onSettled: () => navigate("/login", { replace: true }) })}
+      >
+        <LogOut data-icon="inline-start" />
+        Sign out
+      </Button>
     </>
   )
 }

@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom"
 
-import { NAV_ITEMS } from "@/components/layout/nav-items"
+import { NAV_ITEMS, PROFILE_ITEM } from "@/components/layout/nav-items"
 import { cn } from "@/lib/utils"
 
 export function BottomTabBar({ className }: { className?: string }) {
@@ -11,7 +11,7 @@ export function BottomTabBar({ className }: { className?: string }) {
         className,
       )}
     >
-      {NAV_ITEMS.map(({ label, to, icon: Icon }) => (
+      {[...NAV_ITEMS, PROFILE_ITEM].map(({ label, to, icon: Icon }) => (
         <NavLink
           key={to}
           to={to}

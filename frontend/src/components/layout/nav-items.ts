@@ -1,4 +1,4 @@
-import { Dumbbell, House, Sparkles, TrendingUp, UtensilsCrossed, type LucideIcon } from "lucide-react"
+import { CircleUser, Dumbbell, House, Sparkles, TrendingUp, UtensilsCrossed, type LucideIcon } from "lucide-react"
 
 export type NavItem = {
   label: string
@@ -13,3 +13,5 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Coach", to: "/coach", icon: Sparkles },
   { label: "Progress", to: "/progress", icon: TrendingUp },
 ]
+
+export const PROFILE_ITEM: NavItem = { label: "Profile", to: "/profile", icon: CircleUser }
