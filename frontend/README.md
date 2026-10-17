@@ -17,7 +17,8 @@ One responsive codebase — bottom tab bar on mobile, sidebar on desktop.
 | Icons / toasts | lucide-react, sonner |
 | Lint | oxlint |
 | Charts | Recharts |
-| Planned | vite-plugin-pwa, Vitest + Testing Library, Playwright (installed, not set up yet) |
+| PWA | vite-plugin-pwa (installable; precaches the build only, never `/api`) |
+| Planned | Vitest + Testing Library, Playwright (installed, not set up yet) |
 
 ## Getting started
 
@@ -62,6 +63,7 @@ Anything prefixed `VITE_` is bundled into the browser — never put secrets here
 
 ```
 frontend/
+├── public/                 # Static files served as-is (PWA icons — placeholders, replace with final art)
 ├── src/
 │   ├── api/                # axios client and typed endpoint modules
 │   ├── components/
