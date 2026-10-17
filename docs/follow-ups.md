@@ -40,9 +40,6 @@ against a common-password list (NIST SP 800-63B), either a small built-in list
   locally; on AWS with several containers it needs a shared store (Redis) or
   an AWS WAF rate-based rule.
 
-- **Adding a weigh-in:** only possible from Home, and only while today has no
-  weigh-in. Add an "Add weigh-in" button to the Progress page's Weigh-ins list
-  and the Home trend-weight card, so missed days can always be filled in.
 - **Apply doesn't change the plan:** applying a coach proposal records the
   decision but doesn't update targets or the workout plan yet.
 

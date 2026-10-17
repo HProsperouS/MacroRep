@@ -1,5 +1,5 @@
 import { format, parseISO, subDays } from "date-fns"
-import { Pencil, Trash2 } from "lucide-react"
+import { Pencil, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -33,8 +33,9 @@ export function WeighInList({ from, to, className }: WeighInListProps) {
   const weighIns = useWeighIns(clamped ? earliest : from, to)
   const update = useUpdateWeighIn()
   const remove = useDeleteWeighIn()
-  const restore = useAddWeighIn()
+  const add = useAddWeighIn()
   const [editing, setEditing] = useState<{ weighIn: WeighIn; layout: OverlayLayout } | null>(null)
+  const [adding, setAdding] = useState<OverlayLayout | null>(null)
 
   function saveEdit(values: WeighInInput) {
     if (!editing) return
@@ -59,12 +60,22 @@ export function WeighInList({ from, to, className }: WeighInListProps) {
     )
   }
 
+  function saveNew(input: WeighInInput) {
+    add.mutate(input, {
+      onSuccess: () => {
+        setAdding(null)
+        toast.success("Weigh-in saved", { description: `${formatNumber(input.weightKg, 1)} kg on ${dayLabel(input.date)}` })
+      },
+      onError: (error) => toast.error("Couldn’t save your weigh-in", { description: apiErrorMessage(error) }),
+    })
+  }
+
   function deleteWeighIn(weighIn: WeighIn) {
     remove.mutate(weighIn.id, {
       onSuccess: () =>
         toast("Weigh-in deleted", {
           description: `${formatNumber(weighIn.weightKg, 1)} kg on ${dayLabel(weighIn.date)}`,
-          action: { label: "Undo", onClick: () => restore.mutate({ date: weighIn.date, weightKg: weighIn.weightKg }) },
+          action: { label: "Undo", onClick: () => add.mutate({ date: weighIn.date, weightKg: weighIn.weightKg }) },
         }),
       onError: (error) => toast.error("Couldn’t delete that weigh-in", { description: apiErrorMessage(error) }),
     })
@@ -75,7 +86,13 @@ export function WeighInList({ from, to, className }: WeighInListProps) {
       <CardHeader>
         <CardTitle>Weigh-ins</CardTitle>
         {clamped ? <CardDescription>Latest 12 months</CardDescription> : null}
-        {weighIns.data ? <CardAction className="text-xs text-muted-foreground">{weighIns.data.length} logged</CardAction> : null}
+        <CardAction className="flex items-center gap-3">
+          {weighIns.data ? <span className="text-xs text-muted-foreground">{weighIns.data.length} logged</span> : null}
+          <Button variant="outline" className="h-10" onClick={() => setAdding(isDesktop ? "dialog" : "drawer")}>
+            <Plus data-icon="inline-start" />
+            Add weigh-in
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent>
         {weighIns.isPending ? (
@@ -127,6 +144,16 @@ export function WeighInList({ from, to, className }: WeighInListProps) {
           </ul>
         )}
       </CardContent>
+
+      <ResponsiveOverlay
+        open={adding !== null}
+        onOpenChange={(open) => (open ? undefined : setAdding(null))}
+        layout={adding ?? "dialog"}
+        title="Add weigh-in"
+        description="Your trend weight smooths out daily swings from water and food."
+      >
+        <WeighInForm lastWeightKg={weighIns.data?.[0]?.weightKg} submitting={add.isPending} onCancel={() => setAdding(null)} onSubmit={saveNew} />
+      </ResponsiveOverlay>
 
       <ResponsiveOverlay
         open={editing !== null}

@@ -56,11 +56,13 @@ export default function HomePage() {
     })
   }
 
+  const openWeighIn = () => setWeighInLayout(isDesktop ? "dialog" : "drawer")
+
   const actionCards = (
     <>
       <CheckInBanner dismissed={checkInDismissed} onDismiss={() => setCheckInDismissed(true)} />
       <PlannedWorkoutCard />
-      <TodoCard missingMeal={missingMeal} needsWeighIn={needsWeighIn} onAddWeighIn={() => setWeighInLayout(isDesktop ? "dialog" : "drawer")} />
+      <TodoCard missingMeal={missingMeal} needsWeighIn={needsWeighIn} onAddWeighIn={openWeighIn} />
     </>
   )
 
@@ -79,7 +81,7 @@ export default function HomePage() {
         </div>
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-5 lg:gap-6">
           {isDesktop ? actionCards : null}
-          <TrendWeightCard data={progress.data} error={progress.error} onRetry={() => void progress.refetch()} />
+          <TrendWeightCard data={progress.data} error={progress.error} onRetry={() => void progress.refetch()} onAddWeighIn={openWeighIn} />
         </div>
       </div>
 

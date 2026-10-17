@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, Plus } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { WeightChart, WeightLegend } from "@/components/charts/weight-chart"
@@ -14,9 +14,10 @@ type TrendWeightCardProps = {
   data?: ProgressResponse
   error: unknown
   onRetry: () => void
+  onAddWeighIn: () => void
 }
 
-export function TrendWeightCard({ data, error, onRetry }: TrendWeightCardProps) {
+export function TrendWeightCard({ data, error, onRetry, onAddWeighIn }: TrendWeightCardProps) {
   return (
     <Card>
       <CardHeader>
@@ -40,6 +41,10 @@ export function TrendWeightCard({ data, error, onRetry }: TrendWeightCardProps) 
             </div>
             <WeightChart points={data.weight.points} height={96} compact />
             <WeightLegend />
+            <Button variant="outline" className="h-10" onClick={onAddWeighIn}>
+              <Plus data-icon="inline-start" />
+              Add weigh-in
+            </Button>
           </>
         ) : error ? (
           <QueryError title="Couldn’t load your weight trend" error={error} onRetry={onRetry} />
