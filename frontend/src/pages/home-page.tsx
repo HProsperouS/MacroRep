@@ -1,7 +1,5 @@
 import { format, parseISO } from "date-fns"
-import { CircleUser } from "lucide-react"
 import { useState } from "react"
-import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
 import { apiErrorMessage } from "@/api/client"
@@ -15,7 +13,6 @@ import { PageHeader } from "@/components/layout/page-header"
 import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
 import { WeighInForm } from "@/components/progress/weigh-in-form"
 import { StartWorkoutButton } from "@/components/workout/start-workout-button"
-import { Button } from "@/components/ui/button"
 import { useFoodLog } from "@/hooks/use-food-log"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
 import { useAddWeighIn, useProgress } from "@/hooks/use-progress"
@@ -72,17 +69,7 @@ export default function HomePage() {
       <PageHeader
         eyebrow={format(today, "EEEE, d MMMM")}
         title="Today"
-        actions={
-          isDesktop ? (
-            <StartWorkoutButton plan={todayWorkout.data} className="h-10" />
-          ) : (
-            <Button variant="outline" size="icon-lg" className="size-11 rounded-full" asChild>
-              <Link to="/profile" aria-label="Profile">
-                <CircleUser />
-              </Link>
-            </Button>
-          )
-        }
+        actions={isDesktop ? <StartWorkoutButton plan={todayWorkout.data} className="h-10" /> : undefined}
       />
 
       <div className="grid items-start gap-4 lg:grid-cols-12 lg:gap-6">

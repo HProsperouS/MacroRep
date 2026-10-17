@@ -16,7 +16,8 @@ One responsive codebase — bottom tab bar on mobile, sidebar on desktop.
 | Forms | React Hook Form + Zod |
 | Icons / toasts | lucide-react, sonner |
 | Lint | oxlint |
-| Planned | vite-plugin-pwa, Vitest + Testing Library, Playwright, Recharts |
+| Charts | Recharts |
+| Planned | vite-plugin-pwa, Vitest + Testing Library, Playwright (installed, not set up yet) |
 
 ## Getting started
 
@@ -30,17 +31,10 @@ npm run dev                 # http://localhost:5173
 
 The dev server proxies `/api` to `VITE_DEV_PROXY_TARGET` (default `http://127.0.0.1:8000`), so run the FastAPI backend alongside it.
 
-### Add remaining packages
-
-```bash
-npm i recharts @fontsource/barlow-condensed
-npm i -D vite-plugin-pwa vitest @testing-library/react @testing-library/jest-dom @testing-library/user-event jsdom @playwright/test
-```
-
 ### Add shadcn components
 
 ```bash
-npx shadcn@latest add button card input label select sheet dialog tabs switch badge progress skeleton sonner tooltip
+npx shadcn@latest add <component>
 ```
 
 Components are generated into `src/components/ui` — edit them freely.
@@ -68,11 +62,8 @@ Anything prefixed `VITE_` is bundled into the browser — never put secrets here
 
 ```
 frontend/
-├── e2e/                    # Playwright end-to-end tests
-├── public/                 # Static files served as-is (favicon, PWA icons)
 ├── src/
 │   ├── api/                # axios client and typed endpoint modules
-│   ├── assets/             # Images and files imported by code
 │   ├── components/
 │   │   ├── ui/             # shadcn-generated primitives
 │   │   ├── layout/         # App shell, sidebar, bottom tab bar, page header
@@ -81,7 +72,7 @@ frontend/
 │   │   ├── workout/        # Exercise card, set rows, rest timer
 │   │   ├── coach/          # Check-in pipeline, proposal cards, chat
 │   │   └── progress/       # Stat tiles, lift rows, check-in history
-│   ├── hooks/              # Reusable hooks (use-mobile, data hooks)
+│   ├── hooks/              # Reusable hooks (use-media-query, data hooks)
 │   ├── lib/                # Utilities (cn, macro maths, formatting, auth)
 │   ├── pages/              # One component per route
 │   ├── types/              # Shared TypeScript types
