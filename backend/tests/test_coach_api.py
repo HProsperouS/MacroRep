@@ -163,9 +163,16 @@ def _check_in_with_a_proposal(client: TestClient, headers: dict[str, str]) -> di
         ({"decision": "maybe"}, 422),
         ({"decision": "apply", "changes": [{"id": "calories", "after": -1}]}, 422),
         ({"decision": "apply", "changes": [{"id": "not-in-proposal", "after": 2000}]}, 422),
-        ({"decision": "apply", "changes": [{"id": "calories", "after": 0}]}, 200),
+        ({"decision": "apply", "changes": [{"id": "calories", "after": 0}]}, 422),
+        ({"decision": "apply", "changes": [{"id": "calories", "after": 2100}]}, 200),
     ],
-    ids=["unknown decision", "negative value", "value not in the proposal", "zero is allowed"],
+    ids=[
+        "unknown decision",
+        "negative value",
+        "value not in the proposal",
+        "below the allowed range",
+        "in range",
+    ],
 )
 def test_proposal_decisions_are_validated(client: TestClient, body: dict, expected: int) -> None:
     headers = _new_user(client)
@@ -175,6 +182,100 @@ def test_proposal_decisions_are_validated(client: TestClient, body: dict, expect
         f"{CHECK_INS}/{check_in['id']}/proposals/{proposal_id}/decision", headers=headers, json=body
     )
     assert response.status_code == expected, response.text
+
+
+def _targets(client: TestClient, headers: dict[str, str]) -> dict:
+    return dict(client.get("/api/nutrition/targets", headers=headers).json())
+
+
+def _decide(client: TestClient, headers: dict[str, str], check_in: dict, body: dict):
+    proposal_id = check_in["proposals"][0]["id"]
+    return client.post(
+        f"{CHECK_INS}/{check_in['id']}/proposals/{proposal_id}/decision", headers=headers, json=body
+    )
+
+
+def test_applying_a_nutrition_proposal_updates_the_daily_calorie_target(client: TestClient) -> None:
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+    proposed = check_in["proposals"][0]["changes"][0]["after"]
+    before = _targets(client, headers)
+
+    assert _decide(client, headers, check_in, {"decision": "apply"}).status_code == 200
+
+    after = _targets(client, headers)
+    assert after["calories"] == round(proposed)
+    assert {key: after[key] for key in ("protein", "carbs", "fat")} == {
+        key: before[key] for key in ("protein", "carbs", "fat")
+    }
+
+
+def test_editing_a_nutrition_proposal_applies_the_edited_value(client: TestClient) -> None:
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+
+    response = _decide(
+        client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 2050}]}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "edited"
+    assert _targets(client, headers)["calories"] == 2050
+
+
+def test_rejecting_a_nutrition_proposal_leaves_the_target_alone(client: TestClient) -> None:
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+    before = _targets(client, headers)
+
+    assert _decide(client, headers, check_in, {"decision": "reject"}).status_code == 200
+
+    assert _targets(client, headers) == before
+
+
+@pytest.mark.parametrize("calories", [999, 6_001])
+def test_an_out_of_range_target_is_refused_and_the_proposal_stays_pending(
+    client: TestClient, calories: int
+) -> None:
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+    before = _targets(client, headers)
+
+    response = _decide(
+        client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": calories}]}
+    )
+
+    assert response.status_code == 422
+    assert "1,000-6,000" in response.json()["detail"]
+    assert _targets(client, headers) == before
+    # Still pending, so the user can edit it into range instead of being stuck.
+    assert (
+        _decide(
+            client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 2000}]}
+        ).status_code
+        == 200
+    )
+
+
+def test_a_target_far_below_the_macros_is_refused(client: TestClient) -> None:
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+    # The default macros add up to roughly 2,200 kcal; under half of that can't be right.
+    assert (
+        client.put(
+            "/api/nutrition/targets",
+            headers=headers,
+            json={"calories": 2200, "protein": 300, "carbs": 300, "fat": 100},
+        ).status_code
+        == 200
+    )
+
+    response = _decide(
+        client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 1500}]}
+    )
+
+    assert response.status_code == 422
+    assert "too low" in response.json()["detail"]
 
 
 @pytest.mark.parametrize(("text", "expected"), [("x" * 2_000, 200), ("x" * 2_001, 422), ("   ", 422)])

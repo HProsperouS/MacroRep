@@ -26,6 +26,7 @@ from app.profile.models import Profile
 from app.profile.repository import ProfileRepository
 from app.progress.repository import ProgressRepository
 from app.shared.timezones import local_today, user_zone
+from app.shared.validation import ensure_plausible_calories
 
 from . import pipeline
 from .models import CheckIn as CheckInModel
@@ -61,6 +62,10 @@ MIN_FOOD_LOG_DAYS = 4
 MIN_WEIGH_INS = 2
 # Mirrors ProgressService's fallback for a user whose profile was never provisioned.
 _FALLBACK_TARGET_CALORIES = 2000
+# Same bounds as the Profile page's targets form, so a coach proposal can't set a
+# target the user couldn't type in themselves. See docs/follow-ups.md.
+MIN_TARGET_CALORIES = 1_000
+MAX_TARGET_CALORIES = 6_000
 
 
 class CoachService:
@@ -272,26 +277,65 @@ class CoachService:
 
         if payload.decision == "reject":
             proposal.status = ProposalStatus.REJECTED
-        elif payload.changes:
-            overrides = {override.id: override.after for override in payload.changes}
-            unknown = set(overrides) - {cast(str, change["id"]) for change in proposal.changes}
-            if unknown:
-                # An edit can only adjust a value the proposal actually changes.
-                raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    f"Not part of this proposal: {', '.join(sorted(unknown))}",
-                )
-            proposal.changes = [
-                {**change, "after": overrides.get(cast(str, change["id"]), change["after"])}
-                for change in proposal.changes
-            ]
-            proposal.status = ProposalStatus.EDITED
         else:
-            proposal.status = ProposalStatus.APPLIED
+            changes = proposal.changes
+            status_after = ProposalStatus.APPLIED
+            if payload.changes:
+                overrides = {override.id: override.after for override in payload.changes}
+                unknown = set(overrides) - {cast(str, change["id"]) for change in proposal.changes}
+                if unknown:
+                    # An edit can only adjust a value the proposal actually changes.
+                    raise HTTPException(
+                        status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        f"Not part of this proposal: {', '.join(sorted(unknown))}",
+                    )
+                changes = [
+                    {**change, "after": overrides.get(cast(str, change["id"]), change["after"])}
+                    for change in proposal.changes
+                ]
+                status_after = ProposalStatus.EDITED
+            # Checked before anything is changed, so a refused proposal stays pending.
+            if proposal.kind == ProposalKind.NUTRITION:
+                await self._apply_nutrition_targets(actor, changes)
+            # Training proposals are only recorded for now; they don't edit the weekly plan yet.
+            proposal.changes = changes
+            proposal.status = status_after
 
         await self.session.commit()
         await self.session.refresh(proposal)
         return _to_proposal_read(proposal)
+
+    async def _apply_nutrition_targets(self, actor: ActorContext, changes: list[dict[str, object]]) -> None:
+        """Write an accepted calorie change to the user's daily target.
+
+        Raises 422 when the new target is outside the range the app allows, or
+        far below what the macros add up to, leaving the targets untouched.
+        """
+
+        calories = next((change["after"] for change in changes if change["id"] == "calories"), None)
+        if calories is None:
+            return
+        target = round(cast(float, calories))
+        profile = await self.profiles.get(actor.actor_id)
+        if profile is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Set up your profile before applying targets")
+        if not MIN_TARGET_CALORIES <= target <= MAX_TARGET_CALORIES:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"A daily target of {target:,} kcal is outside the allowed "
+                f"{MIN_TARGET_CALORIES:,}-{MAX_TARGET_CALORIES:,} kcal. Edit it to a value in range.",
+            )
+        try:
+            ensure_plausible_calories(
+                target,
+                float(profile.target_protein_g),
+                float(profile.target_carbs_g),
+                float(profile.target_fat_g),
+            )
+        except ValueError as error:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+        profile.target_calories = target
+        profile.touch()
 
     async def ask_coach(self, check_in_id: str, text: str, actor: ActorContext) -> CoachMessage:
         check_in = await self.repository.get_owned(check_in_id, actor.actor_id)

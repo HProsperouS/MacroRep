@@ -17,8 +17,9 @@ a very low target. With a 0 kcal target, the placeholder pipeline
 form (`frontend/src/components/coach/edit-proposal-form.tsx`) can't correct it
 because it only allows ±25% of the current value (±25% of 0 is 0).
 
-- **Revisit with:** step 4, safe limits for plan changes. The coach must never
-  propose a negative or implausibly low target, whatever the form allows.
+- **Revisit with:** step 4, safe limits for plan changes. Applying a proposal
+  is now refused (422) outside 1,000-6,000 kcal, but the coach itself should
+  still never propose a negative or implausibly low target.
 - **Open question:** raise only the form's upper limit to 10,000 (so a large
   athlete can set 6,500) while keeping the 1,000 floor?
 
@@ -40,8 +41,11 @@ against a common-password list (NIST SP 800-63B), either a small built-in list
   locally; on AWS with several containers it needs a shared store (Redis) or
   an AWS WAF rate-based rule.
 
-- **Apply doesn't change the plan:** applying a coach proposal records the
-  decision but doesn't update targets or the workout plan yet.
+- **Applying a training proposal doesn't change the plan:** accepting a
+  nutrition proposal now updates the daily calorie target (1,000-6,000 kcal,
+  and not far below the macros), but a training proposal is only recorded; it
+  doesn't edit the weekly workout plan yet. The placeholder pipeline doesn't
+  produce training proposals today.
 
 ## Verification pending
 
