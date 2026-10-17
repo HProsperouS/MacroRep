@@ -78,7 +78,7 @@ function CheckInView({ checkIn }: { checkIn: CheckIn }) {
         onSuccess: () => {
           onDone?.()
           toast.success(input.decision === "reject" ? "Proposal rejected" : "Change applied", {
-            description: input.decision === "reject" ? "Your plan stays as it is." : proposal.kind === "nutrition" ? "Your daily targets are updated." : "Your next sessions use the new loads.",
+            description: input.decision === "reject" ? "Your plan stays as it is." : proposal.kind === "nutrition" ? "Your daily targets are updated." : "Saved. Your weekly plan isn’t changed automatically yet.",
           })
         },
         onError: (error) => toast.error("Couldn’t save your decision", { description: apiErrorMessage(error) }),
@@ -92,7 +92,7 @@ function CheckInView({ checkIn }: { checkIn: CheckIn }) {
       for (const proposal of pending) {
         await decide.mutateAsync({ proposal, decision: "apply" })
       }
-      toast.success("All changes applied", { description: "Targets and training loads are updated." })
+      toast.success("All changes applied", { description: "Your daily targets are updated." })
     } catch (error) {
       toast.error("Some changes weren’t applied", { description: apiErrorMessage(error) })
     }

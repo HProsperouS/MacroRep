@@ -59,8 +59,11 @@ export function useDecideProposal(checkInId: string) {
     },
     onSuccess: (_data, { proposal, decision }) => {
       if (decision !== "apply") return
-      if (proposal.kind === "nutrition") void queryClient.invalidateQueries({ queryKey: foodKeys.targets() })
-      else void queryClient.invalidateQueries({ queryKey: workoutKeys.all })
+      if (proposal.kind === "nutrition") {
+        void queryClient.invalidateQueries({ queryKey: foodKeys.targets() })
+        // Progress and Home measure intake against the target.
+        void queryClient.invalidateQueries({ queryKey: progressKeys.all })
+      } else void queryClient.invalidateQueries({ queryKey: workoutKeys.all })
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey }),
   })
