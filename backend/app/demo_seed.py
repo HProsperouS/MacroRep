@@ -19,11 +19,18 @@ from app.core.database import get_session_factory
 from app.food.models import Food
 from app.identity.models import User, UserStatus
 from app.profile.models import ExperienceLevel, Goal, Profile
+from app.shared.timezones import local_today, user_zone
 from app.workout.models import Exercise, WorkoutPlanEntry, WorkoutPlanExercise
 
 DEMO_USER_ID = "USR-DEMO"
 DEMO_USER_EMAIL = "alex.tan@example.com"
 DEMO_USER_PASSWORD = "macrorep-demo"
+
+
+def _demo_today() -> date:
+    """Today in the demo profile's zone (the default), which is what the API calls "today" for it."""
+
+    return local_today(user_zone(None))
 
 
 async def _is_empty(session: AsyncSession, model: type[object]) -> bool:
@@ -129,7 +136,7 @@ async def seed_demo_data() -> None:
         if await _is_empty(session, WorkoutPlanEntry):
             today_entry = WorkoutPlanEntry(
                 owner_id=DEMO_USER_ID,
-                day_of_week=date.today().weekday(),
+                day_of_week=_demo_today().weekday(),
                 name="Push day",
                 week_label="Week 1",
                 estimated_minutes=50,
@@ -165,10 +172,11 @@ async def seed_demo_data() -> None:
                 weight_change_kg=-0.3,
                 goal_rate_kg_per_week=-0.5,
             )
+            today = _demo_today()
             check_in = CheckIn(
                 owner_id=DEMO_USER_ID,
                 week_label="Week 1",
-                range_label=f"{(date.today() - timedelta(days=6)).isoformat()} – {date.today().isoformat()}",
+                range_label=f"{(today - timedelta(days=6)).isoformat()} – {today.isoformat()}",
                 summary=draft.summary,
                 stats=draft.stats,
                 pipeline=draft.pipeline,
