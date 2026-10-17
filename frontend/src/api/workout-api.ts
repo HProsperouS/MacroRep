@@ -7,6 +7,8 @@ import type {
   PlannedWorkout,
   SavePlanDayInput,
   WeekPlanDay,
+  WorkoutDetail,
+  WorkoutHistoryItem,
   WorkoutSummary,
 } from "@/types/workout"
 
@@ -29,6 +31,17 @@ export const workoutApi = {
 
   async finishSession(input: FinishWorkoutInput) {
     const { data } = await apiClient.post<WorkoutSummary>("/workouts/sessions", input)
+    return data
+  },
+
+  /** Logged workouts, newest first. */
+  async listSessions(offset: number, limit: number, signal?: AbortSignal) {
+    const { data } = await apiClient.get<WorkoutHistoryItem[]>("/workouts/sessions", { params: { offset, limit }, signal })
+    return data
+  },
+
+  async getSession(sessionId: string, signal?: AbortSignal) {
+    const { data } = await apiClient.get<WorkoutDetail>(`/workouts/sessions/${encodeURIComponent(sessionId)}`, { signal })
     return data
   },
 

@@ -59,9 +59,14 @@ export default function WorkoutPage() {
         eyebrow="Workout"
         title="Start a workout"
         actions={
-          <Button variant="outline" className="h-10" onClick={() => navigate("/workout/plan")}>
-            Manage plan
-          </Button>
+          <>
+            <Button variant="outline" className="h-10" onClick={() => navigate("/workout/history")}>
+              History
+            </Button>
+            <Button variant="outline" className="h-10" onClick={() => navigate("/workout/plan")}>
+              Manage plan
+            </Button>
+          </>
         }
       />
       <StartWorkout

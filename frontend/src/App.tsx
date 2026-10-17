@@ -9,6 +9,7 @@ import { getAccessToken } from "@/lib/auth"
 const HomePage = lazy(() => import("@/pages/home-page"))
 const FoodPage = lazy(() => import("@/pages/food-page"))
 const WorkoutPage = lazy(() => import("@/pages/workout-page"))
+const WorkoutHistoryPage = lazy(() => import("@/pages/workout-history-page"))
 const WorkoutPlanPage = lazy(() => import("@/pages/workout-plan-page"))
 const CoachPage = lazy(() => import("@/pages/coach-page"))
 const ProgressPage = lazy(() => import("@/pages/progress-page"))
@@ -91,6 +92,7 @@ export default function App() {
           <Route index element={<HomePage />} />
           <Route path="food" element={<FoodPage />} />
           <Route path="workout" element={<WorkoutPage />} />
+          <Route path="workout/history" element={<WorkoutHistoryPage />} />
           <Route path="workout/plan" element={<WorkoutPlanPage />} />
           <Route path="coach" element={<CoachPage />} />
           <Route path="progress" element={<ProgressPage />} />

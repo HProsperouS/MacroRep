@@ -121,6 +121,35 @@ export type WorkoutSummary = {
   personalRecords: string[]
 }
 
+/** One logged workout in the history list. */
+export type WorkoutHistoryItem = {
+  id: string
+  name: string
+  /** ISO timestamp in UTC. */
+  startedAt: string
+  durationSeconds: number
+  exerciseCount: number
+  setsCompleted: number
+  volumeKg: number
+}
+
+export type HistorySet = {
+  kind: SetKind
+  weightKg: number
+  reps: number
+  rpe?: number | null
+}
+
+export type HistoryExercise = {
+  name: string
+  sets: HistorySet[]
+}
+
+export type WorkoutDetail = WorkoutHistoryItem & {
+  /** In the order they were done. */
+  exercises: HistoryExercise[]
+}
+
 export const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const
 
 export type PlanSetInput = {

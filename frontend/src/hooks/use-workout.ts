@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { progressKeys, workoutKeys } from "@/api/query-keys"
 import { workoutApi } from "@/api/workout-api"
@@ -68,5 +68,27 @@ export function useDeletePlanDay() {
       void queryClient.invalidateQueries({ queryKey: workoutKeys.plan() })
       void queryClient.invalidateQueries({ queryKey: workoutKeys.today() })
     },
+  })
+}
+
+export const HISTORY_PAGE_SIZE = 20
+
+export function useWorkoutHistory() {
+  return useInfiniteQuery({
+    queryKey: workoutKeys.history(),
+    queryFn: ({ pageParam, signal }) => workoutApi.listSessions(pageParam, HISTORY_PAGE_SIZE, signal),
+    initialPageParam: 0,
+    // A short page means the end; otherwise the next page starts after everything loaded so far.
+    getNextPageParam: (lastPage, allPages) => (lastPage.length < HISTORY_PAGE_SIZE ? undefined : allPages.length * HISTORY_PAGE_SIZE),
+  })
+}
+
+/** Fetched only once a workout is expanded. A saved workout never changes, so it stays cached. */
+export function useWorkoutDetail(sessionId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: workoutKeys.session(sessionId),
+    queryFn: ({ signal }) => workoutApi.getSession(sessionId, signal),
+    enabled,
+    staleTime: Infinity,
   })
 }
