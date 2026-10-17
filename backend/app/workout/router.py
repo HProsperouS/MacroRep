@@ -21,6 +21,8 @@ from .schemas import (
     PlannedWorkout,
     SavePlanDayInput,
     WeekPlanDay,
+    WorkoutDetail,
+    WorkoutHistoryItem,
     WorkoutSummary,
 )
 from .service import WorkoutService
@@ -75,6 +77,23 @@ async def finish_session(
     payload: FinishWorkoutInput, actor: ActorDep, service: WorkoutServiceDep
 ) -> WorkoutSummary:
     return await service.finish_session(payload, actor)
+
+
+@router.get("/workouts/sessions", response_model=list[WorkoutHistoryItem])
+async def list_sessions(
+    actor: ActorDep,
+    service: WorkoutServiceDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> list[WorkoutHistoryItem]:
+    """Logged workouts, newest first."""
+
+    return await service.list_history(actor, limit, offset)
+
+
+@router.get("/workouts/sessions/{session_id}", response_model=WorkoutDetail)
+async def get_session_detail(session_id: str, actor: ActorDep, service: WorkoutServiceDep) -> WorkoutDetail:
+    return await service.get_history_detail(actor, session_id)
 
 
 @router.get("/workouts/plan", response_model=list[WeekPlanDay])

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -21,6 +21,8 @@ from .schemas import (
     CreateExerciseInput,
     ExerciseRead,
     FinishWorkoutInput,
+    HistoryExercise,
+    HistorySet,
     LastSession,
     PlannedExercise,
     PlannedSet,
@@ -28,6 +30,8 @@ from .schemas import (
     PreviousSet,
     SavePlanDayInput,
     WeekPlanDay,
+    WorkoutDetail,
+    WorkoutHistoryItem,
     WorkoutSummary,
 )
 
@@ -41,6 +45,52 @@ def _to_exercise_read(exercise: Exercise, last_session: LastSession | None) -> E
         source=exercise.source,
         last_session=last_session,
     )
+
+
+def _history_item(workout_session: WorkoutSession, sets: list[WorkoutSetLog]) -> WorkoutHistoryItem:
+    """Totals follow ``finish_session``: every set is completed, only working sets add volume."""
+
+    started_at, finished_at = _as_utc(workout_session.started_at), _as_utc(workout_session.finished_at)
+    return WorkoutHistoryItem(
+        id=workout_session.id,
+        name=workout_session.name,
+        started_at=started_at,
+        duration_seconds=max(int((finished_at - started_at).total_seconds()), 0),
+        exercise_count=len({(s.exercise_position, s.exercise_name) for s in sets}),
+        sets_completed=len(sets),
+        volume_kg=round(
+            volume_kg((float(s.weight_kg), s.reps) for s in sets if s.kind == SetKind.WORKING), 1
+        ),
+    )
+
+
+def _as_utc(moment: datetime) -> datetime:
+    # SQLite hands back naive datetimes; everything is stored in UTC.
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
+def _history_exercises(sets: list[WorkoutSetLog]) -> list[HistoryExercise]:
+    """Exercises in the order they were done; sets logged before the order was stored sort last, by name."""
+
+    grouped: dict[tuple[int | None, str], list[WorkoutSetLog]] = {}
+    for logged in sets:
+        grouped.setdefault((logged.exercise_position, logged.exercise_name), []).append(logged)
+    ordered = sorted(grouped, key=lambda key: (key[0] is None, key[0] or 0, key[1]))
+    return [
+        HistoryExercise(
+            name=name,
+            sets=[
+                HistorySet(
+                    kind=s.kind,
+                    weight_kg=float(s.weight_kg),
+                    reps=s.reps,
+                    rpe=None if s.rpe is None else float(s.rpe),
+                )
+                for s in grouped[(position, name)]
+            ],
+        )
+        for position, name in ordered
+    ]
 
 
 class WorkoutService:
@@ -316,7 +366,7 @@ class WorkoutService:
         await self.sessions.add_session(workout_session)
 
         set_logs: list[WorkoutSetLog] = []
-        for exercise_entry in payload.exercises:
+        for exercise_index, exercise_entry in enumerate(payload.exercises):
             for index, logged_set in enumerate(exercise_entry.sets):
                 set_logs.append(
                     WorkoutSetLog(
@@ -329,6 +379,7 @@ class WorkoutService:
                         reps=logged_set.reps,
                         rpe=logged_set.rpe,
                         position=index,
+                        exercise_position=exercise_index,
                     )
                 )
         await self.sessions.add_sets(set_logs)
@@ -360,4 +411,21 @@ class WorkoutService:
             sets_completed=sets_completed,
             volume_kg=round(session_volume_kg, 1),
             personal_records=personal_records,
+        )
+
+    async def list_history(self, actor: ActorContext, limit: int, offset: int) -> list[WorkoutHistoryItem]:
+        sessions = await self.sessions.list_sessions(actor.actor_id, limit, offset)
+        sets = await self.sessions.list_sets(actor.actor_id, [s.id for s in sessions])
+        sets_by_session: dict[str, list[WorkoutSetLog]] = {}
+        for logged in sets:
+            sets_by_session.setdefault(logged.session_id, []).append(logged)
+        return [_history_item(s, sets_by_session.get(s.id, [])) for s in sessions]
+
+    async def get_history_detail(self, actor: ActorContext, session_id: str) -> WorkoutDetail:
+        workout_session = await self.sessions.get_session(actor.actor_id, session_id)
+        if workout_session is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Workout not found")
+        sets = await self.sessions.list_sets(actor.actor_id, [workout_session.id])
+        return WorkoutDetail(
+            **_history_item(workout_session, sets).model_dump(), exercises=_history_exercises(sets)
         )

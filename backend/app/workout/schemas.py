@@ -137,6 +137,32 @@ class WorkoutSummary(CamelModel):
     personal_records: list[str]
 
 
+class WorkoutHistoryItem(CamelModel):
+    id: str
+    name: str
+    started_at: datetime
+    duration_seconds: int
+    exercise_count: int
+    sets_completed: int
+    volume_kg: float
+
+
+class HistorySet(CamelModel):
+    kind: SetKind
+    weight_kg: float
+    reps: int
+    rpe: float | None = None
+
+
+class HistoryExercise(CamelModel):
+    name: str
+    sets: list[HistorySet]
+
+
+class WorkoutDetail(WorkoutHistoryItem):
+    exercises: list[HistoryExercise]
+
+
 class PlanSetInput(CamelModel):
     kind: SetKind
     target_weight_kg: float | None = Field(default=None, ge=0, le=MAX_SET_WEIGHT_KG)

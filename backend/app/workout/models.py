@@ -117,3 +117,5 @@ class WorkoutSetLog(Base):
     # Rating of Perceived Exertion, 1-10 in 0.5 steps. Nullable — logging it is optional.
     rpe: Mapped[float | None] = mapped_column(Numeric(3, 1), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Order of the exercise within the session. Null on sets logged before this was stored.
+    exercise_position: Mapped[int | None] = mapped_column(Integer, nullable=True)

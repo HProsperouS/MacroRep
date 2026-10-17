@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
+from tests.helpers import register_user
+
 
 def test_today_plan_seeded(client: TestClient, auth_headers: dict[str, str]) -> None:
     response = client.get("/api/workouts/today", headers=auth_headers)
@@ -274,3 +276,115 @@ def test_save_plan_day_rejects_out_of_range_day(client: TestClient, auth_headers
     }
     response = client.put("/api/workouts/plan/7", headers=auth_headers, json=payload)
     assert response.status_code == 422
+
+
+def _two_exercise_session(started_minutes_ago: int, name: str) -> dict:
+    """Squat first, then bench: the history must show them in that order, not alphabetically."""
+
+    started = datetime.now(UTC) - timedelta(minutes=started_minutes_ago)
+    return {
+        "planId": None,
+        "name": name,
+        "startedAt": started.isoformat(),
+        "finishedAt": (started + timedelta(minutes=30)).isoformat(),
+        "exercises": [
+            {
+                "exerciseId": "exercise-squat",
+                "name": "Barbell Squat",
+                "sets": [
+                    {"kind": "warmup", "weightKg": 40, "reps": 10},
+                    {"kind": "working", "weightKg": 100, "reps": 5, "rpe": 8},
+                ],
+            },
+            {
+                "exerciseId": "exercise-bench-press",
+                "name": "Barbell Bench Press",
+                "sets": [{"kind": "working", "weightKg": 60, "reps": 8}],
+            },
+        ],
+    }
+
+
+def test_history_lists_newest_first_with_totals(client: TestClient) -> None:
+    headers = register_user(client)
+    assert (
+        client.post(
+            "/api/workouts/sessions", headers=headers, json=_two_exercise_session(300, "Older")
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            "/api/workouts/sessions", headers=headers, json=_two_exercise_session(60, "Newer")
+        ).status_code
+        == 201
+    )
+
+    response = client.get("/api/workouts/sessions", headers=headers)
+    assert response.status_code == 200
+    items = response.json()
+    assert [item["name"] for item in items] == ["Newer", "Older"]
+    newest = items[0]
+    assert newest["durationSeconds"] == 1800
+    assert newest["exerciseCount"] == 2
+    assert newest["setsCompleted"] == 3
+    # Working sets only: 100 x 5 + 60 x 8, the warmup doesn't count.
+    assert newest["volumeKg"] == 980.0
+    assert newest["startedAt"].endswith(("Z", "+00:00"))
+
+
+def test_history_pages_with_limit_and_offset(client: TestClient) -> None:
+    headers = register_user(client)
+    for index in range(3):
+        started = 300 - index * 60
+        assert (
+            client.post(
+                "/api/workouts/sessions",
+                headers=headers,
+                json=_two_exercise_session(started, f"Workout {index}"),
+            ).status_code
+            == 201
+        )
+
+    first = client.get("/api/workouts/sessions", headers=headers, params={"limit": 2}).json()
+    rest = client.get("/api/workouts/sessions", headers=headers, params={"limit": 2, "offset": 2}).json()
+    assert [item["name"] for item in first] == ["Workout 2", "Workout 1"]
+    assert [item["name"] for item in rest] == ["Workout 0"]
+
+
+def test_history_rejects_out_of_range_paging(client: TestClient, auth_headers: dict[str, str]) -> None:
+    assert client.get("/api/workouts/sessions", headers=auth_headers, params={"limit": 0}).status_code == 422
+    assert (
+        client.get("/api/workouts/sessions", headers=auth_headers, params={"limit": 101}).status_code == 422
+    )
+    assert (
+        client.get("/api/workouts/sessions", headers=auth_headers, params={"offset": -1}).status_code == 422
+    )
+
+
+def test_history_detail_keeps_exercise_order_and_set_values(client: TestClient) -> None:
+    headers = register_user(client)
+    created = client.post(
+        "/api/workouts/sessions", headers=headers, json=_two_exercise_session(60, "Legs then chest")
+    )
+    assert created.status_code == 201
+
+    response = client.get(f"/api/workouts/sessions/{created.json()['id']}", headers=headers)
+    assert response.status_code == 200
+    detail = response.json()
+    assert [exercise["name"] for exercise in detail["exercises"]] == ["Barbell Squat", "Barbell Bench Press"]
+    assert detail["exercises"][0]["sets"] == [
+        {"kind": "warmup", "weightKg": 40.0, "reps": 10, "rpe": None},
+        {"kind": "working", "weightKg": 100.0, "reps": 5, "rpe": 8.0},
+    ]
+    assert detail["volumeKg"] == 980.0
+
+
+def test_history_is_private_to_the_owner(client: TestClient) -> None:
+    owner, other = register_user(client), register_user(client)
+    created = client.post("/api/workouts/sessions", headers=owner, json=_two_exercise_session(60, "Mine"))
+    assert created.status_code == 201
+
+    assert client.get("/api/workouts/sessions", headers=other).json() == []
+    assert client.get(f"/api/workouts/sessions/{created.json()['id']}", headers=other).status_code == 404
+    assert client.get("/api/workouts/sessions/does-not-exist", headers=owner).status_code == 404

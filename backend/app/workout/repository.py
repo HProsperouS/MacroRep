@@ -187,6 +187,36 @@ class WorkoutSessionRepository:
         self.session.add_all(set_logs)
         await self.session.flush()
 
+    async def list_sessions(self, owner_id: str, limit: int, offset: int) -> list[WorkoutSession]:
+        """Newest first; the id breaks ties so paging never repeats or skips a session."""
+
+        return list(
+            await self.session.scalars(
+                select(WorkoutSession)
+                .where(WorkoutSession.owner_id == owner_id)
+                .order_by(WorkoutSession.started_at.desc(), WorkoutSession.id)
+                .limit(limit)
+                .offset(offset)
+            )
+        )
+
+    async def get_session(self, owner_id: str, session_id: str) -> WorkoutSession | None:
+        workout_session: WorkoutSession | None = await self.session.scalar(
+            select(WorkoutSession).where(WorkoutSession.id == session_id, WorkoutSession.owner_id == owner_id)
+        )
+        return workout_session
+
+    async def list_sets(self, owner_id: str, session_ids: list[str]) -> list[WorkoutSetLog]:
+        if not session_ids:
+            return []
+        return list(
+            await self.session.scalars(
+                select(WorkoutSetLog)
+                .where(WorkoutSetLog.owner_id == owner_id, WorkoutSetLog.session_id.in_(session_ids))
+                .order_by(WorkoutSetLog.position.asc())
+            )
+        )
+
     async def best_e1rms_before(
         self, owner_id: str, exercise_ids: list[str], before_session_id: str
     ) -> dict[str, float]:
