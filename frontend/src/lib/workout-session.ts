@@ -28,7 +28,7 @@ export type SessionState = {
   seq: number
 }
 
-export const EMPTY_WORKOUT_NAME = "Freestyle workout"
+const EMPTY_WORKOUT_NAME = "Freestyle workout"
 const DEFAULT_REST_SECONDS = 90
 const DEFAULT_SET_COUNT = 3
 
@@ -68,7 +68,7 @@ export function initSession(plan: PlannedWorkout | null): SessionState {
 }
 
 /** A library exercise becomes session rows pre-filled from its last session (or 3 blank sets). */
-export function exerciseToSession(exercise: Exercise, instanceId: string): SessionExercise {
+function exerciseToSession(exercise: Exercise, instanceId: string): SessionExercise {
   const last = exercise.lastSession?.sets ?? []
   const count = Math.max(last.length, DEFAULT_SET_COUNT)
   return {
@@ -94,7 +94,7 @@ export function exerciseToSession(exercise: Exercise, instanceId: string): Sessi
 }
 
 /** Weight may be 0 (bodyweight); reps must be a positive whole number. */
-export function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
+function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
   const weightKg = set.weight.trim() === "" ? Number.NaN : Number(set.weight)
   const reps = set.reps.trim() === "" ? Number.NaN : Number(set.reps)
   const valid = Number.isFinite(weightKg) && weightKg >= 0 && weightKg <= 1000 && Number.isInteger(reps) && reps > 0 && reps <= 200

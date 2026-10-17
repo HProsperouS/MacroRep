@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react"
 import { Controller, useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { TextField } from "@/components/food/form-field"
+import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"

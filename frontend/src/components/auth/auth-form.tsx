@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { TextField } from "@/components/food/form-field"
+import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"

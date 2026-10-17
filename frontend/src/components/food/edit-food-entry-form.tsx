@@ -4,7 +4,7 @@ import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
 
 import type { UpdateFoodEntryInput } from "@/api/food-api"
-import { TextField } from "@/components/food/form-field"
+import { TextField } from "@/components/ui/text-field"
 import { MealPicker } from "@/components/food/meal-picker"
 import { AmountFields, NutrientTiles } from "@/components/food/serving-editor"
 import { QueryError } from "@/components/layout/query-error"

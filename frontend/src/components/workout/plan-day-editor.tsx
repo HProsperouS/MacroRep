@@ -2,7 +2,7 @@ import { Dumbbell, Minus, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 
 import { createRequestId } from "@/api/client"
-import { TextField } from "@/components/food/form-field"
+import { TextField } from "@/components/ui/text-field"
 import { ResponsiveOverlay } from "@/components/layout/responsive-overlay"
 import { ExercisePicker } from "@/components/workout/exercise-picker"
 import { Button } from "@/components/ui/button"

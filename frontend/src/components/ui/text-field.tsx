@@ -15,7 +15,7 @@ type TextFieldProps = Omit<ComponentProps<"input">, "id"> & {
   dotClassName?: string
 }
 
-/** Field + InputGroup composition used by the food forms. */
+/** Field + InputGroup composition shared by all forms. */
 export function TextField({ id, label, error, description, unit, dotClassName, className, disabled, ...inputProps }: TextFieldProps) {
   const invalid = Boolean(error)
   const describedBy = error ? `${id}-error` : description ? `${id}-description` : undefined

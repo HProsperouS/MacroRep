@@ -6,7 +6,7 @@ import { z } from "zod"
 
 import { CalorieRing } from "@/components/charts/calorie-ring"
 import { MacroBar } from "@/components/charts/macro-bar"
-import { TextField } from "@/components/food/form-field"
+import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
 import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"

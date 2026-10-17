@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react"
 
-import { TextField } from "@/components/food/form-field"
+import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"

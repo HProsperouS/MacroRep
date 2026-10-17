@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils"
 import type { Macros } from "@/lib/macros"
 import { formatNumber } from "@/lib/format"
 
-export const MACRO_STYLES = {
+const MACRO_STYLES = {
   protein: { label: "Protein", short: "P", color: "bg-protein" },
   carbs: { label: "Carbs", short: "C", color: "bg-carbs" },
   fat: { label: "Fat", short: "F", color: "bg-fat" },

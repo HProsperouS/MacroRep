@@ -41,18 +41,6 @@ function unroundedMacroCalories({ protein, carbs, fat }: Macros) {
   return protein * 4 + carbs * 4 + fat * 9
 }
 
-export function sumNutrition(items: Nutrition[]): Nutrition {
-  return items.reduce(
-    (total, item) => ({
-      calories: total.calories + item.calories,
-      protein: total.protein + item.protein,
-      carbs: total.carbs + item.carbs,
-      fat: total.fat + item.fat,
-    }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0 },
-  )
-}
-
 export function scaleNutrition(nutrition: Nutrition, factor: number): Nutrition {
   const round1 = (value: number) => Math.round(value * factor * 10) / 10
   return {

@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Controller, useForm, useWatch, type Control, type UseFormSetValue } from "react-hook-form"
 import { z } from "zod"
 
-import { TextField } from "@/components/food/form-field"
+import { TextField } from "@/components/ui/text-field"
 import { MealPicker } from "@/components/food/meal-picker"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"

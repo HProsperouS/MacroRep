@@ -3,7 +3,7 @@ import { TriangleAlert } from "lucide-react"
 import { Controller, useForm, useWatch, type Control, type UseFormRegisterReturn } from "react-hook-form"
 import { z } from "zod"
 
-import { TextField } from "@/components/food/form-field"
+import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
 import { FieldDescription, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
