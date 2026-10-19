@@ -27,6 +27,10 @@ class ProposalChange(CamelModel):
     before: float
     after: float
     step: float
+    # Set on a training change: the routine exercise and the target it edits.
+    routine_id: str | None = None
+    exercise_id: str | None = None
+    field: str | None = None
 
 
 class Proposal(CamelModel):

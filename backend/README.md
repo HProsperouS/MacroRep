@@ -21,7 +21,7 @@ backend/
 │   ├── body/                        # weigh-ins and trend-weight calculation
 │   ├── progress/                     # read-model composing the above into dashboard charts
 │   ├── analytics/                     # deterministic nutrition, training and weight formulas
-│   ├── coach/                          # check-ins, proposals, chat (see pipeline.py)
+│   ├── coach/                          # check-ins, proposals, chat; agents/ is the LangGraph flow
 │   └── health/                          # liveness/readiness/version
 ├── migrations/             # Alembic schema migrations
 ├── tests/                  # API, validation and formula tests (in-memory SQLite)
@@ -59,11 +59,12 @@ checks each limit from both sides.
 
 ### Known simplifications vs. a production system
 
-- **Coach AI is a placeholder.** `app/coach/pipeline.py` is a deterministic,
-  rule-based stand-in for the multi-agent generation pipeline described in
-  the project brief. It produces the same output shape a real pipeline would,
-  so the rest of the app can be built against a stable contract; only that
-  one function's body needs to change later.
+- **The check-in agents run on a rule-based model for now.** The LangGraph flow
+  in `app/coach/agents/` (Nutrition and Workout agents, a Reviewer, then
+  deterministic validation) is real, but `COACH_MODEL_PROVIDER=fake` is the
+  only provider: `FakeCoachModel` answers each agent with simple rules in the
+  shape a language model would. Adding a real provider means one class with
+  the same `generate` method. Coach Chat is still a canned reply.
 - **No shared-record audit trail.** Unlike a multi-staff CRM, MacroRep
   records are single-owner personal data, so there's no admin/agent role
   hierarchy or soft-delete-with-named-actor trail — just plain

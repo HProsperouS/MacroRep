@@ -11,7 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.router import router as auth_router
 from app.body.router import router as body_router
+from app.coach.agents.checkpoint import checkpointer_lifespan
 from app.coach.router import router as coach_router
+from app.coach.runner import resume_interrupted_check_ins, stop_running_check_ins
 from app.core.config import Settings, get_settings
 from app.core.database import dispose_engine, get_engine
 from app.food.router import router as food_router
@@ -38,7 +40,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             from app.demo_seed import seed_demo_data
 
             await seed_demo_data()
-        yield
+        async with checkpointer_lifespan(settings.database_url):
+            await resume_interrupted_check_ins()
+            yield
+            # Stopped while the checkpointer is still open, so a run halfway through is
+            # left resumable instead of failing on a closed connection.
+            await stop_running_check_ins()
         await dispose_engine()
 
     application = FastAPI(

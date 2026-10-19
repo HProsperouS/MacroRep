@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     database_pool_size: int = Field(default=10, alias="DATABASE_POOL_SIZE", ge=1, le=100)
     database_max_overflow: int = Field(default=20, alias="DATABASE_MAX_OVERFLOW", ge=0, le=200)
 
+    # Which language model the check-in agents use. Only the rule-based "fake" exists so far.
+    coach_model_provider: Literal["fake"] = Field(default="fake", alias="COACH_MODEL_PROVIDER")
+
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_json: bool = Field(default=True, alias="LOG_JSON")
     correlation_id_header: str = Field(

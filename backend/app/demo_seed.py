@@ -13,7 +13,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import hash_password
-from app.coach import pipeline
+from app.coach.agents.graph import run_agents
+from app.coach.agents.model import FakeCoachModel
 from app.coach.models import CheckIn, Proposal
 from app.core.database import get_session_factory
 from app.food.models import Food
@@ -173,20 +174,28 @@ async def seed_demo_data() -> None:
             )
 
         if await _is_empty(session, CheckIn):
-            draft = pipeline.draft_check_in(
-                week_label="Week 1",
-                avg_calories=2410,
-                target_calories=2350,
-                adherence_percent=85,
-                partial_days=0,
-                target_gap_kcal=360,
-                workouts_done=3,
-                workouts_planned=3,
-                completion_percent=100.0,
-                avg_rpe=8.0,
-                weight_change_kg=-0.3,
-                goal_rate_kg_per_week=-0.5,
-            )
+            # A week that's a little off the goal rate, so the demo check-in has a proposal to review.
+            snapshot: dict[str, object] = {
+                "avg_calories": 2410,
+                "target_calories": 2350,
+                "target_version": None,
+                "adherence_percent": 85,
+                "complete_days": 6,
+                "partial_days": 0,
+                "missing_days": 0,
+                "target_gap_kcal": 360,
+                "workouts_done": 3,
+                "workouts_planned": 3,
+                "completion_percent": 100.0,
+                "avg_rpe": 8.0,
+                "weight_change_kg": -0.3,
+                "goal_rate_kg_per_week": -0.5,
+                "goal": "lose",
+                "routines": [],
+                "exercise_trends": {},
+                "equipment": [],
+            }
+            draft = await run_agents(snapshot, FakeCoachModel())
             today = _demo_today()
             check_in = CheckIn(
                 owner_id=DEMO_USER_ID,
@@ -196,6 +205,7 @@ async def seed_demo_data() -> None:
                 stats=draft.stats,
                 pipeline=draft.pipeline,
                 suggested_questions=draft.suggested_questions,
+                input_snapshot=snapshot,
             )
             session.add(check_in)
             await session.flush()

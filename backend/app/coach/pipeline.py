@@ -1,18 +1,18 @@
-"""Placeholder check-in generation.
+"""The check-in's output contract, and the week's summary and headline stats.
 
-MacroRep's product vision is a multi-agent AI coach that reviews a user's
-week and proposes nutrition/training adjustments. Building that pipeline
-(agent roles, evidence gathering, LLM-backed proposal drafting) is a separate
-piece of work; this module is the seam it plugs into. `draft_check_in` below
-is a deterministic, rule-based stand-in with the same output shape
-(`CheckInDraft`) so the rest of the app — persistence, API, frontend — can be
-built and tested against a stable contract today, and the real pipeline can
-replace this function's body later without touching any caller.
+``CheckInDraft`` is what generation produces and the service stores: the agents in
+``agents/`` fill its proposals; the summary and stats come from the frozen snapshot,
+deterministically, so they never depend on a model.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
+
+# A week's total shortfall below this is within normal day-to-day noise.
+_NOTABLE_WEEKLY_GAP_KCAL = 500
 
 
 @dataclass
@@ -23,6 +23,10 @@ class ProposalChangeDraft:
     before: float
     after: float
     step: float
+    # Set on a training change: which routine exercise and target it edits.
+    routine_id: str | None = None
+    exercise_id: str | None = None
+    field: str | None = None
 
 
 @dataclass
@@ -44,123 +48,43 @@ class CheckInDraft:
     proposals: list[ProposalDraft] = field(default_factory=list)
 
 
-_CALORIE_ADJUST_STEP = 50
-_ADHERENCE_HIGH = 80
-# A week's total shortfall below this is within normal day-to-day noise.
-_NOTABLE_WEEKLY_GAP_KCAL = 500
+def summarize_week(snapshot: Mapping[str, Any]) -> tuple[str, list[dict[str, str]]]:
+    """A plain-language summary of the week and its headline numbers."""
 
-
-def draft_check_in(
-    *,
-    week_label: str,
-    avg_calories: float,
-    target_calories: int,
-    adherence_percent: float,
-    partial_days: int,
-    target_gap_kcal: int,
-    workouts_done: int,
-    workouts_planned: int,
-    completion_percent: float | None,
-    avg_rpe: float | None,
-    weight_change_kg: float,
-    goal_rate_kg_per_week: float,
-) -> CheckInDraft:
-    """Rule-based week review: compare intake/adherence/training against targets.
-
-    Deliberately simple (linear thresholds, no learning) — it exists to make
-    the check-in pipeline observable end-to-end, not to be a good coach.
-    """
-
-    pipeline = [
-        {
-            "id": "gather",
-            "title": "Gather week's data",
-            "detail": "Food log, workouts, weigh-ins.",
-            "status": "done",
-        },
-        {
-            "id": "analyze",
-            "title": "Analyze adherence & trend",
-            "detail": f"{adherence_percent:.0f}% of days logged, {partial_days} under half the target.",
-            "status": "done",
-        },
-        {
-            "id": "propose",
-            "title": "Draft proposals",
-            "detail": "Rule-based placeholder pipeline.",
-            "status": "done",
-        },
-    ]
-
-    calorie_gap = avg_calories - target_calories
-    on_track = abs(weight_change_kg - goal_rate_kg_per_week) < 0.15
+    avg_calories = float(snapshot["avg_calories"])
+    target_calories = int(snapshot["target_calories"])
+    adherence_percent = float(snapshot["adherence_percent"])
+    partial_days = int(snapshot["partial_days"])
+    target_gap = int(snapshot["target_gap_kcal"])
+    workouts_done, workouts_planned = int(snapshot["workouts_done"]), int(snapshot["workouts_planned"])
+    completion = snapshot["completion_percent"]
+    avg_rpe = snapshot["avg_rpe"]
+    weight_change = float(snapshot["weight_change_kg"])
 
     summary = (
         f"Averaged {avg_calories:.0f} kcal/day against a {target_calories} kcal target, "
         f"with {adherence_percent:.0f}% of days logged and {workouts_done}/{workouts_planned} "
         "planned workouts completed."
     )
-    if target_gap_kcal <= -_NOTABLE_WEEKLY_GAP_KCAL:
-        summary += f" Logged days came in {-target_gap_kcal:,} kcal under target in total."
+    if target_gap <= -_NOTABLE_WEEKLY_GAP_KCAL:
+        summary += f" Logged days came in {-target_gap:,} kcal under target in total."
         if partial_days:
             summary += (
                 f" {partial_days} of them fell under half the target; if some food went unlogged,"
                 " the real shortfall is smaller."
             )
     if avg_rpe is not None:
-        summary += f" Average effort was RPE {avg_rpe:.1f}."
+        summary += f" Average effort was RPE {float(avg_rpe):.1f}."
 
     workouts = f"{workouts_done}/{workouts_planned}"
-    if completion_percent is not None:
-        workouts += f" ({completion_percent:.0f}%)"
-
+    if completion is not None:
+        workouts += f" ({float(completion):.0f}%)"
     stats = [
         {"label": "Avg calories", "value": f"{avg_calories:.0f} kcal"},
-        {"label": "Vs target", "value": f"{target_gap_kcal:+,} kcal"},
+        {"label": "Vs target", "value": f"{target_gap:+,} kcal"},
         {"label": "Days logged", "value": f"{adherence_percent:.0f}%"},
         {"label": "Workouts", "value": workouts},
-        {"label": "Avg RPE", "value": f"{avg_rpe:.1f}" if avg_rpe is not None else "—"},
-        {"label": "Weight change", "value": f"{weight_change_kg:+.2f} kg"},
+        {"label": "Avg RPE", "value": f"{float(avg_rpe):.1f}" if avg_rpe is not None else "—"},
+        {"label": "Weight change", "value": f"{weight_change:+.2f} kg"},
     ]
-
-    proposals: list[ProposalDraft] = []
-    if adherence_percent >= _ADHERENCE_HIGH and not on_track:
-        new_target = round(target_calories - calorie_gap + (goal_rate_kg_per_week - weight_change_kg) * 1100)
-        proposals.append(
-            ProposalDraft(
-                id="nutrition-calories",
-                kind="nutrition",
-                headline=f"Adjust daily target to {new_target} kcal",
-                changes=[
-                    ProposalChangeDraft(
-                        id="calories",
-                        label="Daily calories",
-                        unit="kcal",
-                        before=target_calories,
-                        after=new_target,
-                        step=_CALORIE_ADJUST_STEP,
-                    )
-                ],
-                evidence=[
-                    f"Trend weight changed {weight_change_kg:+.2f} kg vs "
-                    f"a {goal_rate_kg_per_week:+.2f} kg/week goal.",
-                    f"Food was logged on {adherence_percent:.0f}% of days, enough to trust the intake data.",
-                    f"Logged days totalled {target_gap_kcal:+,} kcal against target"
-                    + (f", with {partial_days} under half the target." if partial_days else "."),
-                ],
-                reviewer_note="Placeholder rule-based proposal — replace with the multi-agent pipeline.",
-            )
-        )
-
-    suggested_questions = [
-        "Why did you suggest this change?",
-        "What if I keep training the same but eat less?",
-    ]
-
-    return CheckInDraft(
-        summary=summary,
-        stats=stats,
-        pipeline=pipeline,
-        suggested_questions=suggested_questions,
-        proposals=proposals,
-    )
+    return summary, stats

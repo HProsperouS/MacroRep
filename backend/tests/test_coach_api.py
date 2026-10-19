@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
@@ -455,10 +456,10 @@ def test_a_failed_generation_is_reported_and_changes_nothing(
     _week_with_a_proposal(client, headers)
     targets_before = _targets(client, headers)
 
-    def broken(**_: object) -> None:
+    async def broken(*_: object) -> None:
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr("app.coach.pipeline.draft_check_in", broken)
+    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", broken)
     assert _start(client, headers, "fails").status_code == 201
 
     current = client.get(f"{CHECK_INS}/current", headers=headers).json()
@@ -579,12 +580,14 @@ def test_a_run_that_outlived_the_stale_sweep_does_not_bring_its_check_in_back(
 def test_a_run_that_takes_too_long_is_stopped_and_marked_failed(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import time
-
     headers = _new_user(client)
     _week_with_a_proposal(client, headers)
     monkeypatch.setattr("app.coach.service.RUN_TIMEOUT_SECONDS", 0.2)
-    monkeypatch.setattr("app.coach.pipeline.draft_check_in", lambda **_: time.sleep(1))
+
+    async def slow(*_: object) -> None:
+        await asyncio.sleep(1)
+
+    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", slow)
 
     _start(client, headers, "too-slow")
 
@@ -615,10 +618,10 @@ def test_a_retry_after_a_failure_keeps_the_week_number(
     headers = _new_user(client)
     _week_with_a_proposal(client, headers)
 
-    def broken(**_: object) -> None:
+    async def broken(*_: object) -> None:
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr("app.coach.pipeline.draft_check_in", broken)
+    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", broken)
     assert _start(client, headers, "fails").json()["weekLabel"] == "Week 1"
     monkeypatch.undo()
     assert _start(client, headers, "retry").json()["weekLabel"] == "Week 1"
@@ -654,3 +657,222 @@ def test_a_refused_apply_records_no_decision_time(client: TestClient) -> None:
     proposal = _ready(client, headers)["proposals"][0]
     assert proposal["status"] == "pending"
     assert proposal["decidedAt"] is None
+
+
+def _log_bench(
+    client: TestClient, headers: dict[str, str], days_ago: int, weight_kg: float, rpe: float
+) -> None:
+    started = datetime.combine(date.today() - timedelta(days=days_ago), time(12, 0), tzinfo=UTC)
+    sets = [{"kind": "working", "weightKg": weight_kg, "reps": 5, "rpe": rpe}] * 3
+    response = client.post(
+        "/api/v1/workouts/sessions",
+        headers=headers,
+        json={
+            "planId": None,
+            "name": "Push",
+            "startedAt": started.isoformat(),
+            "finishedAt": (started + timedelta(hours=1)).isoformat(),
+            "exercises": [
+                {"exerciseId": "exercise-bench-press", "name": "Barbell Bench Press", "sets": sets}
+            ],
+        },
+    )
+    assert response.status_code == 201
+
+
+def test_logged_training_leads_to_a_training_proposal_for_the_scheduled_routine(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine = client.post(
+        "/api/v1/workouts/routines",
+        headers=headers,
+        json={
+            "name": "Push",
+            "weekLabel": "Week 1",
+            "estimatedMinutes": 45,
+            "exercises": [
+                {
+                    "exerciseId": "exercise-bench-press",
+                    "restSeconds": 120,
+                    "sets": [{"kind": "working", "targetWeightKg": 100, "targetReps": 5}] * 3,
+                }
+            ],
+        },
+    ).json()
+    for day in range(7):
+        client.put(f"/api/v1/workouts/plan/{day}", headers=headers, json={"routineId": routine["id"]})
+    _week_with_a_proposal(client, headers)
+    # Strength has slipped while effort climbed to RPE 9.5: time to ease off.
+    _log_bench(client, headers, days_ago=14, weight_kg=100, rpe=8)
+    _log_bench(client, headers, days_ago=2, weight_kg=95, rpe=9.5)
+    _log_bench(client, headers, days_ago=1, weight_kg=95, rpe=9.5)
+
+    _start(client, headers, "training")
+    check_in = _ready(client, headers)
+
+    training = next(p for p in check_in["proposals"] if p["kind"] == "training")
+    change = training["changes"][0]
+    assert change["label"] == "Barbell Bench Press · target weight"
+    assert (change["before"], change["after"], change["unit"]) == (100.0, 95.0, "kg")
+    assert (change["routineId"], change["exerciseId"], change["field"]) == (
+        routine["id"],
+        "exercise-bench-press",
+        "target_weight_kg",
+    )
+    assert any("RPE 9.5" in line for line in training["evidence"])
+    assert [step["id"] for step in check_in["pipeline"]] == [
+        "gather",
+        "nutrition",
+        "workout",
+        "reviewer",
+        "decide",
+    ]
+
+
+def test_a_finished_run_leaves_no_checkpoints_behind(client: TestClient) -> None:
+    from app.coach.agents.checkpoint import get_checkpointer
+
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+
+    async def saved() -> object:
+        return await get_checkpointer().aget_tuple({"configurable": {"thread_id": check_in["id"]}})
+
+    assert client.portal is not None
+    assert client.portal.call(saved) is None
+
+
+def test_a_run_resumed_long_after_it_began_is_failed_not_finished(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.coach.runner import generate_check_in
+
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    async def never_runs(_: str) -> None:
+        return None
+
+    monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
+    check_in_id = _start(client, headers, "old").json()["id"]
+    _backdate_check_in(client, check_in_id, minutes=60)
+
+    assert client.portal is not None
+    client.portal.call(generate_check_in, check_in_id)  # as the startup resume would
+
+    row = _check_in_row(client, check_in_id)
+    assert row.status.value == "failed"  # type: ignore[attr-defined]
+    assert "interrupted" in (row.failure_reason or "")  # type: ignore[attr-defined]
+
+
+def _check_in_row(client: TestClient, check_in_id: str) -> object:
+    from app.coach.models import CheckIn as CheckInRow
+    from app.core.database import get_session_factory
+
+    async def load() -> object:
+        async with get_session_factory()() as session:
+            return await session.get(CheckInRow, check_in_id)
+
+    assert client.portal is not None
+    return client.portal.call(load)
+
+
+def test_a_run_stopped_at_shutdown_stays_running_to_be_resumed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.coach.runner import generate_check_in, stop_running_check_ins
+
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    async def never_runs(_: str) -> None:
+        return None
+
+    monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
+    check_in_id = _start(client, headers, "shutdown").json()["id"]
+
+    started = asyncio.Event()
+
+    async def slow(*_: object) -> None:
+        started.set()
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", slow)
+
+    async def run_then_shut_down() -> bool:
+        task = asyncio.create_task(generate_check_in(check_in_id))
+        await started.wait()
+        await stop_running_check_ins()
+        return task.cancelled()
+
+    assert client.portal is not None
+    assert client.portal.call(run_then_shut_down) is True
+    assert _check_in_row(client, check_in_id).status.value == "running"  # type: ignore[attr-defined]
+
+
+def test_the_snapshot_counts_working_sets_only(client: TestClient) -> None:
+    from zoneinfo import ZoneInfo
+
+    from app.core.database import get_session_factory
+    from app.progress.repository import ProgressRepository
+
+    headers = _new_user(client)
+    routine = client.post(
+        "/api/v1/workouts/routines",
+        headers=headers,
+        json={
+            "name": "Push",
+            "weekLabel": "Week 1",
+            "estimatedMinutes": 45,
+            "exercises": [
+                {
+                    "exerciseId": "exercise-bench-press",
+                    "restSeconds": 120,
+                    "sets": [
+                        {"kind": "warmup", "targetWeightKg": 40, "targetReps": 10},
+                        *[{"kind": "working", "targetWeightKg": 80, "targetReps": 5}] * 3,
+                        {"kind": "drop", "targetWeightKg": 120, "targetReps": 3},
+                    ],
+                }
+            ],
+        },
+    ).json()
+    client.put("/api/v1/workouts/plan/0", headers=headers, json={"routineId": routine["id"]})
+    started = datetime.combine(date.today() - timedelta(days=1), time(12, 0), tzinfo=UTC)
+    client.post(
+        "/api/v1/workouts/sessions",
+        headers=headers,
+        json={
+            "planId": None,
+            "name": "Push",
+            "startedAt": started.isoformat(),
+            "finishedAt": (started + timedelta(hours=1)).isoformat(),
+            "exercises": [
+                {
+                    "exerciseId": "exercise-bench-press",
+                    "name": "Barbell Bench Press",
+                    "sets": [
+                        {"kind": "working", "weightKg": 80, "reps": 5, "rpe": 7},
+                        {"kind": "failure", "weightKg": 80, "reps": 7, "rpe": 10},
+                    ],
+                }
+            ],
+        },
+    )
+    owner_id = client.get("/api/v1/users/me", headers=headers).json()["id"]
+
+    async def read() -> tuple[object, object]:
+        async with get_session_factory()() as session:
+            repository = ProgressRepository(session)
+            today = date.today()
+            return (
+                await repository.scheduled_routines(owner_id),
+                await repository.exercise_trends(
+                    owner_id, ["exercise-bench-press"], today - timedelta(days=6), today, ZoneInfo("UTC")
+                ),
+            )
+
+    assert client.portal is not None
+    routines, trends = client.portal.call(read)
+    exercise = routines[0]["exercises"][0]  # type: ignore[index]
+    assert (exercise["working_sets"], exercise["target_weight_kg"]) == (3, 80.0), "no warm-up or drop set"
+    assert trends["exercise-bench-press"]["recent_avg_rpe"] == 7.0, "the failure set's RPE 10 is left out"  # type: ignore[index]

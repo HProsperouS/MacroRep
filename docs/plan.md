@@ -493,7 +493,7 @@ Before applying a plan, the application displays:
 - reviewer warnings;
 - **Edit**, **Reject**, and **Apply Plan** actions.
 
-LangGraph interrupts and a persistent checkpointer will preserve the run while it waits for a decision. The apply operation will check the run ID and current plan version to prevent duplicate or stale writes.
+As built, the graph does not pause on a LangGraph interrupt for the decision. It ends once the proposals are drafted and stored; approval then goes through the proposals API, which is idempotent (a decided proposal can't be decided again) and checks the targets version the check-in was based on (409 when it is stale). The checkpointer (PostgreSQL in deployment) still saves every step, so a run interrupted by a restart is resumed at startup from its last finished step. Keeping the decision outside the graph means nothing waits in a checkpoint for days, and the decision is ordinary database state.
 
 ### 9.11 Failure handling
 
@@ -1246,7 +1246,7 @@ The team should resolve these during Milestone 0:
 4. S3-compatible storage provider for user-uploaded media.
 5. Exact minimum exercise catalog and food-entry method.
 6. Weight-trend and estimated one-repetition-maximum formulas.
-7. Product-defined nutrition and workout validation bounds.
+7. ~~Product-defined nutrition and workout validation bounds.~~ Initial values in `backend/app/coach/agents/limits.py`: a check-in changes the calorie target by at most 300 kcal, within 1,000–6,000 kcal; a training change moves working sets by 1, target weight by at most 10% (in 2.5 kg steps) and target reps by 3; a calorie cut holds back training increases in the same check-in. Values beyond a bound are clamped to it, with a note to the user.
 8. Whether Coach Chat is included in the committed scope.
 9. Whether food-photo analysis is included in the committed scope.
 10. The final measurable performance and AI-evaluation targets.

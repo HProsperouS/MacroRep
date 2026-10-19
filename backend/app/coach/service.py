@@ -32,7 +32,9 @@ from app.progress.repository import ProgressRepository
 from app.shared.timezones import local_today, user_zone
 from app.shared.validation import ensure_plausible_calories
 
-from . import pipeline
+from .agents.checkpoint import get_checkpointer
+from .agents.graph import run_agents
+from .agents.model import get_coach_model
 from .models import CheckIn as CheckInModel
 from .models import CheckInStatus, MessageRole, ProposalKind, ProposalStatus
 from .models import CoachMessage as CoachMessageModel
@@ -98,21 +100,14 @@ RUNNING_PIPELINE: list[dict[str, str]] = [
 logger = logging.getLogger(__name__)
 
 
-def _draft(snapshot: dict[str, object], week_label: str) -> pipeline.CheckInDraft:
-    return pipeline.draft_check_in(
-        week_label=week_label,
-        avg_calories=cast(float, snapshot["avg_calories"]),
-        target_calories=cast(int, snapshot["target_calories"]),
-        adherence_percent=cast(float, snapshot["adherence_percent"]),
-        partial_days=cast(int, snapshot["partial_days"]),
-        target_gap_kcal=cast(int, snapshot["target_gap_kcal"]),
-        workouts_done=cast(int, snapshot["workouts_done"]),
-        workouts_planned=cast(int, snapshot["workouts_planned"]),
-        completion_percent=cast("float | None", snapshot["completion_percent"]),
-        avg_rpe=cast("float | None", snapshot["avg_rpe"]),
-        weight_change_kg=cast(float, snapshot["weight_change_kg"]),
-        goal_rate_kg_per_week=cast(float, snapshot["goal_rate_kg_per_week"]),
-    )
+async def _forget_run(check_in_id: str) -> None:
+    """Drop a finished run's checkpoints: the check-in row holds the outcome, and nothing
+    resumes a run that ended, so keeping them would only grow the store."""
+
+    try:
+        await get_checkpointer().adelete_thread(check_in_id)
+    except Exception:
+        logger.warning("couldn't delete check-in checkpoints", extra={"check_in_id": check_in_id})
 
 
 def _failed_pipeline(steps: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -237,15 +232,21 @@ class CoachService:
         """
 
         check_in = await self.repository.get(check_in_id)
-        if check_in is None or check_in.status != CheckInStatus.RUNNING:
+        if check_in is None:
             return
-        steps, snapshot, week_label = check_in.pipeline, check_in.input_snapshot or {}, check_in.week_label
+        # A run resumed long after it began (e.g. after a long outage) is failed, not finished late.
+        await self._fail_if_stale(check_in)
+        if check_in.status != CheckInStatus.RUNNING:
+            return
+        steps, snapshot = check_in.pipeline, check_in.input_snapshot or {}
         try:
-            # In a thread, so the timeout can stop waiting even though drafting never awaits.
             draft = await asyncio.wait_for(
-                asyncio.to_thread(_draft, snapshot, week_label), timeout=RUN_TIMEOUT_SECONDS
+                run_agents(
+                    snapshot, get_coach_model(), thread_id=check_in_id, checkpointer=get_checkpointer()
+                ),
+                timeout=RUN_TIMEOUT_SECONDS,
             )
-            if not await self.repository.finish_run(
+            if await self.repository.finish_run(
                 check_in_id,
                 status=CheckInStatus.NEEDS_REVIEW if draft.proposals else CheckInStatus.REVIEWED,
                 summary=draft.summary,
@@ -253,15 +254,18 @@ class CoachService:
                 pipeline=draft.pipeline,
                 suggested_questions=draft.suggested_questions,
             ):
-                return  # already marked failed (or finished) while this run was drafting
-            await self.repository.add_proposals(
-                [ProposalModel.from_draft(check_in_id, proposal) for proposal in draft.proposals]
-            )
-            await self.session.commit()
+                await self.repository.add_proposals(
+                    [ProposalModel.from_draft(check_in_id, proposal) for proposal in draft.proposals]
+                )
+                await self.session.commit()
+            # Otherwise it was already marked failed (or finished) while this run was drafting.
         except Exception:
+            # Not asyncio.CancelledError (a BaseException): a run stopped at shutdown stays
+            # RUNNING, with its checkpoints, so it can be resumed.
             logger.exception("check-in generation failed", extra={"check_in_id": check_in_id})
             await self.session.rollback()
             await self._mark_failed(check_in_id, steps, FAILED_REASON)
+        await _forget_run(check_in_id)
 
     async def _snapshot_week(
         self, owner_id: str, profile: Profile | None, start: date, end: date, zone: ZoneInfo
@@ -326,6 +330,7 @@ class CoachService:
             trained_today=await self.week_data.workouts_done(owner_id, end, end, zone) > 0,
         )
         rpe_entries = await self.week_data.rpe_entries(owner_id, start, end, zone)
+        routines = await self.week_data.scheduled_routines(owner_id)
         return {
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
@@ -346,6 +351,23 @@ class CoachService:
             "workouts_planned": workouts_planned,
             "completion_percent": completion_percent(workouts_done, workouts_planned),
             "avg_rpe": average_rpe(rpe for _, rpe in rpe_entries),
+            # What the workout agent may adjust, and how each exercise has been going.
+            "routines": routines,
+            "exercise_trends": await self.week_data.exercise_trends(
+                owner_id,
+                sorted(
+                    {
+                        cast(str, e["exercise_id"])
+                        for r in routines
+                        for e in cast(list[dict[str, object]], r["exercises"])
+                    }
+                ),
+                start,
+                end,
+                zone,
+            ),
+            "equipment": list(profile.equipment) if profile else [],
+            "goal": profile.goal.value if profile else "maintain",
         }
 
     async def _to_read(self, check_in: CheckInModel) -> CheckIn:
@@ -479,7 +501,7 @@ class CoachService:
                 check_in_id=check_in_id, owner_id=actor.actor_id, role=MessageRole.USER, text=text
             )
         )
-        # Placeholder reply — see app/coach/pipeline.py for why this isn't a real LLM call yet.
+        # Placeholder reply: Coach Chat is a stretch feature (plan.md §8.9), not built yet.
         reply = await self.repository.add_message(
             CoachMessageModel(
                 check_in_id=check_in_id,

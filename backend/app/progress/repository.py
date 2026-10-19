@@ -12,17 +12,30 @@ already local; timestamps (workouts, check-ins) are matched through
 from __future__ import annotations
 
 from datetime import date as date_
+from datetime import timedelta
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.training import estimated_one_rep_max, weekly_volume_kg
+from app.analytics.training import average_rpe, estimated_one_rep_max, weekly_volume_kg
 from app.body.models import WeighIn
 from app.coach.models import CheckIn, CheckInStatus
 from app.food.models import FoodEntry
 from app.shared.timezones import local_date, utc_bounds
-from app.workout.models import SetKind, WorkoutScheduleDay, WorkoutSession, WorkoutSetLog
+from app.workout.models import (
+    Exercise,
+    SetKind,
+    WorkoutPlanEntry,
+    WorkoutPlanExercise,
+    WorkoutScheduleDay,
+    WorkoutSession,
+    WorkoutSetLog,
+)
+
+# How far back an exercise's recent performance is compared to, before the week under review.
+_TREND_BASELINE_DAYS = 21
 
 
 class ProgressRepository:
@@ -151,3 +164,114 @@ class ProgressRepository:
             .order_by(CheckIn.created_utc.asc())
         )
         return list(await self.session.scalars(statement))
+
+    async def scheduled_routines(self, owner_id: str) -> list[dict[str, object]]:
+        """The routines on the user's week schedule, with each exercise's working-set targets.
+
+        Compact and JSON-ready: this is what the workout agent sees of the plan, and what
+        a training proposal may change. Unscheduled routines are left out.
+        """
+
+        schedule = list(
+            await self.session.execute(
+                select(WorkoutScheduleDay.day_of_week, WorkoutPlanEntry)
+                .join(WorkoutPlanEntry, WorkoutPlanEntry.id == WorkoutScheduleDay.routine_id)
+                .where(WorkoutScheduleDay.owner_id == owner_id)
+                .order_by(WorkoutScheduleDay.day_of_week)
+            )
+        )
+        routines: dict[str, dict[str, object]] = {}
+        for day, routine in schedule:
+            entry = routines.setdefault(
+                routine.id, {"routine_id": routine.id, "name": routine.name, "days": [], "exercises": []}
+            )
+            cast(list[int], entry["days"]).append(day)
+        if not routines:
+            return []
+        rows = await self.session.execute(
+            select(WorkoutPlanExercise, Exercise.name)
+            .join(Exercise, Exercise.id == WorkoutPlanExercise.exercise_id)
+            .where(WorkoutPlanExercise.plan_entry_id.in_(list(routines)))
+            .order_by(WorkoutPlanExercise.plan_entry_id, WorkoutPlanExercise.position)
+        )
+        for planned, name in rows:
+            # Working sets only: warm-ups don't count, and failure/drop sets are extras on top.
+            working = [s for s in planned.planned_sets if s.get("kind") == SetKind.WORKING.value]
+            weights = [float(s["target_weight_kg"]) for s in working if s.get("target_weight_kg") is not None]
+            reps = [int(s["target_reps"]) for s in working if s.get("target_reps") is not None]
+            cast(list[dict[str, object]], routines[planned.plan_entry_id]["exercises"]).append(
+                {
+                    "exercise_id": planned.exercise_id,
+                    "name": name,
+                    "working_sets": len(working),
+                    "target_weight_kg": max(weights) if weights else None,
+                    "target_reps": max(reps) if reps else None,
+                }
+            )
+        return list(routines.values())
+
+    async def exercise_trends(
+        self, owner_id: str, exercise_ids: list[str], start: date_, end: date_, zone: ZoneInfo
+    ) -> dict[str, dict[str, object]]:
+        """Per exercise: best estimated 1RM and average RPE in the week under review
+        (``start``..``end``) against the three weeks before it, and sessions this week."""
+
+        if not exercise_ids:
+            return {}
+        baseline_start = start - timedelta(days=_TREND_BASELINE_DAYS)
+        since, until = utc_bounds(baseline_start, end, zone)
+        rows = await self.session.execute(
+            select(
+                WorkoutSetLog.exercise_id,
+                WorkoutSetLog.weight_kg,
+                WorkoutSetLog.reps,
+                WorkoutSetLog.rpe,
+                WorkoutSetLog.kind,
+                WorkoutSetLog.session_id,
+                WorkoutSession.started_at,
+            )
+            .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
+            .where(
+                WorkoutSetLog.owner_id == owner_id,
+                WorkoutSetLog.exercise_id.in_(exercise_ids),
+                WorkoutSetLog.kind != SetKind.WARMUP,
+                WorkoutSession.started_at >= since,
+                WorkoutSession.started_at < until,
+            )
+        )
+        buckets: dict[str, dict[str, dict[str, list[object]]]] = {}
+        for exercise_id, weight_kg, reps, rpe, kind, session_id, started_at in rows:
+            period = "recent" if local_date(started_at, zone) >= start else "prior"
+            bucket = buckets.setdefault(exercise_id, {}).setdefault(
+                period, {"e1rm": [], "rpe": [], "sessions": []}
+            )
+            e1rm = estimated_one_rep_max(float(weight_kg), reps)
+            if e1rm is not None:
+                bucket["e1rm"].append(e1rm)
+            # Effort from working sets only: a failure set is RPE 10 by design and would skew it.
+            if rpe is not None and kind == SetKind.WORKING:
+                bucket["rpe"].append(float(rpe))
+            bucket["sessions"].append(session_id)
+
+        def summary(bucket: dict[str, list[object]] | None) -> tuple[float | None, float | None, int]:
+            if bucket is None:
+                return None, None, 0
+            e1rms = cast(list[float], bucket["e1rm"])
+            return (
+                round(max(e1rms), 1) if e1rms else None,
+                average_rpe(cast(list[float], bucket["rpe"])),
+                len(set(bucket["sessions"])),
+            )
+
+        trends: dict[str, dict[str, object]] = {}
+        for exercise_id, periods in buckets.items():
+            recent_e1rm, recent_rpe, recent_sessions = summary(periods.get("recent"))
+            prior_e1rm, prior_rpe, _ = summary(periods.get("prior"))
+            trends[exercise_id] = {
+                "recent_best_e1rm_kg": recent_e1rm,
+                "prior_best_e1rm_kg": prior_e1rm,
+                "recent_avg_rpe": recent_rpe,
+                "prior_avg_rpe": prior_rpe,
+                "recent_sessions": recent_sessions,
+            }
+        return trends

@@ -10,14 +10,20 @@ export type PipelineStep = {
 export type ProposalStatus = "pending" | "applied" | "edited" | "rejected"
 export type ProposalKind = "nutrition" | "training"
 
+export type ChangeUnit = "kcal" | "g" | "kg" | "sets" | "reps"
+
 export type ProposalChange = {
   id: string
   label: string
-  unit: "kcal" | "g" | "kg"
+  unit: ChangeUnit
   before: number
   after: number
   /** Smallest allowed step when editing, e.g. 2.5 for barbell load. */
   step: number
+  /** Set on a training change: the routine exercise and the target it edits. */
+  routineId?: string | null
+  exerciseId?: string | null
+  field?: "working_sets" | "target_weight_kg" | "target_reps" | null
 }
 
 export type Proposal = {

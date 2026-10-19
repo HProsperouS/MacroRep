@@ -1,3 +1,5 @@
+import type { ChangeUnit } from "@/types/coach"
+
 export function formatNumber(value: number, maximumFractionDigits = 0) {
   return value.toLocaleString("en-SG", { maximumFractionDigits })
 }
@@ -26,7 +28,7 @@ export function formatSigned(value: number, maximumFractionDigits = 1) {
   return value > 0 ? `+${text}` : `−${text}`
 }
 
-/** Proposal values: kcal without a unit suffix, grams/kg with one. */
-export function formatChangeValue(value: number, unit: "kcal" | "g" | "kg") {
+/** Proposal values: kcal without a unit suffix, everything else with one. */
+export function formatChangeValue(value: number, unit: ChangeUnit) {
   return unit === "kcal" ? formatNumber(value) : `${formatNumber(value, 1)} ${unit}`
 }

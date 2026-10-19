@@ -26,5 +26,7 @@ describe("format", () => {
     expect(formatChangeValue(2400, "kcal")).toBe("2,400")
     expect(formatChangeValue(180, "g")).toBe("180 g")
     expect(formatChangeValue(82.55, "kg")).toBe("82.6 kg")
+    expect(formatChangeValue(4, "sets")).toBe("4 sets")
+    expect(formatChangeValue(8, "reps")).toBe("8 reps")
   })
 })

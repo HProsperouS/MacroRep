@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { formatChangeValue } from "@/lib/format"
+import { editedValueError } from "@/lib/proposal-limits"
 import type { Proposal } from "@/types/coach"
 
 type EditProposalFormProps = {
@@ -19,17 +20,7 @@ export function EditProposalForm({ proposal, submitting, onCancel, onSubmit }: E
   const [values, setValues] = useState(() => Object.fromEntries(proposal.changes.map((change) => [change.id, String(change.after)])))
   const [showErrors, setShowErrors] = useState(false)
 
-  const errors = Object.fromEntries(
-    proposal.changes.map((change) => {
-      const raw = values[change.id]?.trim() ?? ""
-      const value = Number(raw)
-      if (raw === "" || !Number.isFinite(value)) return [change.id, "Enter a number"]
-      if (value <= 0) return [change.id, "Must be greater than 0"]
-      // The reviewer caps weekly changes; keep edits within ±25% of the current value here.
-      if (Math.abs(value - change.before) > change.before * 0.25) return [change.id, `Stay within 25% of ${formatChangeValue(change.before, change.unit)}`]
-      return [change.id, undefined]
-    }),
-  )
+  const errors = Object.fromEntries(proposal.changes.map((change) => [change.id, editedValueError(change, values[change.id] ?? "")]))
   const hasErrors = Object.values(errors).some(Boolean)
 
   function submit(event: FormEvent) {
