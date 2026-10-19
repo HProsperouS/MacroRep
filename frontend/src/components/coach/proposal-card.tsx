@@ -69,6 +69,8 @@ export function ProposalCard({ proposal, busy, onApply, onEdit, onReject }: Prop
           </tbody>
         </table>
 
+        {proposal.status === "edited" ? <EditedNote proposal={proposal} /> : null}
+
         <div className="flex flex-col gap-2">
           <span className="text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">Evidence</span>
           <ul className="flex list-disc flex-col gap-1 pl-5 text-sm text-muted-foreground">
@@ -103,5 +105,19 @@ export function ProposalCard({ proposal, busy, onApply, onEdit, onReject }: Prop
         </CardFooter>
       )}
     </Card>
+  )
+}
+
+/** What the user changed from the proposal, so an edit stays visible after it's applied. */
+function EditedNote({ proposal }: { proposal: Proposal }) {
+  const edits = proposal.changes.flatMap((change) => {
+    const proposed = proposal.proposedChanges.find((original) => original.id === change.id)
+    return proposed && proposed.after !== change.after ? [{ label: change.label, from: formatChangeValue(proposed.after, change.unit) }] : []
+  })
+  if (edits.length === 0) return null
+  return (
+    <p className="text-sm text-muted-foreground">
+      You edited this before applying: {edits.map((edit) => `${edit.label} was proposed as ${edit.from}`).join("; ")}.
+    </p>
   )
 }

@@ -130,7 +130,8 @@ def _week_for_a_check_in(client: TestClient, headers: dict[str, str]) -> dict:
             headers=headers,
             json={"date": (date.today() - timedelta(days=days_ago)).isoformat(), "weightKg": weight},
         )
-    check_in = client.post(CHECK_INS, headers={**headers, "Idempotency-Key": "versions"}).json()
+    client.post(CHECK_INS, headers={**headers, "Idempotency-Key": "versions"})
+    check_in = client.get(f"{CHECK_INS}/current", headers=headers).json()
     assert len(check_in["proposals"]) == 1
     return dict(check_in)
 

@@ -43,6 +43,15 @@ def _start(client: TestClient, headers: dict[str, str], key: str):
     return client.post(CHECK_INS, headers={**headers, "Idempotency-Key": key})
 
 
+def _ready(client: TestClient, headers: dict[str, str]) -> dict:
+    """The current check-in once generated. The test client runs the background
+    generation before the POST returns, so it has always finished by now."""
+
+    check_in = client.get(f"{CHECK_INS}/current", headers=headers).json()
+    assert check_in["status"] not in ("running", "failed"), check_in
+    return dict(check_in)
+
+
 def test_current_check_in_seeded(client: TestClient, auth_headers: dict[str, str]) -> None:
     response = client.get("/api/v1/coach/check-ins/current", headers=auth_headers)
     assert response.status_code == 200
@@ -113,7 +122,9 @@ def test_replaying_an_idempotency_key_returns_the_same_check_in(client: TestClie
 
     first = _start(client, headers, "week-1")
     assert first.status_code == 201
-    check_in = first.json()
+    assert first.json()["status"] == "running"  # generated in the background, after this answer
+    check_in = _ready(client, headers)
+    assert check_in["id"] == first.json()["id"]
     assert check_in["weekLabel"] == "Week 1"
     # 4/7 days logged is below the placeholder pipeline's adherence bar, so no proposals.
     assert check_in["proposals"] == []
@@ -122,8 +133,6 @@ def test_replaying_an_idempotency_key_returns_the_same_check_in(client: TestClie
     replay = _start(client, headers, "week-1")
     assert replay.status_code == 200
     assert replay.json() == check_in
-
-    assert client.get(f"{CHECK_INS}/current", headers=headers).json()["id"] == check_in["id"]
 
     # A different key is a different request: nothing is pending, so a new check-in is made.
     second = _start(client, headers, "week-2")
@@ -152,7 +161,8 @@ def _check_in_with_a_proposal(client: TestClient, headers: dict[str, str]) -> di
         _log_food(client, headers, days_ago=days_ago)
     _weigh_in(client, headers, days_ago=6, weight_kg=80)
     _weigh_in(client, headers, days_ago=0, weight_kg=78)
-    check_in = _start(client, headers, "with-proposal").json()
+    _start(client, headers, "with-proposal")
+    check_in = _ready(client, headers)
     assert len(check_in["proposals"]) == 1
     return dict(check_in)
 
@@ -319,7 +329,8 @@ def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
     _weigh_in(client, headers, days_ago=6, weight_kg=80)
     _weigh_in(client, headers, days_ago=0, weight_kg=80)
 
-    check_in = _start(client, headers, "gap").json()
+    _start(client, headers, "gap")
+    check_in = _ready(client, headers)
     stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
     assert stats["Vs target"] == "-1,400 kcal"
     assert "1,400 kcal under target" in check_in["summary"]
@@ -358,7 +369,8 @@ def test_check_in_reports_completion_and_effort(client: TestClient) -> None:
     _log_workout(client, headers, days_ago=1, rpe=8)
     _log_workout(client, headers, days_ago=2, rpe=9)
 
-    check_in = _start(client, headers, "effort").json()
+    _start(client, headers, "effort")
+    check_in = _ready(client, headers)
     stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
     # 6 finished plan days in the 7-day window; today isn't due until trained.
     assert stats["Workouts"] == "2/6 (33%)"
@@ -374,7 +386,8 @@ def test_check_in_without_rpe_or_a_plan(client: TestClient) -> None:
     _weigh_in(client, headers, days_ago=0, weight_kg=80)
     _log_workout(client, headers, days_ago=1, rpe=None)
 
-    check_in = _start(client, headers, "no-rpe").json()
+    _start(client, headers, "no-rpe")
+    check_in = _ready(client, headers)
     stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
     assert stats["Workouts"] == "1/0"
     assert stats["Avg RPE"] == "—"
@@ -392,7 +405,7 @@ def test_pending_proposals_block_a_new_check_in(client: TestClient) -> None:
 
     first = _start(client, headers, "with-proposal")
     assert first.status_code == 201
-    check_in = first.json()
+    check_in = _ready(client, headers)
     assert check_in["status"] == "needs-review"
     assert len(check_in["proposals"]) == 1
 
@@ -410,3 +423,234 @@ def test_pending_proposals_block_a_new_check_in(client: TestClient) -> None:
     )
     assert decided.status_code == 200
     assert _start(client, headers, "another-key").status_code == 201
+
+
+def _week_with_a_proposal(client: TestClient, headers: dict[str, str]) -> None:
+    for days_ago in range(7):
+        _log_food(client, headers, days_ago=days_ago)
+    _weigh_in(client, headers, days_ago=6, weight_kg=80)
+    _weigh_in(client, headers, days_ago=0, weight_kg=78)
+
+
+def test_a_check_in_is_generated_in_the_background(client: TestClient) -> None:
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    started = _start(client, headers, "bg")
+    assert started.status_code == 201
+    assert started.json()["status"] == "running"
+    assert started.json()["proposals"] == []
+    assert [step["status"] for step in started.json()["pipeline"]] == ["done", "running"]
+
+    ready = _ready(client, headers)
+    assert ready["status"] == "needs-review"
+    assert len(ready["proposals"]) == 1
+    assert ready["failureReason"] is None
+
+
+def test_a_failed_generation_is_reported_and_changes_nothing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+    targets_before = _targets(client, headers)
+
+    def broken(**_: object) -> None:
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr("app.coach.pipeline.draft_check_in", broken)
+    assert _start(client, headers, "fails").status_code == 201
+
+    current = client.get(f"{CHECK_INS}/current", headers=headers).json()
+    assert current["status"] == "failed"
+    assert current["proposals"] == []
+    assert "Nothing was changed" in current["failureReason"]
+    assert "model unavailable" not in current["failureReason"], "internal errors stay in the logs"
+    assert "failed" in [step["status"] for step in current["pipeline"]]
+    assert _targets(client, headers) == targets_before
+    history = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["checkIns"]
+    assert history == [], "a failed check-in has no outcome to list"
+
+    # A failed check-in doesn't block the next one.
+    monkeypatch.undo()
+    assert _start(client, headers, "retry").status_code == 201
+    assert _ready(client, headers)["status"] == "needs-review"
+
+
+def _backdate_check_in(client: TestClient, check_in_id: str, minutes: int) -> None:
+    from sqlalchemy import update
+
+    from app.coach.models import CheckIn as CheckInRow
+    from app.core.database import get_session_factory
+
+    async def move() -> None:
+        async with get_session_factory()() as session:
+            await session.execute(
+                update(CheckInRow)
+                .where(CheckInRow.id == check_in_id)
+                .values(created_utc=datetime.now(UTC) - timedelta(minutes=minutes))
+            )
+            await session.commit()
+
+    assert client.portal is not None
+    client.portal.call(move)
+
+
+def test_a_running_check_in_blocks_another_until_it_is_lost(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    async def never_runs(_: str) -> None:  # as if the server restarted before the run began
+        return None
+
+    monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
+    check_in_id = _start(client, headers, "lost").json()["id"]
+
+    blocked = _start(client, headers, "second")
+    assert blocked.status_code == 409
+    assert "still being prepared" in blocked.json()["detail"]
+
+    _backdate_check_in(client, check_in_id, minutes=11)
+    current = client.get(f"{CHECK_INS}/current", headers=headers).json()
+    assert current["status"] == "failed"
+    assert "interrupted" in current["failureReason"]
+
+    monkeypatch.undo()
+    assert _start(client, headers, "after-lost").status_code == 201
+
+
+def test_running_the_generation_twice_does_not_duplicate_proposals(client: TestClient) -> None:
+    from app.coach.runner import generate_check_in
+
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+
+    assert client.portal is not None
+    client.portal.call(generate_check_in, check_in["id"])
+
+    assert len(_ready(client, headers)["proposals"]) == 1
+
+
+def test_an_edited_proposal_keeps_what_was_proposed_and_when_it_was_decided(client: TestClient) -> None:
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+    proposed = check_in["proposals"][0]["changes"][0]["after"]
+    assert check_in["proposals"][0]["decidedAt"] is None
+
+    decided = _decide(
+        client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 2050}]}
+    ).json()
+
+    assert decided["changes"][0]["after"] == 2050
+    assert decided["proposedChanges"][0]["after"] == proposed
+    assert decided["decidedAt"] is not None
+    assert decided["decidedAt"].endswith(("Z", "+00:00"))
+    stored = _ready(client, headers)["proposals"][0]
+    assert stored["proposedChanges"][0]["after"] == proposed
+
+
+def test_a_run_that_outlived_the_stale_sweep_does_not_bring_its_check_in_back(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.coach.runner import generate_check_in
+
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    async def never_runs(_: str) -> None:
+        return None
+
+    monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
+    check_in_id = _start(client, headers, "slow").json()["id"]
+    _backdate_check_in(client, check_in_id, minutes=11)
+    assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"
+
+    # The slow run finally finishes: it must not overwrite the failure with proposals.
+    assert client.portal is not None
+    client.portal.call(generate_check_in, check_in_id)
+
+    current = client.get(f"{CHECK_INS}/current", headers=headers).json()
+    assert current["status"] == "failed"
+    assert current["proposals"] == []
+
+
+def test_a_run_that_takes_too_long_is_stopped_and_marked_failed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+    monkeypatch.setattr("app.coach.service.RUN_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr("app.coach.pipeline.draft_check_in", lambda **_: time.sleep(1))
+
+    _start(client, headers, "too-slow")
+
+    current = client.get(f"{CHECK_INS}/current", headers=headers).json()
+    assert current["status"] == "failed"
+
+
+def test_an_error_while_saving_the_proposals_marks_the_check_in_failed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    async def broken(*_: object) -> None:
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr("app.coach.repository.CoachRepository.add_proposals", broken)
+    _start(client, headers, "save-fails")
+
+    current = client.get(f"{CHECK_INS}/current", headers=headers).json()
+    assert current["status"] == "failed", "never left stuck as running"
+    assert current["proposals"] == []
+
+
+def test_a_retry_after_a_failure_keeps_the_week_number(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    def broken(**_: object) -> None:
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr("app.coach.pipeline.draft_check_in", broken)
+    assert _start(client, headers, "fails").json()["weekLabel"] == "Week 1"
+    monkeypatch.undo()
+    assert _start(client, headers, "retry").json()["weekLabel"] == "Week 1"
+
+
+def test_replaying_the_key_of_a_lost_run_reports_it_failed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    async def never_runs(_: str) -> None:
+        return None
+
+    monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
+    check_in_id = _start(client, headers, "lost").json()["id"]
+    _backdate_check_in(client, check_in_id, minutes=11)
+
+    replay = _start(client, headers, "lost")
+    assert replay.status_code == 200
+    assert replay.json()["status"] == "failed"
+
+
+def test_a_refused_apply_records_no_decision_time(client: TestClient) -> None:
+    headers = _new_user(client)
+    check_in = _check_in_with_a_proposal(client, headers)
+
+    refused = _decide(
+        client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 999}]}
+    )
+    assert refused.status_code == 422
+
+    proposal = _ready(client, headers)["proposals"][0]
+    assert proposal["status"] == "pending"
+    assert proposal["decidedAt"] is None

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+import asyncio
+import logging
+from datetime import UTC, date, datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -56,7 +58,14 @@ def _to_proposal_read(proposal: ProposalModel) -> Proposal:
         evidence=list(proposal.evidence),
         reviewer_note=proposal.reviewer_note,
         status=proposal.status,
+        proposed_changes=[ProposalChange(**change) for change in proposal.proposed_changes],
+        decided_at=_as_utc(proposal.decided_utc) if proposal.decided_utc else None,
     )
+
+
+def _as_utc(moment: datetime) -> datetime:
+    # SQLite hands back naive datetimes; everything is stored in UTC.
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
 CHECK_IN_WINDOW_DAYS = 7
@@ -66,6 +75,50 @@ MIN_WEIGH_INS = 2
 # target the user couldn't type in themselves. See docs/follow-ups.md.
 MIN_TARGET_CALORIES = 1_000
 MAX_TARGET_CALORIES = 6_000
+# A run that hasn't finished by then is abandoned and marked failed.
+RUN_TIMEOUT_SECONDS = 120
+# A check-in still RUNNING this long after it started was lost (e.g. a restart mid-run).
+STALE_RUN_AFTER = timedelta(minutes=10)
+FAILED_REASON = (
+    "Something went wrong while preparing this check-in. Nothing was changed; start a new one to try again."
+)
+INTERRUPTED_REASON = (
+    "This check-in was interrupted before it finished. Nothing was changed; start a new one to try again."
+)
+RUNNING_PIPELINE: list[dict[str, str]] = [
+    {
+        "id": "gather",
+        "title": "Gather week's data",
+        "detail": "Food log, workouts, weigh-ins.",
+        "status": "done",
+    },
+    {"id": "propose", "title": "Draft proposals", "detail": "Reviewing your week…", "status": "running"},
+]
+
+logger = logging.getLogger(__name__)
+
+
+def _draft(snapshot: dict[str, object], week_label: str) -> pipeline.CheckInDraft:
+    return pipeline.draft_check_in(
+        week_label=week_label,
+        avg_calories=cast(float, snapshot["avg_calories"]),
+        target_calories=cast(int, snapshot["target_calories"]),
+        adherence_percent=cast(float, snapshot["adherence_percent"]),
+        partial_days=cast(int, snapshot["partial_days"]),
+        target_gap_kcal=cast(int, snapshot["target_gap_kcal"]),
+        workouts_done=cast(int, snapshot["workouts_done"]),
+        workouts_planned=cast(int, snapshot["workouts_planned"]),
+        completion_percent=cast("float | None", snapshot["completion_percent"]),
+        avg_rpe=cast("float | None", snapshot["avg_rpe"]),
+        weight_change_kg=cast(float, snapshot["weight_change_kg"]),
+        goal_rate_kg_per_week=cast(float, snapshot["goal_rate_kg_per_week"]),
+    )
+
+
+def _failed_pipeline(steps: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The steps as they stood, with the one that was running marked failed."""
+
+    return [{**step, "status": "failed"} if step["status"] == "running" else step for step in steps]
 
 
 class CoachService:
@@ -85,7 +138,27 @@ class CoachService:
         check_in = await self.repository.get_current(actor.actor_id)
         if check_in is None:
             return None
+        await self._fail_if_stale(check_in)
         return await self._to_read(check_in)
+
+    async def _fail_if_stale(self, check_in: CheckInModel) -> None:
+        """A run still RUNNING long after it began was lost (e.g. the server restarted
+        mid-run): mark it failed so the user can start another."""
+
+        if check_in.status != CheckInStatus.RUNNING:
+            return
+        if datetime.now(UTC) - _as_utc(check_in.created_utc) < STALE_RUN_AFTER:
+            return
+        await self._mark_failed(check_in.id, check_in.pipeline, INTERRUPTED_REASON)
+        await self.session.refresh(check_in)
+
+    async def _mark_failed(self, check_in_id: str, steps: list[dict[str, str]], reason: str) -> None:
+        """Mark a RUNNING check-in failed. Does nothing if it already moved on, e.g. finished meanwhile."""
+
+        if await self.repository.finish_run(
+            check_in_id, status=CheckInStatus.FAILED, failure_reason=reason, pipeline=_failed_pipeline(steps)
+        ):
+            await self.session.commit()
 
     async def start_check_in(self, idempotency_key: str, actor: ActorContext) -> tuple[CheckIn, bool]:
         """Create a check-in for the last 7 days; returns it and whether it was newly created.
@@ -98,49 +171,42 @@ class CoachService:
 
         existing = await self.repository.get_by_idempotency_key(actor.actor_id, idempotency_key)
         if existing is not None:
+            await self._fail_if_stale(existing)
             return await self._to_read(existing), False
 
         current = await self.repository.get_current(actor.actor_id)
-        if current is not None and any(
-            proposal.status == ProposalStatus.PENDING
-            for proposal in await self.repository.list_proposals(current.id)
-        ):
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "Your current check-in still has proposals to review. Apply or reject them first.",
-            )
+        if current is not None:
+            await self._fail_if_stale(current)
+            if current.status == CheckInStatus.RUNNING:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "Your check-in is still being prepared. It'll be ready shortly."
+                )
+            if any(
+                proposal.status == ProposalStatus.PENDING
+                for proposal in await self.repository.list_proposals(current.id)
+            ):
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Your current check-in still has proposals to review. Apply or reject them first.",
+                )
 
         profile = await self.profiles.get(actor.actor_id)
         zone = user_zone(profile.timezone if profile else None)
         today = local_today(zone)
         start = today - timedelta(days=CHECK_IN_WINDOW_DAYS - 1)
+        # Checked and frozen now, so a lack of data is refused at once and the proposals,
+        # generated afterwards in the background, rest on exactly these numbers.
         snapshot = await self._snapshot_week(actor.actor_id, profile, start, today, zone)
-
-        week_label = f"Week {await self.repository.count_for_owner(actor.actor_id) + 1}"
-        draft = pipeline.draft_check_in(
-            week_label=week_label,
-            avg_calories=cast(float, snapshot["avg_calories"]),
-            target_calories=cast(int, snapshot["target_calories"]),
-            adherence_percent=cast(float, snapshot["adherence_percent"]),
-            partial_days=cast(int, snapshot["partial_days"]),
-            target_gap_kcal=cast(int, snapshot["target_gap_kcal"]),
-            workouts_done=cast(int, snapshot["workouts_done"]),
-            workouts_planned=cast(int, snapshot["workouts_planned"]),
-            completion_percent=cast("float | None", snapshot["completion_percent"]),
-            avg_rpe=cast("float | None", snapshot["avg_rpe"]),
-            weight_change_kg=cast(float, snapshot["weight_change_kg"]),
-            goal_rate_kg_per_week=cast(float, snapshot["goal_rate_kg_per_week"]),
-        )
 
         check_in = CheckInModel(
             owner_id=actor.actor_id,
-            week_label=week_label,
+            week_label=f"Week {await self.repository.count_for_owner(actor.actor_id) + 1}",
             range_label=f"{start.isoformat()} – {today.isoformat()}",
-            status=CheckInStatus.NEEDS_REVIEW if draft.proposals else CheckInStatus.REVIEWED,
-            summary=draft.summary,
-            stats=draft.stats,
-            pipeline=draft.pipeline,
-            suggested_questions=draft.suggested_questions,
+            status=CheckInStatus.RUNNING,
+            summary="Reviewing your week…",
+            stats=[],
+            pipeline=RUNNING_PIPELINE,
+            suggested_questions=[],
             idempotency_key=idempotency_key,
             input_snapshot=snapshot,
         )
@@ -157,21 +223,45 @@ class CoachService:
                 raise
             return await self._to_read(winner), False
 
-        await self.repository.add_proposals(
-            [
-                ProposalModel(
-                    check_in_id=check_in.id,
-                    kind=ProposalKind(proposal.kind),
-                    headline=proposal.headline,
-                    changes=[change.__dict__ for change in proposal.changes],
-                    evidence=proposal.evidence,
-                    reviewer_note=proposal.reviewer_note,
-                )
-                for proposal in draft.proposals
-            ]
-        )
         await self.session.commit()
         return await self._to_read(check_in), True
+
+    async def generate(self, check_in_id: str) -> None:
+        """Draft the proposals for a RUNNING check-in from its frozen snapshot.
+
+        Runs in the background after ``start_check_in`` has answered. Every write is
+        conditional on the check-in still being RUNNING, so a duplicate run, or one that
+        outlived the stale sweep, changes nothing. Any error marks the check-in FAILED
+        with a user-facing reason; the user's plan is never touched here, only proposals
+        are written.
+        """
+
+        check_in = await self.repository.get(check_in_id)
+        if check_in is None or check_in.status != CheckInStatus.RUNNING:
+            return
+        steps, snapshot, week_label = check_in.pipeline, check_in.input_snapshot or {}, check_in.week_label
+        try:
+            # In a thread, so the timeout can stop waiting even though drafting never awaits.
+            draft = await asyncio.wait_for(
+                asyncio.to_thread(_draft, snapshot, week_label), timeout=RUN_TIMEOUT_SECONDS
+            )
+            if not await self.repository.finish_run(
+                check_in_id,
+                status=CheckInStatus.NEEDS_REVIEW if draft.proposals else CheckInStatus.REVIEWED,
+                summary=draft.summary,
+                stats=draft.stats,
+                pipeline=draft.pipeline,
+                suggested_questions=draft.suggested_questions,
+            ):
+                return  # already marked failed (or finished) while this run was drafting
+            await self.repository.add_proposals(
+                [ProposalModel.from_draft(check_in_id, proposal) for proposal in draft.proposals]
+            )
+            await self.session.commit()
+        except Exception:
+            logger.exception("check-in generation failed", extra={"check_in_id": check_in_id})
+            await self.session.rollback()
+            await self._mark_failed(check_in_id, steps, FAILED_REASON)
 
     async def _snapshot_week(
         self, owner_id: str, profile: Profile | None, start: date, end: date, zone: ZoneInfo
@@ -265,6 +355,7 @@ class CoachService:
             week_label=check_in.week_label,
             range_label=check_in.range_label,
             status=check_in.status,
+            failure_reason=check_in.failure_reason,
             summary=check_in.summary,
             stats=[CheckInStat(**stat) for stat in check_in.stats],
             pipeline=[PipelineStep(**step) for step in check_in.pipeline],
@@ -312,6 +403,8 @@ class CoachService:
             proposal.changes = changes
             proposal.status = status_after
 
+        # Only now: a refused apply above leaves the proposal pending, with no decision time.
+        proposal.decided_utc = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(proposal)
         return _to_proposal_read(proposal)

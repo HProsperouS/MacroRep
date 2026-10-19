@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import estimated_one_rep_max, weekly_volume_kg
 from app.body.models import WeighIn
-from app.coach.models import CheckIn
+from app.coach.models import CheckIn, CheckInStatus
 from app.food.models import FoodEntry
 from app.shared.timezones import local_date, utc_bounds
 from app.workout.models import SetKind, WorkoutScheduleDay, WorkoutSession, WorkoutSetLog
@@ -137,6 +137,8 @@ class ProgressRepository:
     async def check_ins_in_range(
         self, owner_id: str, start: date_, end: date_, zone: ZoneInfo
     ) -> list[CheckIn]:
+        """Finished check-ins only: one still running or that failed has no outcome to show."""
+
         since, until = utc_bounds(start, end, zone)
         statement = (
             select(CheckIn)
@@ -144,6 +146,7 @@ class ProgressRepository:
                 CheckIn.owner_id == owner_id,
                 CheckIn.created_utc >= since,
                 CheckIn.created_utc < until,
+                CheckIn.status.in_([CheckInStatus.NEEDS_REVIEW, CheckInStatus.REVIEWED]),
             )
             .order_by(CheckIn.created_utc.asc())
         )

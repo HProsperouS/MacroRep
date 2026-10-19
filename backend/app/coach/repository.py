@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db import get_owned as _get_owned
+from app.shared.persistence.mixins import utc_now
 
-from .models import CheckIn, CoachMessage, Proposal
+from .models import CheckIn, CheckInStatus, CoachMessage, Proposal
 
 
 class CoachRepository:
@@ -27,6 +29,11 @@ class CoachRepository:
             ),
         )
 
+    async def get(self, check_in_id: str) -> CheckIn | None:
+        """Any user's check-in, for the background run that generates it (no request owner)."""
+
+        return await self.session.get(CheckIn, check_in_id)
+
     async def get_owned(self, check_in_id: str, owner_id: str) -> CheckIn | None:
         return await _get_owned(self.session, CheckIn, check_in_id, owner_id)
 
@@ -41,7 +48,31 @@ class CoachRepository:
         )
 
     async def count_for_owner(self, owner_id: str) -> int:
-        return int(await self.session.scalar(select(func.count()).where(CheckIn.owner_id == owner_id)) or 0)
+        """Check-ins that didn't fail: a failed one is retried under the same week number."""
+
+        return int(
+            await self.session.scalar(
+                select(func.count()).where(
+                    CheckIn.owner_id == owner_id, CheckIn.status != CheckInStatus.FAILED
+                )
+            )
+            or 0
+        )
+
+    async def finish_run(self, check_in_id: str, **values: object) -> bool:
+        """Move a RUNNING check-in on to ``values`` (status and its results), in one
+        conditional update. False when it is no longer RUNNING, because the run already
+        finished or was marked failed, so two writers can never both win."""
+
+        result = cast(
+            "CursorResult[Any]",
+            await self.session.execute(
+                update(CheckIn)
+                .where(CheckIn.id == check_in_id, CheckIn.status == CheckInStatus.RUNNING)
+                .values(**values, updated_utc=utc_now())
+            ),
+        )
+        return bool(result.rowcount == 1)
 
     async def add_check_in(self, check_in: CheckIn) -> CheckIn:
         self.session.add(check_in)

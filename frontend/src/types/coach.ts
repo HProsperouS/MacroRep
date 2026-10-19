@@ -28,6 +28,10 @@ export type Proposal = {
   evidence: string[]
   reviewerNote: string
   status: ProposalStatus
+  /** The changes exactly as proposed; `changes` holds the user's values once edited. */
+  proposedChanges: ProposalChange[]
+  /** ISO timestamp in UTC; null while pending. */
+  decidedAt: string | null
 }
 
 export type CheckInStat = {
@@ -39,7 +43,10 @@ export type CheckIn = {
   id: string
   weekLabel: string
   rangeLabel: string
-  status: "needs-review" | "reviewed"
+  /** "running" while proposals are generated in the background; "failed" if that went wrong. */
+  status: "running" | "needs-review" | "reviewed" | "failed"
+  /** Set when status is "failed". */
+  failureReason: string | null
   summary: string
   stats: CheckInStat[]
   pipeline: PipelineStep[]

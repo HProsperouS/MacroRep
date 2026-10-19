@@ -1,16 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useRef } from "react"
+import { useEffect, useRef } from "react"
 
 import { coachApi } from "@/api/coach-api"
 import { createRequestId } from "@/api/client"
 import { coachKeys, foodKeys, progressKeys, workoutKeys } from "@/api/query-keys"
 import type { CheckIn, Proposal, ProposalDecisionInput } from "@/types/coach"
 
+/** How often to look again while a check-in is being generated in the background. */
+export const CHECK_IN_POLL_MS = 2_000
+
 export function useCurrentCheckIn() {
-  return useQuery({
+  const queryClient = useQueryClient()
+  const query = useQuery({
     queryKey: coachKeys.current(),
     queryFn: ({ signal }) => coachApi.getCurrentCheckIn(signal),
+    refetchInterval: (query) => (query.state.data?.status === "running" ? CHECK_IN_POLL_MS : false),
   })
+
+  // A check-in joins the Progress history only once it's finished, so refresh it then.
+  const status = query.data?.status
+  const previous = useRef(status)
+  useEffect(() => {
+    if (previous.current === "running" && status !== undefined && status !== "running") {
+      void queryClient.invalidateQueries({ queryKey: progressKeys.all })
+    }
+    previous.current = status
+  }, [status, queryClient])
+
+  return query
 }
 
 /**
@@ -29,8 +46,8 @@ export function useStartCheckIn() {
     },
     onSuccess: (checkIn) => {
       idempotencyKey.current = null
+      // Running for now; useCurrentCheckIn polls it and refreshes Progress when it's done.
       queryClient.setQueryData(coachKeys.current(), checkIn)
-      void queryClient.invalidateQueries({ queryKey: progressKeys.all })
     },
   })
 }

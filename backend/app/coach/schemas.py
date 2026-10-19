@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import Field
@@ -36,6 +37,9 @@ class Proposal(CamelModel):
     evidence: list[str]
     reviewer_note: str
     status: ProposalStatus
+    # The changes as originally proposed; `changes` differs from them once the user edits.
+    proposed_changes: list[ProposalChange]
+    decided_at: datetime | None
 
 
 class CheckInStat(CamelModel):
@@ -48,6 +52,8 @@ class CheckIn(CamelModel):
     week_label: str
     range_label: str
     status: CheckInStatus
+    # Set when status is "failed".
+    failure_reason: str | None
     summary: str
     stats: list[CheckInStat]
     pipeline: list[PipelineStep]

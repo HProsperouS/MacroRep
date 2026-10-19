@@ -807,7 +807,7 @@ POST   /api/v1/coach/check-ins/{check_in_id}/proposals/{proposal_id}/decision
 POST   /api/v1/coach/check-ins/{check_in_id}/messages
 ```
 
-A proposal decision is `apply` or `reject`; optional `changes` carry the user's edited values with an `apply`. Progress events, clarification, and revise endpoints are planned but not implemented.
+`POST /coach/check-ins` checks the data and freezes the week's input snapshot, then answers at once with a `running` check-in; proposals are generated in the background and the client polls `GET /coach/check-ins/current` until the status becomes `needs-review`, `reviewed` or `failed` (with a user-facing `failureReason`). A run still `running` after 10 minutes is treated as lost and marked `failed`. A proposal decision is `apply` or `reject`; optional `changes` carry the user's edited values with an `apply`. Each proposal keeps `proposedChanges` (exactly as proposed) next to `changes` (as decided), and `decidedAt`. Progress events, clarification, and revise endpoints are planned but not implemented.
 
 ### API conventions
 

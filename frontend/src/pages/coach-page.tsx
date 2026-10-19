@@ -1,5 +1,5 @@
-import { CheckCheck, History, Sparkles } from "lucide-react"
-import { useState } from "react"
+import { CheckCheck, CircleAlert, History, Sparkles } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -11,6 +11,7 @@ import { ProposalCard } from "@/components/coach/proposal-card"
 import { PageHeader } from "@/components/layout/page-header"
 import { QueryError } from "@/components/layout/query-error"
 import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,6 +24,7 @@ import type { CheckIn, Proposal, ProposalDecisionInput } from "@/types/coach"
 
 export default function CoachPage() {
   const checkIn = useCurrentCheckIn()
+  useAnnounceWhenReady(checkIn.data ?? null)
 
   if (checkIn.isPending) return <CoachSkeleton />
 
@@ -58,7 +60,59 @@ export default function CoachPage() {
     )
   }
 
+  if (checkIn.data.status === "running") return <RunningView checkIn={checkIn.data} />
+  if (checkIn.data.status === "failed") return <FailedView checkIn={checkIn.data} />
   return <CheckInView checkIn={checkIn.data} />
+}
+
+/** Tells the user when a check-in they watched being prepared is ready. */
+function useAnnounceWhenReady(checkIn: CheckIn | null) {
+  const previous = useRef<{ id: string; status: CheckIn["status"] } | null>(null)
+  useEffect(() => {
+    const before = previous.current
+    previous.current = checkIn ? { id: checkIn.id, status: checkIn.status } : null
+    if (!checkIn || before?.id !== checkIn.id || before.status !== "running" || checkIn.status === "running") return
+    if (checkIn.status === "failed") toast.error("Your check-in couldn’t be prepared")
+    else
+      toast.success(`${checkIn.weekLabel} check-in ready`, {
+        description: checkIn.proposals.length > 0 ? "Review the proposed changes below." : "No changes needed this week.",
+      })
+  }, [checkIn])
+}
+
+function RunningView({ checkIn }: { checkIn: CheckIn }) {
+  return (
+    <>
+      <PageHeader eyebrow={`${checkIn.weekLabel} · ${checkIn.rangeLabel}`} title="Weekly check-in" />
+      <PipelineSteps steps={checkIn.pipeline} />
+      <Card aria-busy="true">
+        <CardContent className="flex items-center gap-3">
+          <Spinner className="size-5 shrink-0" />
+          <p className="text-sm" role="status">
+            Reviewing your week. This page updates by itself when the proposals are ready.
+          </p>
+        </CardContent>
+      </Card>
+    </>
+  )
+}
+
+function FailedView({ checkIn }: { checkIn: CheckIn }) {
+  return (
+    <>
+      <PageHeader
+        eyebrow={`${checkIn.weekLabel} · ${checkIn.rangeLabel}`}
+        title="Weekly check-in"
+        actions={<StartCheckInButton label="Try again" />}
+      />
+      <Alert variant="destructive">
+        <CircleAlert />
+        <AlertTitle>This check-in couldn’t be prepared</AlertTitle>
+        <AlertDescription>{checkIn.failureReason ?? "Something went wrong. Nothing was changed."}</AlertDescription>
+      </Alert>
+      <PipelineSteps steps={checkIn.pipeline} />
+    </>
+  )
 }
 
 type Editing = { proposal: Proposal; layout: OverlayLayout } | null
@@ -191,11 +245,8 @@ function StartCheckInButton({ label }: { label: string }) {
   const start = useStartCheckIn()
 
   function run() {
+    // Success needs no toast: the page switches to the "reviewing" view, and announces when it's ready.
     start.mutate(undefined, {
-      onSuccess: (checkIn) =>
-        toast.success(`${checkIn.weekLabel} check-in ready`, {
-          description: checkIn.proposals.length > 0 ? "Review the proposed changes below." : "No changes needed this week.",
-        }),
       onError: (error) => toast.error("Couldn’t start a check-in", { description: apiErrorMessage(error) }),
     })
   }

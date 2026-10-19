@@ -199,16 +199,6 @@ async def seed_demo_data() -> None:
             )
             session.add(check_in)
             await session.flush()
-            session.add_all(
-                Proposal(
-                    check_in_id=check_in.id,
-                    kind=proposal.kind,
-                    headline=proposal.headline,
-                    changes=[change.__dict__ for change in proposal.changes],
-                    evidence=proposal.evidence,
-                    reviewer_note=proposal.reviewer_note,
-                )
-                for proposal in draft.proposals
-            )
+            session.add_all(Proposal.from_draft(check_in.id, proposal) for proposal in draft.proposals)
 
         await session.commit()

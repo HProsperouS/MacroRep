@@ -48,6 +48,18 @@ describe("ProposalCard", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument()
   })
 
+  it("keeps what was proposed visible after the user edited it", () => {
+    const proposal = nutritionProposal()
+    renderCard({ ...proposal, status: "edited", changes: [{ ...proposal.changes[0], after: 2050 }] })
+    expect(screen.getByRole("row", { name: /Daily calories/ })).toHaveTextContent("2,050")
+    expect(screen.getByText(/Daily calories was proposed as 2,100/)).toBeInTheDocument()
+  })
+
+  it("says nothing about edits when the proposal was applied as made", () => {
+    renderCard(nutritionProposal({ status: "applied" }))
+    expect(screen.queryByText(/proposed as/)).not.toBeInTheDocument()
+  })
+
   it("shows no change for an unchanged value", () => {
     renderCard(nutritionProposal({ changes: [{ id: "calories", label: "Daily calories", unit: "kcal", before: 2000, after: 2000, step: 50 }] }))
     expect(screen.getByRole("row", { name: /Daily calories/ })).toHaveTextContent("—")
