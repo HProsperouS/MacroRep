@@ -192,7 +192,7 @@ The proposal and demonstration will focus on no more than four user journeys.
 ### Journey 1: Onboarding and goal setup
 
 1. User creates an account.
-2. User enters profile information, units, training experience, available equipment, dietary preferences, and primary goal.
+2. User enters profile information, units, training experience, available equipment, and primary goal.
 3. System validates inputs and creates an initial profile.
 4. User is taken to the dashboard with clear next actions.
 
@@ -248,7 +248,6 @@ If food-photo analysis is implemented, the AI result remains an editable estimat
 - Training experience.
 - Training days per week.
 - Available equipment.
-- Dietary preferences and user-declared restrictions.
 - Plan effective dates and revision history.
 
 Profile fields must be kept proportional to the project. The system should not collect sensitive data that it does not use.
