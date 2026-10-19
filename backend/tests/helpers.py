@@ -33,13 +33,13 @@ def register_user(client: TestClient, timezone: str | None = None) -> dict[str, 
     """
 
     registered = client.post(
-        "/api/auth/register",
+        "/api/v1/auth/register",
         json={"name": "Test User", "email": f"{uuid.uuid4().hex}@example.com", "password": "long-enough-pw"},
     )
     assert registered.status_code == 201
     headers = {"Authorization": f"Bearer {registered.json()['accessToken']}"}
     zone = timezone or machine_timezone()
-    assert client.put("/api/profile/timezone", headers=headers, json={"timezone": zone}).status_code == 200
+    assert client.put("/api/v1/profile/timezone", headers=headers, json={"timezone": zone}).status_code == 200
     return headers
 
 
@@ -48,7 +48,7 @@ def plan_every_day(client: TestClient, headers: dict[str, str]) -> None:
 
     for day_of_week in range(7):
         response = client.put(
-            f"/api/workouts/plan/{day_of_week}",
+            f"/api/v1/workouts/plan/{day_of_week}",
             headers=headers,
             json={
                 "name": "Full body",

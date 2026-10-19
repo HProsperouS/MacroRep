@@ -23,7 +23,7 @@ from .schemas import (
 )
 from .service import FoodService
 
-router = APIRouter(prefix="/api", tags=["food"])
+router = APIRouter(prefix="/api/v1", tags=["food"])
 
 
 def get_food_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> FoodService:

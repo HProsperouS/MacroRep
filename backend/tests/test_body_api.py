@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import register_user
 
-WEIGH_INS = "/api/body/weigh-ins"
+WEIGH_INS = "/api/v1/body/weigh-ins"
 
 
 def _day(days_ago: int) -> str:
@@ -26,7 +26,7 @@ def _list(client: TestClient, headers: dict[str, str], **params: str) -> list[di
 
 def test_add_weigh_in(client: TestClient, auth_headers: dict[str, str]) -> None:
     payload = {"date": date.today().isoformat(), "weightKg": 78.4}
-    response = client.post("/api/body/weigh-ins", headers=auth_headers, json=payload)
+    response = client.post("/api/v1/body/weigh-ins", headers=auth_headers, json=payload)
     assert response.status_code == 201
     body = response.json()
     assert body["scaleKg"] == 78.4
@@ -35,7 +35,7 @@ def test_add_weigh_in(client: TestClient, auth_headers: dict[str, str]) -> None:
 
 def test_add_weigh_in_rejects_non_positive_weight(client: TestClient, auth_headers: dict[str, str]) -> None:
     payload = {"date": date.today().isoformat(), "weightKg": 0}
-    response = client.post("/api/body/weigh-ins", headers=auth_headers, json=payload)
+    response = client.post("/api/v1/body/weigh-ins", headers=auth_headers, json=payload)
     assert response.status_code == 422
 
 

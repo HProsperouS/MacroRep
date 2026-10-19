@@ -48,22 +48,22 @@ def test_only_iana_names_are_known() -> None:
 
 def test_profile_timezone_can_be_set_and_read(client: TestClient) -> None:
     headers = _new_user(client)
-    response = client.put("/api/profile/timezone", headers=headers, json={"timezone": "Asia/Singapore"})
+    response = client.put("/api/v1/profile/timezone", headers=headers, json={"timezone": "Asia/Singapore"})
     assert response.status_code == 200
     assert response.json()["timezone"] == "Asia/Singapore"
-    assert client.get("/api/profile", headers=headers).json()["timezone"] == "Asia/Singapore"
+    assert client.get("/api/v1/profile", headers=headers).json()["timezone"] == "Asia/Singapore"
 
 
 @pytest.mark.parametrize("timezone", ["Mars/Olympus_Mons", "../../etc/passwd", "", "x" * 65])
 def test_unknown_timezones_are_rejected(client: TestClient, timezone: str) -> None:
     headers = _new_user(client)
-    response = client.put("/api/profile/timezone", headers=headers, json={"timezone": timezone})
+    response = client.put("/api/v1/profile/timezone", headers=headers, json={"timezone": timezone})
     assert response.status_code == 422
 
 
 def _log_bench(client: TestClient, headers: dict[str, str], started: datetime) -> None:
     response = client.post(
-        "/api/workouts/sessions",
+        "/api/v1/workouts/sessions",
         headers=headers,
         json={
             "planId": None,
@@ -89,7 +89,7 @@ def test_last_session_is_dated_in_the_users_timezone(client: TestClient) -> None
     # 7 a.m. there is 5 p.m. the previous day in UTC.
     _log_bench(client, headers, datetime.combine(yesterday, time(7, 0), tzinfo=zone))
 
-    exercises = client.get("/api/exercises", headers=headers, params={"q": "Barbell Bench Press"}).json()
+    exercises = client.get("/api/v1/exercises", headers=headers, params={"q": "Barbell Bench Press"}).json()
     bench = next(exercise for exercise in exercises if exercise["id"] == "exercise-bench-press")
     assert bench["lastSession"]["date"] == yesterday.isoformat()
 
@@ -99,6 +99,6 @@ def test_training_today_counts_in_the_users_timezone(client: TestClient) -> None
     plan_every_day(client, headers)
     _log_bench(client, headers, datetime.now(UTC) - timedelta(minutes=2))
 
-    workouts = client.get("/api/progress", headers=headers, params={"range": "1M"}).json()["workouts"]
+    workouts = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["workouts"]
     # 29 finished plan days, plus today's once trained: today is Kiritimati's today.
     assert workouts == {"done": 1, "planned": 30, "completionPercent": 3.3}

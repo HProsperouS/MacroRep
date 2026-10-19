@@ -16,7 +16,7 @@ from .repository import WeighInRepository
 from .schemas import UpdateWeighInInput, WeighInInput, WeighInRead, WeightPoint
 from .service import BodyService
 
-router = APIRouter(prefix="/api", tags=["body"])
+router = APIRouter(prefix="/api/v1", tags=["body"])
 
 _DEFAULT_LIST_DAYS = 90
 _MAX_LIST_DAYS = 366

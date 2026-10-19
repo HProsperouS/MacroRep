@@ -16,7 +16,7 @@ from .repository import ProgressRepository
 from .schemas import DailyCaloriesResponse, ProgressRange, ProgressResponse
 from .service import ProgressService
 
-router = APIRouter(prefix="/api", tags=["progress"])
+router = APIRouter(prefix="/api/v1", tags=["progress"])
 
 _VALID_RANGES = set(get_args(ProgressRange))
 

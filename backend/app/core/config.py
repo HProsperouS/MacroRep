@@ -58,10 +58,12 @@ class Settings(BaseSettings):
     # SameSite is the CSRF defence a bearer token never needed.
     #
     # The default path matches where `app.auth.router` mounts, which is fixed at
-    # `/api` regardless of API_PREFIX. A frontend on a different origin needs
+    # `/api/v1` regardless of API_PREFIX. A frontend on a different origin needs
     # `none` here, plus `secure`, plus CSRF tokens of its own.
     refresh_cookie_name: str = Field(default="macrorep_refresh", alias="REFRESH_COOKIE_NAME", min_length=1)
-    refresh_cookie_path: str = Field(default="/api/auth", alias="REFRESH_COOKIE_PATH", pattern=r"^/[^\s]*$")
+    refresh_cookie_path: str = Field(
+        default="/api/v1/auth", alias="REFRESH_COOKIE_PATH", pattern=r"^/[^\s]*$"
+    )
     refresh_cookie_domain: str | None = Field(default=None, alias="REFRESH_COOKIE_DOMAIN")
     refresh_cookie_secure: bool = Field(default=False, alias="REFRESH_COOKIE_SECURE")
     refresh_cookie_samesite: Literal["lax", "strict", "none"] = Field(

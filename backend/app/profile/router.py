@@ -15,7 +15,7 @@ from .repository import ProfileRepository
 from .schemas import DailyTargets, ProfileRead, TimezoneInput, UpdateProfileInput, UpdateTargetsInput
 from .service import ProfileService
 
-router = APIRouter(prefix="/api", tags=["profile"])
+router = APIRouter(prefix="/api/v1", tags=["profile"])
 
 
 def get_profile_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> ProfileService:

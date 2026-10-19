@@ -27,7 +27,7 @@ from .schemas import (
 )
 from .service import WorkoutService
 
-router = APIRouter(prefix="/api", tags=["workout"])
+router = APIRouter(prefix="/api/v1", tags=["workout"])
 
 
 def get_workout_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> WorkoutService:

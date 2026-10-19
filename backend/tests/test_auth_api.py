@@ -16,11 +16,11 @@ COOKIE = "macrorep_refresh"
 
 
 def _register(client: TestClient, email: str, password: str = PASSWORD, name: str = "Test User"):
-    return client.post("/api/auth/register", json={"name": name, "email": email, "password": password})
+    return client.post("/api/v1/auth/register", json={"name": name, "email": email, "password": password})
 
 
 def _login(client: TestClient, email: str, password: str):
-    return client.post("/api/auth/login", json={"email": email, "password": password})
+    return client.post("/api/v1/auth/login", json={"email": email, "password": password})
 
 
 def _bearer(access_token: str) -> dict[str, str]:
@@ -43,7 +43,7 @@ def test_register_returns_an_access_token_and_sets_the_refresh_cookie(client: Te
     assert "refreshToken" not in body
     assert client.cookies.get(COOKIE)
 
-    me = client.get("/api/users/me", headers=_bearer(body["accessToken"]))
+    me = client.get("/api/v1/users/me", headers=_bearer(body["accessToken"]))
     assert me.status_code == 200
     assert me.json()["name"] == "Test User"
     assert me.json()["email"] == "new.user@example.com"
@@ -53,7 +53,7 @@ def test_register_returns_an_access_token_and_sets_the_refresh_cookie(client: Te
 def test_the_refresh_cookie_is_locked_down(client: TestClient) -> None:
     header = _register(client, "cookie@example.com").headers["set-cookie"]
     assert "HttpOnly" in header
-    assert "Path=/api/auth" in header
+    assert "Path=/api/v1/auth" in header
     assert "samesite=strict" in header.lower()
 
 
@@ -93,7 +93,7 @@ def test_refresh_rotates_the_cookie_and_retires_the_old_token(client: TestClient
     first = client.cookies.get(COOKIE)
     assert first
 
-    rotated = client.post("/api/auth/refresh")
+    rotated = client.post("/api/v1/auth/refresh")
     assert rotated.status_code == 200
     assert rotated.json()["accessToken"]
     second = client.cookies.get(COOKIE)
@@ -101,35 +101,35 @@ def test_refresh_rotates_the_cookie_and_retires_the_old_token(client: TestClient
 
     # The token that was just rotated away must not work a second time.
     _present(client, first)
-    assert client.post("/api/auth/refresh").status_code == 401
+    assert client.post("/api/v1/auth/refresh").status_code == 401
 
     _present(client, second)
-    assert client.post("/api/auth/refresh").status_code == 200
+    assert client.post("/api/v1/auth/refresh").status_code == 200
 
 
 def test_refresh_without_a_cookie_is_rejected(client: TestClient) -> None:
-    assert client.post("/api/auth/refresh").status_code == 401
+    assert client.post("/api/v1/auth/refresh").status_code == 401
 
 
 def test_logout_revokes_the_refresh_token(client: TestClient) -> None:
     tokens = _register(client, "logout@example.com").json()
 
-    logged_out = client.post("/api/auth/logout", headers=_bearer(tokens["accessToken"]))
+    logged_out = client.post("/api/v1/auth/logout", headers=_bearer(tokens["accessToken"]))
     assert logged_out.status_code == 204
-    assert client.post("/api/auth/refresh").status_code == 401
+    assert client.post("/api/v1/auth/refresh").status_code == 401
 
 
 def test_requests_without_credentials_are_rejected(client: TestClient) -> None:
-    assert client.get("/api/users/me").status_code == 401
-    assert client.get("/api/profile").status_code == 401
+    assert client.get("/api/v1/users/me").status_code == 401
+    assert client.get("/api/v1/profile").status_code == 401
 
 
 def test_an_unverifiable_bearer_token_is_rejected(client: TestClient) -> None:
-    assert client.get("/api/users/me", headers=_bearer("not-a-real-token")).status_code == 401
+    assert client.get("/api/v1/users/me", headers=_bearer("not-a-real-token")).status_code == 401
 
 
 def test_a_valid_access_token_authorizes_other_domains(client: TestClient) -> None:
     tokens = _register(client, "cross.domain@example.com").json()
-    response = client.get("/api/nutrition/targets", headers=_bearer(tokens["accessToken"]))
+    response = client.get("/api/v1/nutrition/targets", headers=_bearer(tokens["accessToken"]))
     assert response.status_code == 200
     assert set(response.json()) == {"calories", "protein", "carbs", "fat"}

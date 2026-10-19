@@ -1,7 +1,7 @@
 """Idempotent local demo data used only when ``SEED_DEMO_DATA`` is enabled.
 
 Seeds one user (id ``USR-DEMO``) that local development can sign in as, either
-by posting the email/password below to `/api/auth/login` or by sending
+by posting the email/password below to `/api/v1/auth/login` or by sending
 `X-Preview-Actor-Id: USR-DEMO` while `PREVIEW_AUTH_ENABLED` is on.
 """
 

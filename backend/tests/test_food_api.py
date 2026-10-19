@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import register_user
 
-ENTRIES = "/api/food-log/entries"
+ENTRIES = "/api/v1/food-log/entries"
 TODAY = date.today().isoformat()
 
 # Seeded catalog foods (see app/demo_seed.py), nutrition per serving.
@@ -52,25 +52,25 @@ def test_food_log_add_and_remove(client: TestClient, auth_headers: dict[str, str
         "carbs": 0,
         "fat": 5.4,
     }
-    created = client.post("/api/food-log/entries", headers=auth_headers, json=entry_payload)
+    created = client.post("/api/v1/food-log/entries", headers=auth_headers, json=entry_payload)
     assert created.status_code == 201
     entry_id = created.json()["id"]
 
-    log = client.get("/api/food-log", headers=auth_headers, params={"date": today})
+    log = client.get("/api/v1/food-log", headers=auth_headers, params={"date": today})
     assert log.status_code == 200
     assert log.json()["date"] == today
     assert any(entry["id"] == entry_id for entry in log.json()["entries"])
 
-    deleted = client.delete(f"/api/food-log/entries/{entry_id}", headers=auth_headers)
+    deleted = client.delete(f"/api/v1/food-log/entries/{entry_id}", headers=auth_headers)
     assert deleted.status_code == 204
 
-    log_after = client.get("/api/food-log", headers=auth_headers, params={"date": today})
+    log_after = client.get("/api/v1/food-log", headers=auth_headers, params={"date": today})
     assert all(entry["id"] != entry_id for entry in log_after.json()["entries"])
 
 
 def test_search_escapes_like_metacharacters(client: TestClient, auth_headers: dict[str, str]) -> None:
     created = client.post(
-        "/api/foods",
+        "/api/v1/foods",
         headers=auth_headers,
         json={
             "name": "100% Whole Wheat Bread",
@@ -82,12 +82,12 @@ def test_search_escapes_like_metacharacters(client: TestClient, auth_headers: di
     assert created.status_code == 201
 
     # A literal '%' must not act as a SQL wildcard matching everything.
-    matched = client.get("/api/foods", headers=auth_headers, params={"q": "100%"})
+    matched = client.get("/api/v1/foods", headers=auth_headers, params={"q": "100%"})
     assert matched.status_code == 200
     assert any(food["name"] == "100% Whole Wheat Bread" for food in matched.json())
 
     unrelated = client.get(
-        "/api/foods", headers=auth_headers, params={"q": "100% Whole Wheat Bread and more"}
+        "/api/v1/foods", headers=auth_headers, params={"q": "100% Whole Wheat Bread and more"}
     )
     assert unrelated.status_code == 200
     assert unrelated.json() == []
@@ -105,12 +105,12 @@ def test_add_entry_rejects_invalid_meal(client: TestClient, auth_headers: dict[s
         "carbs": 60,
         "fat": 12,
     }
-    response = client.post("/api/food-log/entries", headers=auth_headers, json=payload)
+    response = client.post("/api/v1/food-log/entries", headers=auth_headers, json=payload)
     assert response.status_code == 422
 
 
 def test_search_and_create_custom_food(client: TestClient, auth_headers: dict[str, str]) -> None:
-    seeded = client.get("/api/foods", headers=auth_headers, params={"q": "chicken"})
+    seeded = client.get("/api/v1/foods", headers=auth_headers, params={"q": "chicken"})
     assert seeded.status_code == 200
     assert any(food["name"].lower().startswith("chicken") for food in seeded.json())
 
@@ -120,7 +120,7 @@ def test_search_and_create_custom_food(client: TestClient, auth_headers: dict[st
         "servingUnit": "scoop",
         "nutrition": {"calories": 220, "protein": 30, "carbs": 10, "fat": 5},
     }
-    created = client.post("/api/foods", headers=auth_headers, json=custom_payload)
+    created = client.post("/api/v1/foods", headers=auth_headers, json=custom_payload)
     assert created.status_code == 201
     body = created.json()
     assert body["source"] == "custom"
@@ -146,7 +146,7 @@ def test_logging_by_grams_converts_through_the_serving_weight(client: TestClient
 def test_grams_need_a_known_serving_weight(client: TestClient) -> None:
     headers = register_user(client)
     shake = client.post(
-        "/api/foods",
+        "/api/v1/foods",
         headers=headers,
         json={
             "name": "Shake",
@@ -181,7 +181,7 @@ def test_an_entry_is_either_a_saved_food_or_entered_values(client: TestClient) -
 def test_another_users_custom_food_is_not_visible(client: TestClient) -> None:
     owner = register_user(client)
     food = client.post(
-        "/api/foods",
+        "/api/v1/foods",
         headers=owner,
         json={
             "name": "Secret recipe",
@@ -190,12 +190,12 @@ def test_another_users_custom_food_is_not_visible(client: TestClient) -> None:
             "nutrition": {"calories": 300, "protein": 20, "carbs": 30, "fat": 10},
         },
     ).json()
-    assert client.get(f"/api/foods/{food['id']}", headers=owner).status_code == 200
+    assert client.get(f"/api/v1/foods/{food['id']}", headers=owner).status_code == 200
 
     intruder = register_user(client)
-    assert client.get(f"/api/foods/{food['id']}", headers=intruder).status_code == 404
+    assert client.get(f"/api/v1/foods/{food['id']}", headers=intruder).status_code == 404
     # The global catalog is shared by everyone.
-    assert client.get(f"/api/foods/{EGG}", headers=intruder).status_code == 200
+    assert client.get(f"/api/v1/foods/{EGG}", headers=intruder).status_code == 200
     logged = client.post(
         ENTRIES, headers=intruder, json={"date": TODAY, "meal": "lunch", "foodId": food["id"], "quantity": 1}
     )
@@ -232,7 +232,7 @@ def test_an_entry_can_move_meal_and_day(client: TestClient) -> None:
     assert moved.json()["meal"] == "dinner"
 
     def ids_on(day: str) -> list[str]:
-        log = client.get("/api/food-log", headers=headers, params={"date": day}).json()
+        log = client.get("/api/v1/food-log", headers=headers, params={"date": day}).json()
         return [row["id"] for row in log["entries"]]
 
     assert entry["id"] not in ids_on(TODAY)

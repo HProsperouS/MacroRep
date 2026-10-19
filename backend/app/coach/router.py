@@ -16,7 +16,7 @@ from .repository import CoachRepository
 from .schemas import AskCoachInput, CheckIn, CoachMessage, Proposal, ProposalDecisionInput
 from .service import CoachService
 
-router = APIRouter(prefix="/api/coach", tags=["coach"])
+router = APIRouter(prefix="/api/v1/coach", tags=["coach"])
 
 
 def get_coach_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> CoachService:

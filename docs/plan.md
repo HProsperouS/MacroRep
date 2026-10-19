@@ -731,7 +731,7 @@ macrorep/
 
 ## 16. API Design
 
-The API will use versioned REST endpoints such as `/api/v1/...`.
+The API uses versioned REST endpoints under `/api/v1`. Health checks (`/health/live`, `/health/ready`) and `/api/version` sit outside the versioned surface. The paths below are the implemented ones; the names differ from the original draft (for example `/food-log` instead of `/meals`, `/check-ins` instead of `/checkins`).
 
 ### Authentication
 
@@ -747,53 +747,58 @@ GET    /api/v1/users/me
 
 ```text
 GET    /api/v1/profile
-PATCH  /api/v1/profile
-GET    /api/v1/goals
-POST   /api/v1/goals
+PUT    /api/v1/profile
+PUT    /api/v1/profile/timezone
+GET    /api/v1/nutrition/targets
+PUT    /api/v1/nutrition/targets
 ```
+
+The primary goal lives on the profile. A separate goal-history endpoint is not implemented.
 
 ### Nutrition and weight
 
 ```text
-GET    /api/v1/meals?date=YYYY-MM-DD
-POST   /api/v1/meals
-GET    /api/v1/meals/{meal_id}
-PATCH  /api/v1/meals/{meal_id}
-DELETE /api/v1/meals/{meal_id}
-POST   /api/v1/meals/{meal_id}/items
-GET    /api/v1/nutrition/summary
-GET    /api/v1/weights
-POST   /api/v1/weights
-PATCH  /api/v1/weights/{entry_id}
-DELETE /api/v1/weights/{entry_id}
+GET    /api/v1/foods
+POST   /api/v1/foods
+GET    /api/v1/foods/{food_id}
+GET    /api/v1/food-log?date=YYYY-MM-DD
+POST   /api/v1/food-log/entries
+PATCH  /api/v1/food-log/entries/{entry_id}
+DELETE /api/v1/food-log/entries/{entry_id}
+GET    /api/v1/nutrition/daily-calories
+GET    /api/v1/body/weigh-ins?from=&to=
+POST   /api/v1/body/weigh-ins
+PATCH  /api/v1/body/weigh-ins/{weigh_in_id}
+DELETE /api/v1/body/weigh-ins/{weigh_in_id}
 ```
 
 ### Workout
 
 ```text
 GET    /api/v1/exercises
-GET    /api/v1/routines
-POST   /api/v1/routines
-PATCH  /api/v1/routines/{routine_id}
-POST   /api/v1/workouts
-GET    /api/v1/workouts/{session_id}
-POST   /api/v1/workouts/{session_id}/sets
-PATCH  /api/v1/sets/{set_id}
-POST   /api/v1/workouts/{session_id}/finish
-GET    /api/v1/progress/exercises/{exercise_id}
+POST   /api/v1/exercises
+GET    /api/v1/workouts/plan
+PUT    /api/v1/workouts/plan/{day_of_week}
+DELETE /api/v1/workouts/plan/{day_of_week}
+GET    /api/v1/workouts/today
+GET    /api/v1/workouts/sessions
+POST   /api/v1/workouts/sessions
+GET    /api/v1/workouts/sessions/{session_id}
+GET    /api/v1/progress
 ```
+
+The weekly plan is edited per day rather than through standalone routines. A session is posted once, with its sets, when the workout is finished.
 
 ### Check-in and agent workflow
 
 ```text
-POST   /api/v1/checkins
-GET    /api/v1/checkins/{run_id}
-GET    /api/v1/checkins/{run_id}/events
-POST   /api/v1/checkins/{run_id}/clarifications
-POST   /api/v1/checkins/{run_id}/approve
-POST   /api/v1/checkins/{run_id}/reject
-POST   /api/v1/checkins/{run_id}/revise
+GET    /api/v1/coach/check-ins/current
+POST   /api/v1/coach/check-ins
+POST   /api/v1/coach/check-ins/{check_in_id}/proposals/{proposal_id}/decision
+POST   /api/v1/coach/check-ins/{check_in_id}/messages
 ```
+
+A proposal decision is `apply` or `reject`; optional `changes` carry the user's edited values with an `apply`. Progress events, clarification, and revise endpoints are planned but not implemented.
 
 ### API conventions
 

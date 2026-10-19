@@ -16,5 +16,5 @@ def test_ready(client: TestClient) -> None:
 
 
 def test_requires_actor(client: TestClient) -> None:
-    response = client.get("/api/profile")
+    response = client.get("/api/v1/profile")
     assert response.status_code == 401

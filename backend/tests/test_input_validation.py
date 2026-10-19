@@ -86,107 +86,125 @@ def _set(weight_kg: float = 100, reps: int = 5) -> dict[str, Any]:
 # (description, method, path, payload, expected status)
 CASES: list[tuple[str, str, str, dict[str, Any], int]] = [
     # Weigh-ins: 20-400 kg, dated from 2000 to tomorrow (timezone tolerance).
-    ("weight at minimum", "POST", "/api/body/weigh-ins", {"date": TODAY.isoformat(), "weightKg": 20}, 201),
+    ("weight at minimum", "POST", "/api/v1/body/weigh-ins", {"date": TODAY.isoformat(), "weightKg": 20}, 201),
     (
         "weight below minimum",
         "POST",
-        "/api/body/weigh-ins",
+        "/api/v1/body/weigh-ins",
         {"date": TODAY.isoformat(), "weightKg": 19.9},
         422,
     ),
-    ("weight at maximum", "POST", "/api/body/weigh-ins", {"date": TODAY.isoformat(), "weightKg": 400}, 201),
+    (
+        "weight at maximum",
+        "POST",
+        "/api/v1/body/weigh-ins",
+        {"date": TODAY.isoformat(), "weightKg": 400},
+        201,
+    ),
     (
         "weight above maximum",
         "POST",
-        "/api/body/weigh-ins",
+        "/api/v1/body/weigh-ins",
         {"date": TODAY.isoformat(), "weightKg": 400.1},
         422,
     ),
-    ("earliest date", "POST", "/api/body/weigh-ins", {"date": "2000-01-01", "weightKg": 80}, 201),
-    ("before earliest date", "POST", "/api/body/weigh-ins", {"date": "1999-12-31", "weightKg": 80}, 422),
+    ("earliest date", "POST", "/api/v1/body/weigh-ins", {"date": "2000-01-01", "weightKg": 80}, 201),
+    ("before earliest date", "POST", "/api/v1/body/weigh-ins", {"date": "1999-12-31", "weightKg": 80}, 422),
     (
         "tomorrow (timezone tolerance)",
         "POST",
-        "/api/body/weigh-ins",
+        "/api/v1/body/weigh-ins",
         {"date": (TODAY + timedelta(days=1)).isoformat(), "weightKg": 80},
         201,
     ),
     (
         "two days ahead",
         "POST",
-        "/api/body/weigh-ins",
+        "/api/v1/body/weigh-ins",
         {"date": (TODAY + timedelta(days=2)).isoformat(), "weightKg": 80},
         422,
     ),
     # Profile: height 50-272 cm; weekly rate has no health limit, only the column's ±99.99.
-    ("height at minimum", "PUT", "/api/profile", {**PROFILE, "heightCm": 50}, 200),
-    ("height below minimum", "PUT", "/api/profile", {**PROFILE, "heightCm": 49.9}, 422),
-    ("height at maximum", "PUT", "/api/profile", {**PROFILE, "heightCm": 272}, 200),
-    ("height above maximum", "PUT", "/api/profile", {**PROFILE, "heightCm": 272.1}, 422),
-    ("fast weekly rate is allowed", "PUT", "/api/profile", {**PROFILE, "weeklyRateKg": -5}, 200),
-    ("rate at storage limit", "PUT", "/api/profile", {**PROFILE, "weeklyRateKg": -99.99}, 200),
-    ("rate beyond storage limit", "PUT", "/api/profile", {**PROFILE, "weeklyRateKg": -100}, 422),
-    ("whitespace-only name", "PUT", "/api/profile", {**PROFILE, "name": "   "}, 422),
-    ("repeated equipment", "PUT", "/api/profile", {**PROFILE, "equipment": ["barbell", "barbell"]}, 422),
+    ("height at minimum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 50}, 200),
+    ("height below minimum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 49.9}, 422),
+    ("height at maximum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 272}, 200),
+    ("height above maximum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 272.1}, 422),
+    ("fast weekly rate is allowed", "PUT", "/api/v1/profile", {**PROFILE, "weeklyRateKg": -5}, 200),
+    ("rate at storage limit", "PUT", "/api/v1/profile", {**PROFILE, "weeklyRateKg": -99.99}, 200),
+    ("rate beyond storage limit", "PUT", "/api/v1/profile", {**PROFILE, "weeklyRateKg": -100}, 422),
+    ("whitespace-only name", "PUT", "/api/v1/profile", {**PROFILE, "name": "   "}, 422),
+    ("repeated equipment", "PUT", "/api/v1/profile", {**PROFILE, "equipment": ["barbell", "barbell"]}, 422),
     # Targets: 0-10,000 kcal, macros 0-1,000 g, calories consistent with macros.
     (
         "zero targets",
         "PUT",
-        "/api/nutrition/targets",
+        "/api/v1/nutrition/targets",
         {"calories": 0, "protein": 0, "carbs": 0, "fat": 0},
         200,
     ),
-    ("negative calories", "PUT", "/api/nutrition/targets", {**TARGETS, "calories": -1}, 422),
-    ("calories at maximum", "PUT", "/api/nutrition/targets", {**TARGETS, "calories": 10_000}, 200),
-    ("calories above maximum", "PUT", "/api/nutrition/targets", {**TARGETS, "calories": 10_001}, 422),
-    ("protein above maximum", "PUT", "/api/nutrition/targets", {**TARGETS, "protein": 1_001}, 422),
+    ("negative calories", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": -1}, 422),
+    ("calories at maximum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": 10_000}, 200),
+    ("calories above maximum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": 10_001}, 422),
+    ("protein above maximum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "protein": 1_001}, 422),
     (
         "calories far below macros",
         "PUT",
-        "/api/nutrition/targets",
+        "/api/v1/nutrition/targets",
         {"calories": 100, "protein": 1_000, "carbs": 0, "fat": 0},
         422,
     ),
     # Quick add: same nutrition bounds, trimmed name.
-    ("quick add at calorie maximum", "POST", "/api/food-log/entries", {**QUICK_ADD, "calories": 10_000}, 201),
+    (
+        "quick add at calorie maximum",
+        "POST",
+        "/api/v1/food-log/entries",
+        {**QUICK_ADD, "calories": 10_000},
+        201,
+    ),
     (
         "quick add above calorie maximum",
         "POST",
-        "/api/food-log/entries",
+        "/api/v1/food-log/entries",
         {**QUICK_ADD, "calories": 10_001},
         422,
     ),
-    ("quick add macro above maximum", "POST", "/api/food-log/entries", {**QUICK_ADD, "fat": 1_001}, 422),
-    ("quick add whitespace name", "POST", "/api/food-log/entries", {**QUICK_ADD, "name": "   "}, 422),
+    ("quick add macro above maximum", "POST", "/api/v1/food-log/entries", {**QUICK_ADD, "fat": 1_001}, 422),
+    ("quick add whitespace name", "POST", "/api/v1/food-log/entries", {**QUICK_ADD, "name": "   "}, 422),
     (
         "quick add dated two days ahead",
         "POST",
-        "/api/food-log/entries",
+        "/api/v1/food-log/entries",
         {**QUICK_ADD, "date": (TODAY + timedelta(days=2)).isoformat()},
         422,
     ),
     # Custom foods.
-    ("custom food serving at maximum", "POST", "/api/foods", {**CUSTOM_FOOD, "servingSize": 5_000}, 201),
-    ("custom food serving above maximum", "POST", "/api/foods", {**CUSTOM_FOOD, "servingSize": 5_001}, 422),
-    ("custom food sodium above maximum", "POST", "/api/foods", {**CUSTOM_FOOD, "sodiumMg": 50_001}, 422),
-    ("custom food whitespace name", "POST", "/api/foods", {**CUSTOM_FOOD, "name": "  "}, 422),
+    ("custom food serving at maximum", "POST", "/api/v1/foods", {**CUSTOM_FOOD, "servingSize": 5_000}, 201),
+    (
+        "custom food serving above maximum",
+        "POST",
+        "/api/v1/foods",
+        {**CUSTOM_FOOD, "servingSize": 5_001},
+        422,
+    ),
+    ("custom food sodium above maximum", "POST", "/api/v1/foods", {**CUSTOM_FOOD, "sodiumMg": 50_001}, 422),
+    ("custom food whitespace name", "POST", "/api/v1/foods", {**CUSTOM_FOOD, "name": "  "}, 422),
     (
         "custom food calories far below macros",
         "POST",
-        "/api/foods",
+        "/api/v1/foods",
         {**CUSTOM_FOOD, "nutrition": {"calories": 10, "protein": 50, "carbs": 30, "fat": 9}},
         422,
     ),
     # Workouts: sets up to 1,000 kg and 100 reps; sane times; bounded sizes.
-    ("set weight at maximum", "POST", "/api/workouts/sessions", _set(weight_kg=1_000), 201),
-    ("set weight above maximum", "POST", "/api/workouts/sessions", _set(weight_kg=1_000.5), 422),
-    ("reps at maximum", "POST", "/api/workouts/sessions", _set(reps=100), 201),
-    ("reps above maximum", "POST", "/api/workouts/sessions", _set(reps=101), 422),
-    ("no exercises", "POST", "/api/workouts/sessions", _session(exercises=[]), 422),
+    ("set weight at maximum", "POST", "/api/v1/workouts/sessions", _set(weight_kg=1_000), 201),
+    ("set weight above maximum", "POST", "/api/v1/workouts/sessions", _set(weight_kg=1_000.5), 422),
+    ("reps at maximum", "POST", "/api/v1/workouts/sessions", _set(reps=100), 201),
+    ("reps above maximum", "POST", "/api/v1/workouts/sessions", _set(reps=101), 422),
+    ("no exercises", "POST", "/api/v1/workouts/sessions", _session(exercises=[]), 422),
     (
         "finishes before it starts",
         "POST",
-        "/api/workouts/sessions",
+        "/api/v1/workouts/sessions",
         _session(
             startedAt=datetime.now(UTC).isoformat(),
             finishedAt=(datetime.now(UTC) - timedelta(hours=1)).isoformat(),
@@ -196,21 +214,21 @@ CASES: list[tuple[str, str, str, dict[str, Any], int]] = [
     (
         "finishes in the future",
         "POST",
-        "/api/workouts/sessions",
+        "/api/v1/workouts/sessions",
         _session(finishedAt=(datetime.now(UTC) + timedelta(hours=1)).isoformat()),
         422,
     ),
     (
         "time without a timezone",
         "POST",
-        "/api/workouts/sessions",
+        "/api/v1/workouts/sessions",
         _session(startedAt="2026-01-01T10:00:00", finishedAt="2026-01-01T11:00:00"),
         422,
     ),
     (
         "too many sets for one exercise",
         "POST",
-        "/api/workouts/sessions",
+        "/api/v1/workouts/sessions",
         _session(
             exercises=[
                 {
@@ -225,14 +243,14 @@ CASES: list[tuple[str, str, str, dict[str, Any], int]] = [
     (
         "exercise with an unknown muscle",
         "POST",
-        "/api/exercises",
+        "/api/v1/exercises",
         {"name": "Mystery", "equipment": "barbell", "muscles": ["spleen"]},
         422,
     ),
     (
         "exercise with a repeated muscle",
         "POST",
-        "/api/exercises",
+        "/api/v1/exercises",
         {"name": "Mystery", "equipment": "barbell", "muscles": ["chest", "chest"]},
         422,
     ),
@@ -259,11 +277,11 @@ def test_bounds(
 @pytest.mark.parametrize(
     ("path", "params", "expected"),
     [
-        ("/api/foods", {"q": "x" * 100}, 200),
-        ("/api/foods", {"q": "x" * 101}, 422),
-        ("/api/exercises", {"q": "x" * 101}, 422),
-        ("/api/exercises", {"muscle": "chest"}, 200),
-        ("/api/exercises", {"muscle": "spleen"}, 422),
+        ("/api/v1/foods", {"q": "x" * 100}, 200),
+        ("/api/v1/foods", {"q": "x" * 101}, 422),
+        ("/api/v1/exercises", {"q": "x" * 101}, 422),
+        ("/api/v1/exercises", {"muscle": "chest"}, 200),
+        ("/api/v1/exercises", {"muscle": "spleen"}, 422),
     ],
     ids=[
         "food search at limit",
@@ -286,7 +304,7 @@ def test_non_finite_numbers_are_rejected_not_crashed(
     # Python's JSON parser accepts these tokens even though JSON doesn't define them.
     body = json.dumps({**PROFILE, "weeklyRateKg": 0}).replace('"weeklyRateKg": 0', f'"weeklyRateKg": {token}')
     response = client.put(
-        "/api/profile", headers={**headers, "Content-Type": "application/json"}, content=body
+        "/api/v1/profile", headers={**headers, "Content-Type": "application/json"}, content=body
     )
     assert response.status_code == 422
     assert "finite" in response.json()["message"]
@@ -295,7 +313,7 @@ def test_non_finite_numbers_are_rejected_not_crashed(
 def test_validation_errors_never_echo_the_rejected_input(client: TestClient) -> None:
     secret = "correct-horse-battery-staple-" * 10  # too long, so it's rejected
     response = client.post(
-        "/api/auth/register", json={"name": "Alex", "email": "echo@example.com", "password": secret}
+        "/api/v1/auth/register", json={"name": "Alex", "email": "echo@example.com", "password": secret}
     )
     assert response.status_code == 422
     assert secret not in response.text
@@ -321,18 +339,18 @@ REAL_NAMES = {
 TEXT_FIELDS: dict[str, tuple[str, str, Any]] = {
     "register name": (
         "POST",
-        "/api/auth/register",
+        "/api/v1/auth/register",
         lambda text: {"name": text, "email": f"{uuid.uuid4().hex}@example.com", "password": "long-enough-pw"},
     ),
-    "profile name": ("PUT", "/api/profile", lambda text: {**PROFILE, "name": text}),
-    "quick add name": ("POST", "/api/food-log/entries", lambda text: {**QUICK_ADD, "name": text}),
-    "custom food brand": ("POST", "/api/foods", lambda text: {**CUSTOM_FOOD, "brand": text}),
+    "profile name": ("PUT", "/api/v1/profile", lambda text: {**PROFILE, "name": text}),
+    "quick add name": ("POST", "/api/v1/food-log/entries", lambda text: {**QUICK_ADD, "name": text}),
+    "custom food brand": ("POST", "/api/v1/foods", lambda text: {**CUSTOM_FOOD, "brand": text}),
     "exercise name": (
         "POST",
-        "/api/exercises",
+        "/api/v1/exercises",
         lambda text: {"name": text, "equipment": "barbell", "muscles": ["chest"]},
     ),
-    "workout name": ("POST", "/api/workouts/sessions", lambda text: _session(name=text)),
+    "workout name": ("POST", "/api/v1/workouts/sessions", lambda text: _session(name=text)),
 }
 
 
@@ -364,9 +382,9 @@ def test_text_fields_accept_real_names(
 def test_chat_allows_line_breaks_but_not_other_controls(
     client: TestClient, auth_headers: dict[str, str], text: str, expected: int
 ) -> None:
-    check_in = client.get("/api/coach/check-ins/current", headers=auth_headers).json()
+    check_in = client.get("/api/v1/coach/check-ins/current", headers=auth_headers).json()
     response = client.post(
-        f"/api/coach/check-ins/{check_in['id']}/messages", headers=auth_headers, json={"text": text}
+        f"/api/v1/coach/check-ins/{check_in['id']}/messages", headers=auth_headers, json={"text": text}
     )
     assert response.status_code == expected
 
@@ -378,7 +396,7 @@ def test_chat_allows_line_breaks_but_not_other_controls(
 )
 def test_ids_in_bodies_must_look_like_ids(client: TestClient, headers: dict[str, str], food_id: str) -> None:
     response = client.post(
-        "/api/food-log/entries",
+        "/api/v1/food-log/entries",
         headers=headers,
         json={"date": TODAY.isoformat(), "meal": "lunch", "foodId": food_id, "quantity": 1},
     )
@@ -388,10 +406,10 @@ def test_ids_in_bodies_must_look_like_ids(client: TestClient, headers: dict[str,
 @pytest.mark.parametrize(
     "url",
     [
-        "/api/foods/food-egg%00",
-        "/api/foods?q=%00",
-        "/api/foods?q=abc%00def",
-        "/api/food-log?date=2026-01-01%00",
+        "/api/v1/foods/food-egg%00",
+        "/api/v1/foods?q=%00",
+        "/api/v1/foods?q=abc%00def",
+        "/api/v1/food-log?date=2026-01-01%00",
     ],
     ids=["path", "query", "query middle", "query date"],
 )
@@ -402,7 +420,7 @@ def test_nul_bytes_in_urls_are_refused(client: TestClient, headers: dict[str, st
 
 
 def test_text_is_stored_trimmed(client: TestClient, headers: dict[str, str]) -> None:
-    response = client.put("/api/profile", headers=headers, json={**PROFILE, "name": "  Alex Tan  "})
+    response = client.put("/api/v1/profile", headers=headers, json={**PROFILE, "name": "  Alex Tan  "})
     assert response.status_code == 200
     assert response.json()["name"] == "Alex Tan"
 
@@ -424,14 +442,16 @@ def test_calories_are_checked_against_macros_one_way(
     client: TestClient, headers: dict[str, str], calories: int, macros: dict[str, float], expected: int
 ) -> None:
     response = client.post(
-        "/api/food-log/entries", headers=headers, json={**QUICK_ADD, "calories": calories, **macros}
+        "/api/v1/food-log/entries", headers=headers, json={**QUICK_ADD, "calories": calories, **macros}
     )
     assert response.status_code == expected, response.text
 
 
 def test_editing_a_quick_add_rechecks_the_merged_values(client: TestClient, headers: dict[str, str]) -> None:
-    entry = client.post("/api/food-log/entries", headers=headers, json=QUICK_ADD).json()  # 500 kcal, 20/50/10
+    entry = client.post(
+        "/api/v1/food-log/entries", headers=headers, json=QUICK_ADD
+    ).json()  # 500 kcal, 20/50/10
     # Calories alone would pass any bound, but against the kept macros (370 kcal) it's implausible.
-    response = client.patch(f"/api/food-log/entries/{entry['id']}", headers=headers, json={"calories": 50})
+    response = client.patch(f"/api/v1/food-log/entries/{entry['id']}", headers=headers, json={"calories": 50})
     assert response.status_code == 422
     assert "too low for these macros" in response.json()["detail"]

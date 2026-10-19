@@ -6,7 +6,7 @@ import type { AccessToken } from "@/types/auth"
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 
 export const apiClient = axios.create({
-  baseURL: configuredBaseUrl || "/api",
+  baseURL: configuredBaseUrl || "/api/v1",
   timeout: 15_000,
   // Same-origin requests (the dev proxy, and a single-origin deployment) carry
   // cookies regardless; this is what makes it work if the API ever moves.

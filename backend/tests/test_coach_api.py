@@ -8,12 +8,12 @@ from fastapi.testclient import TestClient
 from tests.helpers import plan_every_day
 from tests.helpers import register_user as _new_user
 
-CHECK_INS = "/api/coach/check-ins"
+CHECK_INS = "/api/v1/coach/check-ins"
 
 
 def _log_food(client: TestClient, headers: dict[str, str], days_ago: int, calories: int = 2000) -> None:
     response = client.post(
-        "/api/food-log/entries",
+        "/api/v1/food-log/entries",
         headers=headers,
         json={
             "date": (date.today() - timedelta(days=days_ago)).isoformat(),
@@ -32,7 +32,7 @@ def _log_food(client: TestClient, headers: dict[str, str], days_ago: int, calori
 
 def _weigh_in(client: TestClient, headers: dict[str, str], days_ago: int, weight_kg: float) -> None:
     response = client.post(
-        "/api/body/weigh-ins",
+        "/api/v1/body/weigh-ins",
         headers=headers,
         json={"date": (date.today() - timedelta(days=days_ago)).isoformat(), "weightKg": weight_kg},
     )
@@ -44,7 +44,7 @@ def _start(client: TestClient, headers: dict[str, str], key: str):
 
 
 def test_current_check_in_seeded(client: TestClient, auth_headers: dict[str, str]) -> None:
-    response = client.get("/api/coach/check-ins/current", headers=auth_headers)
+    response = client.get("/api/v1/coach/check-ins/current", headers=auth_headers)
     assert response.status_code == 200
     check_in = response.json()
     assert check_in is not None
@@ -53,11 +53,11 @@ def test_current_check_in_seeded(client: TestClient, auth_headers: dict[str, str
 
 
 def test_decide_and_ask(client: TestClient, auth_headers: dict[str, str]) -> None:
-    check_in = client.get("/api/coach/check-ins/current", headers=auth_headers).json()
+    check_in = client.get("/api/v1/coach/check-ins/current", headers=auth_headers).json()
     proposal_id = check_in["proposals"][0]["id"]
 
     decision = client.post(
-        f"/api/coach/check-ins/{check_in['id']}/proposals/{proposal_id}/decision",
+        f"/api/v1/coach/check-ins/{check_in['id']}/proposals/{proposal_id}/decision",
         headers=auth_headers,
         json={"decision": "apply"},
     )
@@ -65,7 +65,7 @@ def test_decide_and_ask(client: TestClient, auth_headers: dict[str, str]) -> Non
     assert decision.json()["status"] == "applied"
 
     reply = client.post(
-        f"/api/coach/check-ins/{check_in['id']}/messages",
+        f"/api/v1/coach/check-ins/{check_in['id']}/messages",
         headers=auth_headers,
         json={"text": "Why this change?"},
     )
@@ -74,7 +74,7 @@ def test_decide_and_ask(client: TestClient, auth_headers: dict[str, str]) -> Non
 
     # Deciding an already-decided proposal again must be rejected, not silently overwritten.
     redecision = client.post(
-        f"/api/coach/check-ins/{check_in['id']}/proposals/{proposal_id}/decision",
+        f"/api/v1/coach/check-ins/{check_in['id']}/proposals/{proposal_id}/decision",
         headers=auth_headers,
         json={"decision": "reject"},
     )
@@ -185,7 +185,7 @@ def test_proposal_decisions_are_validated(client: TestClient, body: dict, expect
 
 
 def _targets(client: TestClient, headers: dict[str, str]) -> dict:
-    return dict(client.get("/api/nutrition/targets", headers=headers).json())
+    return dict(client.get("/api/v1/nutrition/targets", headers=headers).json())
 
 
 def _decide(client: TestClient, headers: dict[str, str], check_in: dict, body: dict):
@@ -263,7 +263,7 @@ def test_a_target_far_below_the_macros_is_refused(client: TestClient) -> None:
     # The default macros add up to roughly 2,200 kcal; under half of that can't be right.
     assert (
         client.put(
-            "/api/nutrition/targets",
+            "/api/v1/nutrition/targets",
             headers=headers,
             json={"calories": 2200, "protein": 300, "carbs": 300, "fat": 100},
         ).status_code
@@ -292,7 +292,7 @@ def test_coach_messages_are_bounded(
 def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
     headers = _new_user(client)
     targets = client.put(
-        "/api/nutrition/targets",
+        "/api/v1/nutrition/targets",
         headers=headers,
         json={"calories": 2000, "protein": 150, "carbs": 200, "fat": 60},
     )
@@ -301,7 +301,7 @@ def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
         _log_food(client, headers, days_ago=days_ago)
     # A light day, logged under half the 2000 kcal target: still counted as eaten.
     light_day = client.post(
-        "/api/food-log/entries",
+        "/api/v1/food-log/entries",
         headers=headers,
         json={
             "date": (date.today() - timedelta(days=2)).isoformat(),
@@ -329,7 +329,7 @@ def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
 def _log_workout(client: TestClient, headers: dict[str, str], days_ago: int, rpe: float | None) -> None:
     started = datetime.combine(date.today() - timedelta(days=days_ago), time(12, 0), tzinfo=UTC)
     response = client.post(
-        "/api/workouts/sessions",
+        "/api/v1/workouts/sessions",
         headers=headers,
         json={
             "planId": None,

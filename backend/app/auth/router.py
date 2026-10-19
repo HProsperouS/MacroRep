@@ -22,7 +22,7 @@ from app.identity.repository import UserRepository
 from .schemas import AccessToken, LoginInput, MeRead, RegisterInput
 from .service import AuthService
 
-router = APIRouter(prefix="/api", tags=["auth"])
+router = APIRouter(prefix="/api/v1", tags=["auth"])
 
 
 def get_auth_service(

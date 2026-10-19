@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** Base URL for the FastAPI backend. Empty = use the Vite dev proxy (/api). */
+  /** Base URL for the FastAPI backend. Empty = use the Vite dev proxy (/api/v1). */
   readonly VITE_API_BASE_URL?: string
 }
 
