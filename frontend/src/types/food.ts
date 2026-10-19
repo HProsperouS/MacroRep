@@ -48,3 +48,15 @@ export type FoodEntry = Nutrition & {
 }
 
 export type DailyTargets = Nutrition
+
+export type TargetSource = "initial" | "manual" | "check-in"
+
+/** One version of the daily targets. A change adds a version rather than overwriting the last. */
+export type TargetVersion = DailyTargets & {
+  version: number
+  /** yyyy-MM-dd: the first day these targets applied to. */
+  effectiveDate: string
+  source: TargetSource
+  /** ISO timestamp in UTC. */
+  changedAt: string
+}

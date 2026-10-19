@@ -1,5 +1,5 @@
 import { apiClient } from "@/api/client"
-import type { DailyTargets } from "@/types/food"
+import type { DailyTargets, TargetVersion } from "@/types/food"
 import type { Profile, UpdateProfileInput } from "@/types/profile"
 
 export const profileApi = {
@@ -15,6 +15,12 @@ export const profileApi = {
 
   async setTimezone(timezone: string) {
     const { data } = await apiClient.put<Profile>("/profile/timezone", { timezone })
+    return data
+  },
+
+  /** Every version of the targets, newest first. */
+  async getTargetHistory(signal?: AbortSignal) {
+    const { data } = await apiClient.get<TargetVersion[]>("/nutrition/targets/history", { signal })
     return data
   },
 

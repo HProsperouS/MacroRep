@@ -259,16 +259,16 @@ def test_an_out_of_range_target_is_refused_and_the_proposal_stays_pending(
 
 def test_a_target_far_below_the_macros_is_refused(client: TestClient) -> None:
     headers = _new_user(client)
-    check_in = _check_in_with_a_proposal(client, headers)
-    # The default macros add up to roughly 2,200 kcal; under half of that can't be right.
+    # These macros add up to 3,300 kcal; a target under half of that can't be right.
     assert (
         client.put(
             "/api/v1/nutrition/targets",
             headers=headers,
-            json={"calories": 2200, "protein": 300, "carbs": 300, "fat": 100},
+            json={"calories": 3300, "protein": 300, "carbs": 300, "fat": 100},
         ).status_code
         == 200
     )
+    check_in = _check_in_with_a_proposal(client, headers)
 
     response = _decide(
         client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 1500}]}

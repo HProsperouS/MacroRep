@@ -8,6 +8,7 @@ export const foodKeys = {
   search: (query: string) => [...foodKeys.all, "search", query] as const,
   food: (foodId: string) => [...foodKeys.all, "food", foodId] as const,
   targets: () => [...foodKeys.all, "targets"] as const,
+  targetHistory: () => [...foodKeys.targets(), "history"] as const,
   dailyCalories: (days: number) => [...foodKeys.all, "daily-calories", days] as const,
 }
 

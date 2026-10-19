@@ -99,10 +99,13 @@ export type DailyCalories = {
   date: string
   calories: number
   status: DayStatus
+  /** The calorie target in effect on this day, which can differ from today's. */
+  targetCalories: number
 }
 
 export type DailyCaloriesResponse = {
   days: DailyCalories[]
+  /** Today's target. */
   targetCalories: number
   /** Intake minus target over the finished logged days: negative means under target. */
   targetGapKcal: number

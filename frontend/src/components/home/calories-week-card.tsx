@@ -31,6 +31,8 @@ export function CaloriesWeekCard({ className }: { className?: string }) {
           value: day.calories,
           muted: day.status !== "complete",
           note: DAY_NOTES[day.status],
+          // Each day was judged against the target in effect then; the line shows today's.
+          target: day.targetCalories,
         }
       }),
     [daily.data],
@@ -40,7 +42,7 @@ export function CaloriesWeekCard({ className }: { className?: string }) {
     <Card className={className}>
       <CardHeader>
         <CardTitle>Calories · last {DAYS} days</CardTitle>
-        <CardAction className="text-xs text-muted-foreground">Dashed line = target</CardAction>
+        <CardAction className="text-xs text-muted-foreground">Dashed line = today’s target</CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {daily.isError ? (
@@ -52,7 +54,7 @@ export function CaloriesWeekCard({ className }: { className?: string }) {
               target={daily.data.targetCalories}
               seriesLabel="Eaten"
               formatValue={(value) => formatNumber(value)}
-              ariaLabel={`Calories eaten over the last ${DAYS} days against a ${formatNumber(daily.data.targetCalories)} kcal target`}
+              ariaLabel={`Calories eaten over the last ${DAYS} days against today’s ${formatNumber(daily.data.targetCalories)} kcal target`}
               height={200}
             />
             <WeekGap data={daily.data} />

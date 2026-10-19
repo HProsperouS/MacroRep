@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 from pydantic import Field, field_validator, model_validator
 
 from app.shared.schema import CamelModel, validate_choice
@@ -19,7 +21,7 @@ from app.shared.validation import (
 )
 from app.workout.models import EQUIPMENT
 
-from .models import ExperienceLevel, Goal
+from .models import ExperienceLevel, Goal, TargetSource
 
 
 class DailyTargets(CamelModel):
@@ -27,6 +29,15 @@ class DailyTargets(CamelModel):
     protein: float = Field(ge=0)
     carbs: float = Field(ge=0)
     fat: float = Field(ge=0)
+
+
+class TargetVersionRead(DailyTargets):
+    """One version of the targets: what they were set to, from which day, and by what."""
+
+    version: int
+    effective_date: date
+    source: TargetSource
+    changed_at: datetime
 
 
 class UpdateTargetsInput(DailyTargets):

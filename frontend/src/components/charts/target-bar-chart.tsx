@@ -11,6 +11,8 @@ export type TargetBarDatum = {
   muted?: boolean
   /** Shown in the tooltip under the values. */
   note?: string
+  /** This bar's own target, when it differs from the line (e.g. a day before the target changed). */
+  target?: number
 }
 
 type TargetBarChartProps = {
@@ -52,7 +54,7 @@ export function TargetBarChart({ data, target, targetLabel = "Target", seriesLab
                   title={datum.tooltipTitle}
                   rows={[
                     { label: seriesLabel, value: formatValue(datum.value), swatchClassName: "bg-protein" },
-                    { label: targetLabel, value: formatValue(target), swatchClassName: "bg-muted-foreground" },
+                    { label: targetLabel, value: formatValue(datum.target ?? target), swatchClassName: "bg-muted-foreground" },
                   ]}
                   note={datum.note}
                 />

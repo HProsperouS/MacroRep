@@ -3,7 +3,7 @@ comparison, and estimated energy expenditure."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
@@ -120,15 +120,47 @@ def classify_day(calories: float | None, target_calories: float, *, in_progress:
     return DayStatus.COMPLETE
 
 
+def targets_by_date(
+    versions: Sequence[tuple[date, float]], start: date, end: date, fallback: float
+) -> dict[date, float]:
+    """The calorie target in effect on every day from ``start`` to ``end`` inclusive.
+
+    ``versions`` are (effective date, calories) in the order they were made. A
+    day takes the latest version effective on or before it. A day before any
+    version takes the target as it stood at the end of the first day one took
+    effect: the earliest target known, after same-day corrections (e.g. a user
+    who signs up and sets their target on the same day). ``fallback`` is used
+    only when there are no versions at all.
+    """
+
+    if not versions:
+        return {start + timedelta(days=offset): fallback for offset in range((end - start).days + 1)}
+    first_effective = min(effective for effective, _ in versions)
+    targets: dict[date, float] = {}
+    day = start
+    while day <= end:
+        as_of = max(day, first_effective)
+        targets[day] = [calories for effective, calories in versions if effective <= as_of][-1]
+        day += timedelta(days=1)
+    return targets
+
+
 def day_statuses(
-    calories_by_date: Mapping[date, float], start: date, end: date, target_calories: float, today: date
+    calories_by_date: Mapping[date, float],
+    start: date,
+    end: date,
+    target_by_date: Mapping[date, float],
+    today: date,
 ) -> dict[date, DayStatus]:
-    """Status of every day from ``start`` to ``end`` inclusive. ``today`` is in progress."""
+    """Status of every day from ``start`` to ``end`` inclusive, each against its own day's target.
+
+    ``today`` is in progress.
+    """
 
     statuses: dict[date, DayStatus] = {}
     day = start
     while day <= end:
-        statuses[day] = classify_day(calories_by_date.get(day), target_calories, in_progress=day == today)
+        statuses[day] = classify_day(calories_by_date.get(day), target_by_date[day], in_progress=day == today)
         day += timedelta(days=1)
     return statuses
 
@@ -150,28 +182,29 @@ def logging_completeness(statuses: Iterable[DayStatus]) -> LoggingCompleteness:
     )
 
 
-def target_adherence_percent(logged_calories: Iterable[float], target_calories: float) -> float | None:
-    """Share of logged days within ±10% of the calorie target, as a percentage.
+def target_adherence_percent(logged_days: Iterable[tuple[float, float]]) -> float | None:
+    """Share of logged days within ±10% of that day's calorie target, as a percentage.
 
-    Unlogged days are left out (unknown, not off target). None when no day is
-    logged or there's no positive target to compare against.
+    ``logged_days`` are (intake, target) pairs. Unlogged days are left out
+    (unknown, not off target), as are days without a positive target to compare
+    against. None when no day is left.
     """
 
-    days = list(logged_calories)
-    if not days or target_calories <= 0:
+    days = [(calories, target) for calories, target in logged_days if target > 0]
+    if not days:
         return None
-    tolerance = target_calories * ON_TARGET_TOLERANCE
-    on_target = sum(1 for calories in days if abs(calories - target_calories) <= tolerance)
+    on_target = sum(1 for calories, target in days if abs(calories - target) <= target * ON_TARGET_TOLERANCE)
     return round(on_target / len(days) * 100, 1)
 
 
-def target_gap_kcal(logged_calories: Iterable[float], target_calories: float) -> int:
-    """Total intake minus target over the logged days: negative means under target.
+def target_gap_kcal(logged_days: Iterable[tuple[float, float]]) -> int:
+    """Total intake minus each day's target over the logged days: negative means under target.
 
-    Unlogged days add nothing, since their intake is unknown.
+    ``logged_days`` are (intake, target) pairs. Unlogged days add nothing, since
+    their intake is unknown.
     """
 
-    return round(sum(calories - target_calories for calories in logged_calories))
+    return round(sum(calories - target for calories, target in logged_days))
 
 
 def estimate_expenditure(avg_intake_kcal: float, trend_change_kg: float, days: int) -> float:

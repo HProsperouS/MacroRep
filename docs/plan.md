@@ -192,7 +192,7 @@ The proposal and demonstration will focus on no more than four user journeys.
 ### Journey 1: Onboarding and goal setup
 
 1. User creates an account.
-2. User enters profile information, units, training experience, available equipment, and primary goal.
+2. User enters profile information, training experience, available equipment, and primary goal.
 3. System validates inputs and creates an initial profile.
 4. User is taken to the dashboard with clear next actions.
 
@@ -241,7 +241,7 @@ If food-photo analysis is implemented, the AI result remains an editable estimat
 
 ### 8.2 User profile and goals
 
-- Preferred measurement units.
+- Metric units only: body weight and load in kilograms, height in centimetres. A unit preference (pounds, feet and inches) is out of scope; it would change only display and input, never stored values or calculations.
 - Basic profile fields required by the product.
 - Primary goal: lose weight, maintain weight, gain weight, or improve strength.
 - Target rate or target range where appropriate.
@@ -266,7 +266,7 @@ Profile fields must be kept proportional to the project. The system should not c
 - Record date and body weight.
 - Update or remove an incorrect entry.
 - Display raw entries and a smoothed or rolling trend.
-- Preserve the user's selected unit while storing a canonical unit internally.
+- Stored and shown in kilograms (see §8.2).
 
 ### 8.5 Workout planning
 
@@ -695,7 +695,7 @@ macrorep/
 |---|---|
 | `users` | Account identity and status |
 | `refresh_tokens` | Refresh-token rotation and revocation |
-| `user_profiles` | Units, experience, equipment, preferences |
+| `user_profiles` | Experience, equipment, goal, timezone |
 | `goals` | Current and historical user goals |
 | `body_weight_entries` | Dated weight records |
 | `nutrition_plans` | Versioned calorie and macro targets |
@@ -751,7 +751,10 @@ PUT    /api/v1/profile
 PUT    /api/v1/profile/timezone
 GET    /api/v1/nutrition/targets
 PUT    /api/v1/nutrition/targets
+GET    /api/v1/nutrition/targets/history
 ```
+
+Nutrition targets are versioned: a change adds a version that applies from the user's current day, and every past day is judged against the version in effect on it. Each version records its source (initial, manual, or a check-in proposal). Applying a check-in proposal is refused (409) when the targets changed after that check-in was made.
 
 The primary goal lives on the profile. A separate goal-history endpoint is not implemented.
 

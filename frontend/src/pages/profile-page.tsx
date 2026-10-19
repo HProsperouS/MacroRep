@@ -6,6 +6,7 @@ import { apiErrorMessage } from "@/api/client"
 import { PageHeader } from "@/components/layout/page-header"
 import { QueryError } from "@/components/layout/query-error"
 import { ProfileForm } from "@/components/profile/profile-form"
+import { TargetHistory } from "@/components/profile/target-history"
 import { TargetsForm } from "@/components/profile/targets-form"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -77,6 +78,16 @@ export default function ProfilePage() {
             ) : (
               <FormSkeleton rows={2} />
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-5 lg:col-start-8">
+          <CardHeader>
+            <CardTitle>Target history</CardTitle>
+            <CardDescription>Each change applies from the day it’s made. Earlier days keep the targets they had.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TargetHistory />
           </CardContent>
         </Card>
       </div>

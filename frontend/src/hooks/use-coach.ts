@@ -60,7 +60,9 @@ export function useDecideProposal(checkInId: string) {
     onSuccess: (_data, { proposal, decision }) => {
       if (decision !== "apply") return
       if (proposal.kind === "nutrition") {
+        // Also refreshes the target history, which is keyed under the targets.
         void queryClient.invalidateQueries({ queryKey: foodKeys.targets() })
+        void queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "daily-calories"] })
         // Progress and Home measure intake against the target.
         void queryClient.invalidateQueries({ queryKey: progressKeys.all })
       } else void queryClient.invalidateQueries({ queryKey: workoutKeys.all })

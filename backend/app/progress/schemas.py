@@ -105,10 +105,13 @@ class DailyCalories(CamelModel):
     date: date_
     calories: int
     status: DayStatus
+    # The calorie target in effect on this day, which can differ from today's.
+    target_calories: int
 
 
 class DailyCaloriesResponse(CamelModel):
     days: list[DailyCalories]
+    # Today's target.
     target_calories: int
     # Intake minus target over the finished logged days: negative means under target.
     target_gap_kcal: int

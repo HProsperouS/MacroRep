@@ -67,9 +67,18 @@ export function useUpdateTargets() {
     mutationFn: (input: DailyTargets) => profileApi.updateTargets(input),
     onSuccess: (targets) => {
       queryClient.setQueryData(foodKeys.targets(), targets)
+      void queryClient.invalidateQueries({ queryKey: foodKeys.targetHistory() })
       // Days are judged complete or partial, and the gap measured, against the calorie target.
       void queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "daily-calories"] })
       void queryClient.invalidateQueries({ queryKey: progressKeys.all })
     },
+  })
+}
+
+export function useTargetHistory() {
+  return useQuery({
+    queryKey: foodKeys.targetHistory(),
+    queryFn: ({ signal }) => profileApi.getTargetHistory(signal),
+    staleTime: 60_000,
   })
 }

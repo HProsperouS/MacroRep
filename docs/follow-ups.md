@@ -51,6 +51,11 @@ against a common-password list (NIST SP 800-63B), either a small built-in list
 
 - **Migration `e5a9d2c4f1b6`** (food-entry quantity) hasn't been run against
   Postgres yet. The dev container applies it on start (`docker compose up`).
+- **Migrations don't run on SQLite:** `alembic upgrade head` against a SQLite
+  database stops at `a1f4c9e2b7d3`, which drops a column without batch mode
+  (`ALTER TABLE users DROP COLUMN cognito_subject`). The README's SQLite quick
+  start works only with `AUTO_CREATE_SCHEMA=true`. Every migration since has
+  been checked on Postgres only.
 - **Tests run on SQLite,** which ignores numeric column sizes. Input limits
   are set to fit every column, but running the suite against Postgres in CI
   would prove no oversized value can overflow one.

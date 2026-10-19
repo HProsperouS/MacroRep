@@ -2,17 +2,38 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+from decimal import ROUND_HALF_UP, Decimal
+
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.identity.dependencies import ActorContext
 from app.identity.repository import UserRepository
+from app.shared.timezones import local_today, user_zone
 
-from .models import ExperienceLevel, Goal, Profile
+from .models import ExperienceLevel, Goal, NutritionTarget, Profile, TargetSource
 from .repository import ProfileRepository
-from .schemas import DailyTargets, ProfileRead, TimezoneInput, UpdateProfileInput
+from .schemas import DailyTargets, ProfileRead, TargetVersionRead, TimezoneInput, UpdateProfileInput
 
-_DEFAULT_TARGETS = DailyTargets(calories=2200, protein=150, carbs=230, fat=70)
+# Given to a new profile, and used to judge days for a user who has no targets yet.
+DEFAULT_TARGETS = DailyTargets(calories=2200, protein=150, carbs=230, fat=70)
+
+
+def _one_decimal(value: float) -> float:
+    """Round half up to one decimal, as the Numeric(6, 1) columns store it; round() takes 150.25 down."""
+
+    return float(Decimal(str(value)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
+
+
+def to_daily_targets(target: NutritionTarget) -> DailyTargets:
+    return DailyTargets(
+        calories=target.calories,
+        protein=float(target.protein_g),
+        carbs=float(target.carbs_g),
+        fat=float(target.fat_g),
+    )
 
 
 class ProfileService:
@@ -34,12 +55,9 @@ class ProfileService:
             training_days_per_week=3,
             experience_level=ExperienceLevel.BEGINNER,
             equipment=[],
-            target_calories=_DEFAULT_TARGETS.calories,
-            target_protein_g=_DEFAULT_TARGETS.protein,
-            target_carbs_g=_DEFAULT_TARGETS.carbs,
-            target_fat_g=_DEFAULT_TARGETS.fat,
         )
         await self.repository.add(profile)
+        await self._add_targets(profile, None, DEFAULT_TARGETS, TargetSource.INITIAL)
         await self.session.commit()
         await self.session.refresh(profile)
         return profile
@@ -87,21 +105,63 @@ class ProfileService:
             await self.session.refresh(profile)
         return await self._to_read(profile, actor)
 
-    async def get_targets(self, actor: ActorContext) -> DailyTargets:
-        profile = await self._get_or_create(actor)
-        return DailyTargets(
-            calories=profile.target_calories,
-            protein=float(profile.target_protein_g),
-            carbs=float(profile.target_carbs_g),
-            fat=float(profile.target_fat_g),
+    async def _add_targets(
+        self, profile: Profile, previous: NutritionTarget | None, targets: DailyTargets, source: TargetSource
+    ) -> None:
+        await self.repository.add_target_version(
+            profile.user_id,
+            previous=previous,
+            calories=targets.calories,
+            protein=targets.protein,
+            carbs=targets.carbs,
+            fat=targets.fat,
+            effective_date=local_today(user_zone(profile.timezone)),
+            source=source,
         )
 
-    async def update_targets(self, payload: DailyTargets, actor: ActorContext) -> DailyTargets:
+    async def get_targets(self, actor: ActorContext) -> DailyTargets:
         profile = await self._get_or_create(actor)
-        profile.target_calories = payload.calories
-        profile.target_protein_g = payload.protein
-        profile.target_carbs_g = payload.carbs
-        profile.target_fat_g = payload.fat
-        profile.touch()
-        await self.session.commit()
-        return payload
+        current = await self.repository.current_targets(profile.user_id)
+        return to_daily_targets(current) if current else DEFAULT_TARGETS
+
+    async def update_targets(self, payload: DailyTargets, actor: ActorContext) -> DailyTargets:
+        """Record the targets as a new version from today; saving unchanged targets adds nothing."""
+
+        profile = await self._get_or_create(actor)
+        current = await self.repository.current_targets(profile.user_id)
+        # Macros are stored to one decimal, so compare at that precision; otherwise 150.25
+        # (stored as 150.3) would never match and every resave would add a version.
+        stored = DailyTargets(
+            calories=payload.calories,
+            protein=_one_decimal(payload.protein),
+            carbs=_one_decimal(payload.carbs),
+            fat=_one_decimal(payload.fat),
+        )
+        if current is not None and to_daily_targets(current) == stored:
+            return stored
+        try:
+            await self._add_targets(profile, current, stored, TargetSource.MANUAL)
+            await self.session.commit()
+        except IntegrityError:
+            # Another change to the targets was saved at the same moment and took this version number.
+            await self.session.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "Your targets were just changed elsewhere, please retry"
+            ) from None
+        return stored
+
+    async def target_history(self, actor: ActorContext) -> list[TargetVersionRead]:
+        """Every version of the targets, newest first."""
+
+        profile = await self._get_or_create(actor)
+        return [
+            TargetVersionRead(
+                **to_daily_targets(row).model_dump(),
+                version=row.version,
+                effective_date=row.effective_date,
+                source=row.source,
+                # SQLite hands back naive datetimes; everything is stored in UTC.
+                changed_at=row.created_utc if row.created_utc.tzinfo else row.created_utc.replace(tzinfo=UTC),
+            )
+            for row in reversed(await self.repository.target_history(profile.user_id))
+        ]

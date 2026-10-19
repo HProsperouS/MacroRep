@@ -12,7 +12,14 @@ from app.identity.dependencies import ActorContext, get_current_actor
 from app.identity.repository import UserRepository
 
 from .repository import ProfileRepository
-from .schemas import DailyTargets, ProfileRead, TimezoneInput, UpdateProfileInput, UpdateTargetsInput
+from .schemas import (
+    DailyTargets,
+    ProfileRead,
+    TargetVersionRead,
+    TimezoneInput,
+    UpdateProfileInput,
+    UpdateTargetsInput,
+)
 from .service import ProfileService
 
 router = APIRouter(prefix="/api/v1", tags=["profile"])
@@ -55,3 +62,10 @@ async def update_targets(
     payload: UpdateTargetsInput, actor: ActorDep, service: ProfileServiceDep
 ) -> DailyTargets:
     return await service.update_targets(payload, actor)
+
+
+@router.get("/nutrition/targets/history", response_model=list[TargetVersionRead])
+async def get_target_history(actor: ActorDep, service: ProfileServiceDep) -> list[TargetVersionRead]:
+    """Every version of the daily targets, newest first, with the day each took effect."""
+
+    return await service.target_history(actor)

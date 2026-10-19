@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import date
 from enum import StrEnum
 
-from sqlalchemy import JSON, ForeignKey, Integer, Numeric, String
+from sqlalchemy import JSON, Date, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,6 +18,14 @@ class Goal(StrEnum):
     LOSE = "lose"
     MAINTAIN = "maintain"
     GAIN = "gain"
+
+
+class TargetSource(StrEnum):
+    """Where a version of the nutrition targets came from."""
+
+    INITIAL = "initial"
+    MANUAL = "manual"
+    CHECK_IN = "check-in"
 
 
 class ExperienceLevel(StrEnum):
@@ -45,7 +55,31 @@ class Profile(TimestampMixin, Base):
         String(64), nullable=False, default=DEFAULT_TIMEZONE, server_default=DEFAULT_TIMEZONE
     )
 
-    target_calories: Mapped[int] = mapped_column(Integer, nullable=False)
-    target_protein_g: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
-    target_carbs_g: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
-    target_fat_g: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
+
+class NutritionTarget(TimestampMixin, Base):
+    """One version of a user's daily nutrition targets.
+
+    A change never overwrites the targets: it adds a version that takes effect
+    on ``effective_date`` (the user's local day). The current targets are the
+    highest version, and a past day is judged against the version in effect on
+    it, so changing a target today doesn't rewrite how last week looks.
+    """
+
+    __tablename__ = "nutrition_targets"
+    __table_args__ = (Index("uq_nutrition_targets_owner_version", "owner_id", "version", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    calories: Mapped[int] = mapped_column(Integer, nullable=False)
+    protein_g: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
+    carbs_g: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
+    fat_g: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
+    source: Mapped[TargetSource] = mapped_column(
+        SAEnum(TargetSource, name="nutrition_target_source"), nullable=False
+    )
+    # The check-in proposal that set these targets, when ``source`` is CHECK_IN.
+    proposal_id: Mapped[str | None] = mapped_column(
+        ForeignKey("coach_proposals.id", ondelete="SET NULL"), nullable=True
+    )

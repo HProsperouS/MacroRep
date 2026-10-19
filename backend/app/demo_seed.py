@@ -18,7 +18,7 @@ from app.coach.models import CheckIn, Proposal
 from app.core.database import get_session_factory
 from app.food.models import Food
 from app.identity.models import User, UserStatus
-from app.profile.models import ExperienceLevel, Goal, Profile
+from app.profile.models import ExperienceLevel, Goal, NutritionTarget, Profile, TargetSource
 from app.shared.timezones import local_today, user_zone
 from app.workout.models import Exercise, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutScheduleDay
 
@@ -63,10 +63,21 @@ async def seed_demo_data() -> None:
                     training_days_per_week=3,
                     experience_level=ExperienceLevel.INTERMEDIATE,
                     equipment=["barbell", "dumbbell", "bodyweight"],
-                    target_calories=2350,
-                    target_protein_g=165,
-                    target_carbs_g=250,
-                    target_fat_g=70,
+                )
+            )
+            await session.flush()
+
+        if await _is_empty(session, NutritionTarget):
+            session.add(
+                NutritionTarget(
+                    owner_id=DEMO_USER_ID,
+                    version=1,
+                    effective_date=_demo_today(),
+                    calories=2350,
+                    protein_g=165,
+                    carbs_g=250,
+                    fat_g=70,
+                    source=TargetSource.INITIAL,
                 )
             )
 

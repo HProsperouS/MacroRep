@@ -17,13 +17,15 @@ from app.analytics.nutrition import (
     logging_adherence_percent,
     logging_completeness,
     target_gap_kcal,
+    targets_by_date,
 )
 from app.analytics.training import average_rpe, completion_percent, planned_sessions
 from app.analytics.weight import trend_on_or_before
 from app.body.service import trend_by_date
 from app.identity.dependencies import ActorContext
-from app.profile.models import Profile
+from app.profile.models import Profile, TargetSource
 from app.profile.repository import ProfileRepository
+from app.profile.service import DEFAULT_TARGETS
 from app.progress.repository import ProgressRepository
 from app.shared.timezones import local_today, user_zone
 from app.shared.validation import ensure_plausible_calories
@@ -60,8 +62,6 @@ def _to_proposal_read(proposal: ProposalModel) -> Proposal:
 CHECK_IN_WINDOW_DAYS = 7
 MIN_FOOD_LOG_DAYS = 4
 MIN_WEIGH_INS = 2
-# Mirrors ProgressService's fallback for a user whose profile was never provisioned.
-_FALLBACK_TARGET_CALORIES = 2000
 # Same bounds as the Profile page's targets form, so a coach proposal can't set a
 # target the user couldn't type in themselves. See docs/follow-ups.md.
 MIN_TARGET_CALORIES = 1_000
@@ -207,14 +207,23 @@ class CoachService:
             trend_start = trends[weigh_ins_in_window[0].log_date]
         trend_end = trends[weigh_ins_in_window[-1].log_date]
 
-        target_calories = profile.target_calories if profile else _FALLBACK_TARGET_CALORIES
+        # Each day is judged against the target in effect that day; proposals start from today's.
+        target_versions = await self.profiles.target_history(owner_id)
+        current_targets = target_versions[-1] if target_versions else None
+        target_by_date = targets_by_date(
+            [(row.effective_date, float(row.calories)) for row in target_versions],
+            start,
+            end,
+            DEFAULT_TARGETS.calories,
+        )
+        target_calories = round(target_by_date[end])
         # Non-None: the data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days.
         avg_calories = cast(float, average_daily_calories(calories_by_date))
         # `end` is today: still being logged, so it's left out of completeness and the target gap.
-        statuses = day_statuses(calories_by_date, start, end, target_calories, end)
+        statuses = day_statuses(calories_by_date, start, end, target_by_date, end)
         completeness = logging_completeness(statuses.values())
         finished_logged = [
-            calories_by_date[day]
+            (calories_by_date[day], target_by_date[day])
             for day, day_status in statuses.items()
             if day_status in (DayStatus.COMPLETE, DayStatus.PARTIAL)
         ]
@@ -232,12 +241,14 @@ class CoachService:
             "period_end": end.isoformat(),
             "avg_calories": round(avg_calories, 1),
             "target_calories": target_calories,
+            # The targets version the proposals were made against; applying one checks it is still current.
+            "target_version": current_targets.version if current_targets else None,
             "food_log_days": len(calories_by_date),
             "adherence_percent": logging_adherence_percent(len(calories_by_date), CHECK_IN_WINDOW_DAYS),
             "complete_days": completeness.complete,
             "partial_days": completeness.partial,
             "missing_days": completeness.missing,
-            "target_gap_kcal": target_gap_kcal(finished_logged, target_calories),
+            "target_gap_kcal": target_gap_kcal(finished_logged),
             "weigh_ins": len(weigh_ins_in_window),
             "weight_change_kg": round(trend_end - trend_start, 2),
             "goal_rate_kg_per_week": float(profile.weekly_rate_kg) if profile else 0.0,
@@ -296,7 +307,7 @@ class CoachService:
                 status_after = ProposalStatus.EDITED
             # Checked before anything is changed, so a refused proposal stays pending.
             if proposal.kind == ProposalKind.NUTRITION:
-                await self._apply_nutrition_targets(actor, changes)
+                await self._apply_nutrition_targets(actor, check_in, proposal, changes)
             # Training proposals are only recorded for now; they don't edit the weekly plan yet.
             proposal.changes = changes
             proposal.status = status_after
@@ -305,11 +316,18 @@ class CoachService:
         await self.session.refresh(proposal)
         return _to_proposal_read(proposal)
 
-    async def _apply_nutrition_targets(self, actor: ActorContext, changes: list[dict[str, object]]) -> None:
-        """Write an accepted calorie change to the user's daily target.
+    async def _apply_nutrition_targets(
+        self,
+        actor: ActorContext,
+        check_in: CheckInModel,
+        proposal: ProposalModel,
+        changes: list[dict[str, object]],
+    ) -> None:
+        """Record an accepted calorie change as a new version of the user's targets, from today.
 
-        Raises 422 when the new target is outside the range the app allows, or
-        far below what the macros add up to, leaving the targets untouched.
+        Raises 409 when the targets changed after the check-in was made, since the proposal
+        was worked out from the old ones, and 422 when the new target is outside the range
+        the app allows or far below what the macros add up to. Either way nothing is changed.
         """
 
         calories = next((change["after"] for change in changes if change["id"] == "calories"), None)
@@ -317,25 +335,46 @@ class CoachService:
             return
         target = round(cast(float, calories))
         profile = await self.profiles.get(actor.actor_id)
-        if profile is None:
+        current = await self.profiles.current_targets(actor.actor_id)
+        if profile is None or current is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "Set up your profile before applying targets")
+        expected_version = (check_in.input_snapshot or {}).get("target_version")
+        # Check-ins made before targets were versioned have no version to compare.
+        if expected_version is not None and expected_version != current.version:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Your targets changed after this check-in was made, so its proposal is out of date. "
+                "Reject it and start a new check-in.",
+            )
         if not MIN_TARGET_CALORIES <= target <= MAX_TARGET_CALORIES:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"A daily target of {target:,} kcal is outside the allowed "
                 f"{MIN_TARGET_CALORIES:,}-{MAX_TARGET_CALORIES:,} kcal. Edit it to a value in range.",
             )
+        protein, carbs, fat = float(current.protein_g), float(current.carbs_g), float(current.fat_g)
         try:
-            ensure_plausible_calories(
-                target,
-                float(profile.target_protein_g),
-                float(profile.target_carbs_g),
-                float(profile.target_fat_g),
-            )
+            ensure_plausible_calories(target, protein, carbs, fat)
         except ValueError as error:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
-        profile.target_calories = target
-        profile.touch()
+        try:
+            # Numbered after the targets checked above: a change saved since then is refused, not overwritten.
+            await self.profiles.add_target_version(
+                actor.actor_id,
+                previous=current,
+                calories=target,
+                protein=protein,
+                carbs=carbs,
+                fat=fat,
+                effective_date=local_today(user_zone(profile.timezone)),
+                source=TargetSource.CHECK_IN,
+                proposal_id=proposal.id,
+            )
+        except IntegrityError:
+            await self.session.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "Your targets were just changed elsewhere, please retry"
+            ) from None
 
     async def ask_coach(self, check_in_id: str, text: str, actor: ActorContext) -> CoachMessage:
         check_in = await self.repository.get_owned(check_in_id, actor.actor_id)

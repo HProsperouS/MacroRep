@@ -19,6 +19,7 @@ from app.analytics.nutrition import (
     scale_nutrients,
     target_adherence_percent,
     target_gap_kcal,
+    targets_by_date,
 )
 
 
@@ -98,7 +99,8 @@ def test_today_is_in_progress_whatever_was_logged() -> None:
 def test_day_statuses_cover_every_day_and_leave_today_in_progress() -> None:
     today = date(2024, 1, 4)
     logged = {date(2024, 1, 1): 2000, date(2024, 1, 2): 400}
-    statuses = day_statuses(logged, date(2024, 1, 1), today, 2000, today)
+    targets = targets_by_date([], date(2024, 1, 1), today, 2000)
+    statuses = day_statuses(logged, date(2024, 1, 1), today, targets, today)
     assert statuses == {
         date(2024, 1, 1): DayStatus.COMPLETE,
         date(2024, 1, 2): DayStatus.PARTIAL,
@@ -117,18 +119,67 @@ def test_day_statuses_cover_every_day_and_leave_today_in_progress() -> None:
     ],
 )
 def test_target_adherence_percent(logged: list[float], expected: float | None) -> None:
-    assert target_adherence_percent(logged, 2000) == expected
+    assert target_adherence_percent((calories, 2000) for calories in logged) == expected
 
 
 def test_target_adherence_needs_a_target() -> None:
-    assert target_adherence_percent([1500], 0) is None
+    assert target_adherence_percent([(1500, 0)]) is None
+    # A day without a target is left out rather than counted as off target.
+    assert target_adherence_percent([(1500, 0), (2000, 2000)]) == 100.0
 
 
 def test_target_gap_counts_partial_days_as_real_intake() -> None:
     # 2000 on target, 1500 is 500 under, a 600 kcal partial day is 1400 under.
-    assert target_gap_kcal([2000, 1500, 600], 2000) == -1900
-    assert target_gap_kcal([2300], 2000) == 300
-    assert target_gap_kcal([], 2000) == 0
+    assert target_gap_kcal([(2000, 2000), (1500, 2000), (600, 2000)]) == -1900
+    assert target_gap_kcal([(2300, 2000)]) == 300
+    assert target_gap_kcal([]) == 0
+
+
+def test_each_day_is_judged_against_its_own_target() -> None:
+    # 2000 eaten against an old 2000 target is on target; the same 2000 against a new 2500 is 500 under.
+    assert target_gap_kcal([(2000, 2000), (2000, 2500)]) == -500
+    assert target_adherence_percent([(2000, 2000), (2000, 2500)]) == 50.0
+
+
+def test_targets_by_date_uses_the_version_in_effect_each_day() -> None:
+    versions = [(date(2024, 1, 3), 2000.0), (date(2024, 1, 5), 2200.0)]
+    targets = targets_by_date(versions, date(2024, 1, 1), date(2024, 1, 6), fallback=1800)
+    assert targets == {
+        date(2024, 1, 1): 2000.0,  # before any version: the earliest target known
+        date(2024, 1, 2): 2000.0,
+        date(2024, 1, 3): 2000.0,
+        date(2024, 1, 4): 2000.0,
+        date(2024, 1, 5): 2200.0,
+        date(2024, 1, 6): 2200.0,
+    }
+
+
+def test_targets_by_date_takes_the_latest_of_several_changes_on_one_day() -> None:
+    versions = [(date(2024, 1, 1), 2000.0), (date(2024, 1, 2), 2100.0), (date(2024, 1, 2), 2300.0)]
+    assert targets_by_date(versions, date(2024, 1, 2), date(2024, 1, 2), fallback=0) == {
+        date(2024, 1, 2): 2300.0
+    }
+
+
+def test_days_before_any_version_take_the_first_days_final_target() -> None:
+    # Signed up with a default, then set a real target the same day: earlier days use the real one.
+    versions = [(date(2024, 1, 5), 2200.0), (date(2024, 1, 5), 2000.0), (date(2024, 1, 8), 2500.0)]
+    targets = targets_by_date(versions, date(2024, 1, 3), date(2024, 1, 8), fallback=0)
+    assert [targets[date(2024, 1, d)] for d in range(3, 9)] == [
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2500.0,
+    ]
+
+
+def test_targets_by_date_falls_back_without_any_version() -> None:
+    assert targets_by_date([], date(2024, 1, 1), date(2024, 1, 2), fallback=1800) == {
+        date(2024, 1, 1): 1800,
+        date(2024, 1, 2): 1800,
+    }
 
 
 def test_losing_weight_means_expenditure_exceeded_intake() -> None:
