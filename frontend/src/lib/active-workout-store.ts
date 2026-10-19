@@ -1,3 +1,4 @@
+import { pauseClock, resumeClock, type WorkoutClock } from "@/lib/workout-clock"
 import { initSession, type SessionState } from "@/lib/workout-session"
 import type { PlannedWorkout, StrengthHighlight } from "@/types/workout"
 
@@ -12,10 +13,8 @@ import type { PlannedWorkout, StrengthHighlight } from "@/types/workout"
  * can be added there, keeping this storage as the offline fallback.
  */
 
-export type ActiveWorkout = {
+export type ActiveWorkout = WorkoutClock & {
   session: SessionState
-  /** Epoch ms. */
-  startedAt: number
   /** Display context from the plan; null for an empty workout. */
   plan: { weekLabel: string; highlight?: StrengthHighlight } | null
 }
@@ -31,7 +30,11 @@ let current: ActiveWorkout | null = null
 function isStoredWorkout(value: unknown): value is StoredWorkout {
   if (typeof value !== "object" || value === null) return false
   const candidate = value as Partial<StoredWorkout>
-  return candidate.v === 1 && typeof candidate.startedAt === "number" && Array.isArray(candidate.session?.exercises)
+  // Workouts saved before pausing existed have neither pause field; anything else must be a number.
+  const pauseFieldsOk =
+    (candidate.pausedAt === undefined || candidate.pausedAt === null || Number.isFinite(candidate.pausedAt)) &&
+    (candidate.pausedMs === undefined || Number.isFinite(candidate.pausedMs))
+  return candidate.v === 1 && typeof candidate.startedAt === "number" && pauseFieldsOk && Array.isArray(candidate.session?.exercises)
 }
 
 function readStorage(): ActiveWorkout | null {
@@ -41,7 +44,8 @@ function readStorage(): ActiveWorkout | null {
     const parsed: unknown = JSON.parse(raw)
     if (!isStoredWorkout(parsed)) return null
     const { v: _version, ...workout } = parsed
-    return workout
+    // Workouts saved before pausing existed have neither field.
+    return { ...workout, pausedAt: workout.pausedAt ?? null, pausedMs: workout.pausedMs ?? 0 }
   } catch {
     return null
   }
@@ -80,6 +84,8 @@ export function beginWorkout(plan: PlannedWorkout | null) {
   set({
     session: initSession(plan),
     startedAt: Date.now(),
+    pausedAt: null,
+    pausedMs: 0,
     plan: plan ? { weekLabel: plan.weekLabel, highlight: plan.highlight } : null,
   })
 }
@@ -90,6 +96,23 @@ export function updateActiveSession(update: (session: SessionState) => SessionSt
   if (!active) return
   const session = update(active.session)
   if (session !== active.session) set({ ...active, session })
+}
+
+/** Stops the clock and the rest timer until `resumeWorkout`. No-op when nothing is active or it is already paused. */
+export function pauseWorkout(now = Date.now()) {
+  const active = getActiveWorkout()
+  if (active) set(pauseClock(active, now))
+}
+
+/** Restarts the clock without the paused time, and pushes a running rest timer back by as much. */
+export function resumeWorkout(now = Date.now()) {
+  const active = getActiveWorkout()
+  if (!active || active.pausedAt === null) return
+  const { clock, pausedFor } = resumeClock(active, now)
+  const { rest } = active.session
+  // A rest that had already run out before the pause stays finished.
+  const resting = rest && rest.endsAt > (active.pausedAt ?? 0)
+  set({ ...clock, session: resting ? { ...active.session, rest: { ...rest, endsAt: rest.endsAt + pausedFor } } : active.session })
 }
 
 export function clearActiveWorkout() {

@@ -4,17 +4,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { formatNumber, formatSigned } from "@/lib/format"
+import type { WorkoutClock } from "@/lib/workout-clock"
 import type { SessionExercise } from "@/lib/workout-session"
 import type { StrengthHighlight } from "@/types/workout"
 
 type SessionOverviewProps = {
-  startedAt: number
+  clock: WorkoutClock
   exercises: SessionExercise[]
   totals: { done: number; total: number; volumeKg: number }
 }
 
 /** Desktop sidebar: time, sets, volume and per-exercise progress. */
-export function SessionOverview({ startedAt, exercises, totals }: SessionOverviewProps) {
+export function SessionOverview({ clock, exercises, totals }: SessionOverviewProps) {
   return (
     <Card>
       <CardHeader>
@@ -22,7 +23,7 @@ export function SessionOverview({ startedAt, exercises, totals }: SessionOvervie
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid grid-cols-3 gap-3">
-          <Stat label="Duration" value={<SessionClock startedAt={startedAt} />} />
+          <Stat label="Duration" value={<SessionClock clock={clock} />} />
           <Stat label="Sets" value={`${totals.done}/${totals.total}`} />
           <Stat label="Volume" value={formatNumber(totals.volumeKg)} unit="kg" />
         </div>

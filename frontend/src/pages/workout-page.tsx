@@ -1,4 +1,4 @@
-import { Dumbbell, Plus, Trash2 } from "lucide-react"
+import { Dumbbell, Pause, Play, Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
@@ -10,7 +10,7 @@ import { ExerciseCard } from "@/components/workout/exercise-card"
 import { ExercisePicker } from "@/components/workout/exercise-picker"
 import { RestTimer } from "@/components/workout/rest-timer"
 import { SessionOverview, StrengthHighlightCard } from "@/components/workout/session-overview"
-import { SessionStatsLine } from "@/components/workout/session-stats"
+import { SessionClock, SessionStatsLine } from "@/components/workout/session-stats"
 import { StartWorkout } from "@/components/workout/start-workout"
 import { WorkoutSummary } from "@/components/workout/workout-summary"
 import { Button } from "@/components/ui/button"
@@ -20,7 +20,8 @@ import { Spinner } from "@/components/ui/spinner"
 import { useActiveWorkout } from "@/hooks/use-active-workout"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
 import { useFinishWorkout, useTodayWorkout } from "@/hooks/use-workout"
-import { beginWorkout, clearActiveWorkout, updateActiveSession, type ActiveWorkout } from "@/lib/active-workout-store"
+import { beginWorkout, clearActiveWorkout, pauseWorkout, resumeWorkout, updateActiveSession, type ActiveWorkout } from "@/lib/active-workout-store"
+import { savedTimes } from "@/lib/workout-clock"
 import { sessionReducer, sessionTotals, toFinishInput, type SessionAction, type SessionExercise } from "@/lib/workout-session"
 import type { Exercise, WorkoutSummary as WorkoutSummaryData } from "@/types/workout"
 
@@ -91,7 +92,8 @@ type WorkoutSessionProps = {
 /** Every change goes through the persisted store, so leaving the page or reloading keeps progress. */
 function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
-  const { session: state, startedAt, plan } = active
+  const { session: state, plan } = active
+  const paused = active.pausedAt !== null
   const [pickerLayout, setPickerLayout] = useState<OverlayLayout | null>(null)
   const [pickerKey, setPickerKey] = useState(0)
   const [confirm, setConfirm] = useState<Confirm>(null)
@@ -115,7 +117,8 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
   }
 
   function submitFinish() {
-    finish.mutate(toFinishInput(state, startedAt, Date.now()), {
+    const { startedAt, finishedAt } = savedTimes(active, Date.now())
+    finish.mutate(toFinishInput(state, startedAt, finishedAt), {
       onSuccess: (result) => {
         setConfirm(null)
         onFinished(result)
@@ -155,78 +158,121 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
         eyebrow={plan ? `Workout in progress · ${plan.weekLabel}` : "Workout in progress"}
         title={state.name}
         actions={
-          <>
-            <Button variant="outline" className="hidden h-10 lg:inline-flex" onClick={openPicker}>
-              <Plus data-icon="inline-start" />
-              Add exercise
-            </Button>
-            <Button variant="ghost" className="hidden h-10 lg:inline-flex" onClick={() => openConfirm("discard")}>
-              Discard
-            </Button>
-            <Button className="h-10" onClick={requestFinish} disabled={finish.isPending || totals.total === 0}>
-              {finish.isPending ? <Spinner data-icon="inline-start" /> : null}
-              {isDesktop ? "Finish workout" : "Finish"}
-            </Button>
-          </>
+          paused ? (
+            <>
+              <Button variant="ghost" className="h-10" onClick={() => openConfirm("discard")}>
+                Discard
+              </Button>
+              <Button className="h-10" onClick={() => resumeWorkout()}>
+                <Play data-icon="inline-start" />
+                Resume
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" className="hidden h-10 lg:inline-flex" onClick={openPicker}>
+                <Plus data-icon="inline-start" />
+                Add exercise
+              </Button>
+              <Button variant="ghost" className="hidden h-10 lg:inline-flex" onClick={() => openConfirm("discard")}>
+                Discard
+              </Button>
+              <Button variant="outline" className="h-10" onClick={() => pauseWorkout()} disabled={finish.isPending}>
+                <Pause data-icon="inline-start" />
+                Pause
+              </Button>
+              <Button className="h-10" onClick={requestFinish} disabled={finish.isPending || totals.total === 0}>
+                {finish.isPending ? <Spinner data-icon="inline-start" /> : null}
+                {isDesktop ? "Finish workout" : "Finish"}
+              </Button>
+            </>
+          )
         }
       />
 
-      <div className="flex flex-col gap-2 lg:hidden">
-        <SessionStatsLine startedAt={startedAt} {...totals} />
-        <Progress value={percentDone} aria-label="Sets completed" />
-      </div>
+      {paused ? (
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Pause />
+            </EmptyMedia>
+            <EmptyTitle>Workout paused</EmptyTitle>
+            <EmptyDescription>
+              <span className="font-display text-2xl tabular-nums" role="timer">
+                <SessionClock clock={active} />
+              </span>{" "}
+              of training so far. The clock and rest timer are stopped. Your sets are kept.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button className="h-11" onClick={() => resumeWorkout()}>
+              <Play data-icon="inline-start" />
+              Resume workout
+            </Button>
+          </EmptyContent>
+        </Empty>
+      ) : null}
 
-      <div className="grid items-start gap-4 lg:grid-cols-12 lg:gap-6">
-        <div className="flex min-w-0 flex-col gap-4 lg:col-span-8">
-          <RestTimer rest={state.rest} dispatch={dispatch} className="sticky top-3 z-10 lg:hidden" />
-          {state.exercises.length === 0 ? (
-            <Empty className="border">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <Dumbbell />
-                </EmptyMedia>
-                <EmptyTitle>Add your first exercise</EmptyTitle>
-                <EmptyDescription>Search the library or create your own. Sets fill in from your last session.</EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button className="h-11" onClick={openPicker}>
-                  <Plus data-icon="inline-start" />
-                  Add exercises
-                </Button>
-              </EmptyContent>
-            </Empty>
-          ) : (
-            state.exercises.map((exercise, index) => (
-              <ExerciseCard
-                key={exercise.id}
-                exercise={exercise}
-                isFirst={index === 0}
-                isLast={index === state.exercises.length - 1}
-                dispatch={dispatch}
-                onRemove={removeExercise}
-              />
-            ))
-          )}
+      {paused ? null : (
+        <>
           <div className="flex flex-col gap-2 lg:hidden">
-            <Button variant="outline" className="h-12 w-full" onClick={openPicker} hidden={state.exercises.length === 0}>
-              <Plus data-icon="inline-start" />
-              Add exercise
-            </Button>
-            <Button variant="ghost" className="h-11 w-full text-destructive" onClick={() => openConfirm("discard")}>
-              <Trash2 data-icon="inline-start" />
-              Discard workout
-            </Button>
+            <SessionStatsLine clock={active} {...totals} />
+            <Progress value={percentDone} aria-label="Sets completed" />
           </div>
-        </div>
 
-        {isDesktop ? (
-          <aside className="sticky top-7 flex flex-col gap-4 lg:col-span-4">
-            <RestTimer rest={state.rest} dispatch={dispatch} />
-            <SessionOverview startedAt={startedAt} exercises={state.exercises} totals={totals} />
-            {plan?.highlight ? <StrengthHighlightCard highlight={plan.highlight} /> : null}
-          </aside>
-        ) : null}
-      </div>
+          <div className="grid items-start gap-4 lg:grid-cols-12 lg:gap-6">
+            <div className="flex min-w-0 flex-col gap-4 lg:col-span-8">
+              <RestTimer rest={state.rest} dispatch={dispatch} className="sticky top-3 z-10 lg:hidden" />
+              {state.exercises.length === 0 ? (
+                <Empty className="border">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <Dumbbell />
+                    </EmptyMedia>
+                    <EmptyTitle>Add your first exercise</EmptyTitle>
+                    <EmptyDescription>Search the library or create your own. Sets fill in from your last session.</EmptyDescription>
+                  </EmptyHeader>
+                  <EmptyContent>
+                    <Button className="h-11" onClick={openPicker}>
+                      <Plus data-icon="inline-start" />
+                      Add exercises
+                    </Button>
+                  </EmptyContent>
+                </Empty>
+              ) : (
+                state.exercises.map((exercise, index) => (
+                  <ExerciseCard
+                    key={exercise.id}
+                    exercise={exercise}
+                    isFirst={index === 0}
+                    isLast={index === state.exercises.length - 1}
+                    dispatch={dispatch}
+                    onRemove={removeExercise}
+                  />
+                ))
+              )}
+              <div className="flex flex-col gap-2 lg:hidden">
+                <Button variant="outline" className="h-12 w-full" onClick={openPicker} hidden={state.exercises.length === 0}>
+                  <Plus data-icon="inline-start" />
+                  Add exercise
+                </Button>
+                <Button variant="ghost" className="h-11 w-full text-destructive" onClick={() => openConfirm("discard")}>
+                  <Trash2 data-icon="inline-start" />
+                  Discard workout
+                </Button>
+              </div>
+            </div>
+
+            {isDesktop ? (
+              <aside className="sticky top-7 flex flex-col gap-4 lg:col-span-4">
+                <RestTimer rest={state.rest} dispatch={dispatch} />
+                <SessionOverview clock={active} exercises={state.exercises} totals={totals} />
+                {plan?.highlight ? <StrengthHighlightCard highlight={plan.highlight} /> : null}
+              </aside>
+            ) : null}
+          </div>
+        </>
+      )}
 
       <ResponsiveOverlay
         open={confirm?.kind === "finish"}
