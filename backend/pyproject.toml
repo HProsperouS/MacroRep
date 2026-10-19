@@ -6,7 +6,6 @@ requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.16,<2",
   "argon2-cffi>=23.1,<26",
-  "asgi-correlation-id>=4.3,<5",
   "fastapi>=0.116,<1",
   "pydantic[email]>=2.11,<3",
   "pydantic-settings>=2.10,<3",

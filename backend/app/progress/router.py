@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.coach.repository import CoachRepository
+from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.profile.repository import ProfileRepository
-from app.shared.persistence import get_session
 
 from .repository import ProgressRepository
 from .schemas import DailyCaloriesResponse, ProgressRange, ProgressResponse
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api", tags=["progress"])
 _VALID_RANGES = set(get_args(ProgressRange))
 
 
-def get_progress_service(session: Annotated[AsyncSession, Depends(get_session)]) -> ProgressService:
+def get_progress_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> ProgressService:
     return ProgressService(ProgressRepository(session), ProfileRepository(session), CoachRepository(session))
 
 

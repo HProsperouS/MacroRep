@@ -23,10 +23,6 @@ ASGISend = Callable[[dict[str, Any]], Awaitable[None]]
 ASGIApp = Callable[[ASGIScope, ASGIReceive, ASGISend], Awaitable[None]]
 
 
-def get_correlation_id() -> str | None:
-    return _correlation_id.get()
-
-
 def bind_correlation_id(value: str | None = None) -> tuple[str, Token[str | None]]:
     correlation_id = value if value and _SAFE_CORRELATION_ID.fullmatch(value) else str(uuid4())
     token = _correlation_id.set(correlation_id)

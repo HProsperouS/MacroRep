@@ -20,10 +20,11 @@ backend/
 │   ├── workout/                    # exercise catalog, weekly plan, logged sessions
 │   ├── body/                        # weigh-ins and trend-weight calculation
 │   ├── progress/                     # read-model composing the above into dashboard charts
+│   ├── analytics/                     # deterministic nutrition, training and weight formulas
 │   ├── coach/                          # check-ins, proposals, chat (see pipeline.py)
 │   └── health/                          # liveness/readiness/version
 ├── migrations/             # Alembic schema migrations
-├── tests/                  # API smoke tests (in-memory SQLite)
+├── tests/                  # API, validation and formula tests (in-memory SQLite)
 ├── pyproject.toml
 └── Dockerfile
 ```

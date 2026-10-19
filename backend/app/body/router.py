@@ -9,8 +9,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
-from app.shared.persistence import get_session
 
 from .repository import WeighInRepository
 from .schemas import UpdateWeighInInput, WeighInInput, WeighInRead, WeightPoint
@@ -22,7 +22,7 @@ _DEFAULT_LIST_DAYS = 90
 _MAX_LIST_DAYS = 366
 
 
-def get_body_service(session: Annotated[AsyncSession, Depends(get_session)]) -> BodyService:
+def get_body_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> BodyService:
     return BodyService(session, WeighInRepository(session))
 
 

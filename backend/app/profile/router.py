@@ -7,9 +7,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.identity.repository import UserRepository
-from app.shared.persistence import get_session
 
 from .repository import ProfileRepository
 from .schemas import DailyTargets, ProfileRead, TimezoneInput, UpdateProfileInput, UpdateTargetsInput
@@ -18,7 +18,7 @@ from .service import ProfileService
 router = APIRouter(prefix="/api", tags=["profile"])
 
 
-def get_profile_service(session: Annotated[AsyncSession, Depends(get_session)]) -> ProfileService:
+def get_profile_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> ProfileService:
     return ProfileService(session, ProfileRepository(session), UserRepository(session))
 
 

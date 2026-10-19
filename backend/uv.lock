@@ -121,19 +121,6 @@ wheels = [
 ]
 
 [[package]]
-name = "asgi-correlation-id"
-version = "4.3.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "packaging" },
-    { name = "starlette" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f4/ff/a6538245ac1eaa7733ec6740774e9d5add019e2c63caa29e758c16c0afdd/asgi_correlation_id-4.3.4.tar.gz", hash = "sha256:ea6bc310380373cb9f731dc2e8b2b6fb978a76afe33f7a2384f697b8d6cd811d", size = 20075, upload-time = "2024-10-17T11:44:30.324Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d9/ab/6936e2663c47a926e0659437b9333ad87d1ff49b1375d239026e0a268eba/asgi_correlation_id-4.3.4-py3-none-any.whl", hash = "sha256:36ce69b06c7d96b4acb89c7556a4c4f01a972463d3d49c675026cbbd08e9a0a2", size = 15262, upload-time = "2024-10-17T11:44:28.739Z" },
-]
-
-[[package]]
 name = "certifi"
 version = "2026.7.22"
 source = { registry = "https://pypi.org/simple" }
@@ -594,7 +581,6 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "argon2-cffi" },
-    { name = "asgi-correlation-id" },
     { name = "fastapi" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic", extra = ["email"] },
@@ -620,7 +606,6 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.16,<2" },
     { name = "argon2-cffi", specifier = ">=23.1,<26" },
-    { name = "asgi-correlation-id", specifier = ">=4.3,<5" },
     { name = "fastapi", specifier = ">=0.116,<1" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2,<4" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.11,<3" },

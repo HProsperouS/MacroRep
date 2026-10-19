@@ -15,9 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.identity.repository import UserRepository
-from app.shared.persistence import get_session
 
 from .schemas import AccessToken, LoginInput, MeRead, RegisterInput
 from .service import AuthService
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api", tags=["auth"])
 
 
 def get_auth_service(
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AuthService:
     return AuthService(session, UserRepository(session), settings)

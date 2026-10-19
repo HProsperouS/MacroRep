@@ -7,9 +7,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.profile.repository import ProfileRepository
-from app.shared.persistence import get_session
 from app.shared.validation import MAX_SEARCH_LENGTH
 
 from .models import EQUIPMENT, MUSCLE_GROUPS
@@ -30,7 +30,7 @@ from .service import WorkoutService
 router = APIRouter(prefix="/api", tags=["workout"])
 
 
-def get_workout_service(session: Annotated[AsyncSession, Depends(get_session)]) -> WorkoutService:
+def get_workout_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> WorkoutService:
     return WorkoutService(
         session,
         ExerciseRepository(session),

@@ -7,10 +7,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.profile.repository import ProfileRepository
 from app.progress.repository import ProgressRepository
-from app.shared.persistence import get_session
 
 from .repository import CoachRepository
 from .schemas import AskCoachInput, CheckIn, CoachMessage, Proposal, ProposalDecisionInput
@@ -19,7 +19,7 @@ from .service import CoachService
 router = APIRouter(prefix="/api/coach", tags=["coach"])
 
 
-def get_coach_service(session: Annotated[AsyncSession, Depends(get_session)]) -> CoachService:
+def get_coach_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> CoachService:
     return CoachService(
         session, CoachRepository(session), ProgressRepository(session), ProfileRepository(session)
     )

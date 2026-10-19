@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.shared.persistence import get_session
+from app.core.database import get_db_session
 
 router = APIRouter(tags=["health"])
 
@@ -20,7 +20,7 @@ async def live() -> dict[str, str]:
 
 
 @router.get("/health/ready")
-async def ready(session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, str]:
+async def ready(session: Annotated[AsyncSession, Depends(get_db_session)]) -> dict[str, str]:
     await session.execute(text("SELECT 1"))
     return {"status": "ready"}
 

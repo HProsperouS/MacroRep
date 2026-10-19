@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import TokenError, decode_access_token
 from app.core.config import Settings, get_settings
-from app.shared.persistence import get_session
+from app.core.database import get_db_session
 
 from .models import User, UserStatus
 from .repository import UserRepository
@@ -40,7 +40,7 @@ def _actor_from_user(user: User) -> ActorContext:
 
 async def get_current_actor(
     settings: Annotated[Settings, Depends(get_settings)],
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
     preview_actor_id: Annotated[
         str | None, Header(alias="X-Preview-Actor-Id", min_length=1, max_length=255)

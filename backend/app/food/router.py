@@ -8,8 +8,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
-from app.shared.persistence import get_session
 from app.shared.validation import MAX_SEARCH_LENGTH
 
 from .repository import FoodEntryRepository, FoodRepository
@@ -26,7 +26,7 @@ from .service import FoodService
 router = APIRouter(prefix="/api", tags=["food"])
 
 
-def get_food_service(session: Annotated[AsyncSession, Depends(get_session)]) -> FoodService:
+def get_food_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> FoodService:
     return FoodService(session, FoodRepository(session), FoodEntryRepository(session))
 
 
