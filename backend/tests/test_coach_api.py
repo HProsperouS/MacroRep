@@ -1146,3 +1146,80 @@ def test_dropping_a_set_and_lowering_the_weight_together_check_against_the_origi
         {"kind": "warmup", "w": 40.0, "r": 10},
         *[{"kind": "working", "w": 95.0, "r": 5}] * 2,
     ]
+
+
+def _leave_running(
+    client: TestClient, headers: dict[str, str], monkeypatch: pytest.MonkeyPatch, key: str
+) -> str:
+    """Start a check-in whose background run never happens, as if its task died at once."""
+
+    async def never_runs(_: str) -> None:
+        return None
+
+    _week_with_a_proposal(client, headers)
+    monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
+    check_in_id = str(_start(client, headers, key).json()["id"])
+    monkeypatch.undo()
+    return check_in_id
+
+
+def test_a_run_failed_as_stale_leaves_no_checkpoints(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.coach.agents.checkpoint import get_checkpointer
+    from app.coach.agents.graph import run_agents
+    from app.coach.agents.model import FakeCoachModel
+    from app.coach.models import CheckIn as CheckInRow
+    from app.core.database import get_session_factory
+
+    headers = _new_user(client)
+    check_in_id = _leave_running(client, headers, monkeypatch, "stale-checkpoints")
+
+    async def crash(*_: object) -> None:
+        raise RuntimeError("worker died mid-run")
+
+    async def half_run() -> object:
+        async with get_session_factory()() as session:
+            snapshot = (await session.get(CheckInRow, check_in_id)).input_snapshot  # type: ignore[union-attr]
+        monkeypatch.setattr(FakeCoachModel, "generate", crash)
+        try:
+            await run_agents(
+                snapshot, FakeCoachModel(), thread_id=check_in_id, checkpointer=get_checkpointer()
+            )
+        except RuntimeError:
+            pass
+        monkeypatch.undo()
+        return await get_checkpointer().aget_tuple({"configurable": {"thread_id": check_in_id}})
+
+    async def saved() -> object:
+        return await get_checkpointer().aget_tuple({"configurable": {"thread_id": check_in_id}})
+
+    assert client.portal is not None
+    assert client.portal.call(half_run) is not None, "the interrupted run left checkpoints"
+
+    _backdate_check_in(client, check_in_id, minutes=11)
+    assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"
+    assert client.portal.call(saved) is None
+
+
+def test_startup_takes_over_only_runs_whose_owner_must_be_gone(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.coach.runner import resume_interrupted_check_ins, stop_running_check_ins
+
+    young_user, old_user = _new_user(client), _new_user(client)
+    young = _leave_running(client, young_user, monkeypatch, "young")
+    old = _leave_running(client, old_user, monkeypatch, "old")
+    # Past the run time limit: a live owner would have finished or failed it by now.
+    _backdate_check_in(client, old, minutes=3)
+
+    async def resume_and_settle() -> None:
+        await resume_interrupted_check_ins()
+        await asyncio.sleep(0.5)  # the old one runs at once; the young one is still waiting
+
+    assert client.portal is not None
+    client.portal.call(resume_and_settle)
+
+    assert _check_in_row(client, old).status.value == "needs-review"  # type: ignore[attr-defined]
+    assert _check_in_row(client, young).status.value == "running", "its owner may still be working on it"  # type: ignore[attr-defined]
+    client.portal.call(stop_running_check_ins)

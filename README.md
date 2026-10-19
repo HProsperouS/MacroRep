@@ -4,7 +4,14 @@ MacroRep: An Adaptive Nutrition and Workout Tracking Platform Powered by Multi-A
 
 - `frontend/` — React 19 + Vite + TypeScript SPA
 - `backend/` — FastAPI modular monolith (see `backend/README.md` for its internal structure and design notes)
-- `docs/plan.md` — the project plan / brief
+- `docs/` — the project plan and the design documents:
+  - [`plan.md`](docs/plan.md) — the project plan / brief
+  - [`architecture.md`](docs/architecture.md) — how the system fits together
+  - [`database.md`](docs/database.md) — the schema, with an ER diagram
+  - [`agents.md`](docs/agents.md) — the weekly check-in's agents and their safeguards
+  - [`analytics.md`](docs/analytics.md) — the formulas behind the progress figures
+  - [`deployment.md`](docs/deployment.md) — how it would be deployed on AWS
+  - [`follow-ups.md`](docs/follow-ups.md) — known gaps and deferred decisions
 
 ## Quick start (Docker — recommended)
 

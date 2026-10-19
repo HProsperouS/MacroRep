@@ -165,25 +165,47 @@ These exclusions protect the four-person team from excessive scope and keep the 
 - Deterministic calculations and validation.
 - User review, edit, approval, and rejection.
 - Audit record showing the proposal, evidence summary, and final decision.
+- A real language model behind the agents. *Waiting on an API key: until then the agents run on a rule-based model with the same interface (see [agents.md](agents.md#the-model)).*
 
 ### P2: Important engineering quality
 
-- Cloud deployment.
-- Automated CI/CD.
+- ~~Cloud deployment.~~ A deployment design document instead: the project is not deployed (see [deployment.md](deployment.md)).
+- Automated CI (continuous deployment isn't needed without a deployment).
 - Integration and end-to-end tests.
 - Load testing for selected endpoints.
-- Logging, health checks, and basic monitoring.
+- Logging, health checks, and basic monitoring, including agent run metrics (duration, outcome, retries).
+- Evaluation of the agents' quality (§26), as far as a rule-based model allows: conflict detection, validation, structured-output handling.
 - Architecture documentation, ERD, API documentation, and setup guide.
 
 ### P3: Stretch features
 
 - Constrained Coach Chat.
+- Supervisor/Router with intent routing and clarification questions (§9.3, §9.9), built with Coach Chat.
+- Asking the agents to revise a proposal ("request changes", §9.2).
 - Food-photo analysis with user correction.
 - Limited PWA offline support for an active workout.
 - Streaming agent progress.
 - Background job queue and rate limiting.
 
 P3 work begins only after the P0-P2 acceptance criteria are met.
+
+### Out of scope
+
+- Exercise substitution by available equipment (§9.5): training proposals change sets, weight and reps of a routine's own exercises, never swap an exercise.
+
+### Scope changes (2026-10-20)
+
+Agreed once P1's agents, validation and approval were built, to keep the plan matching the work:
+
+| Item | Was | Now | Why |
+|---|---|---|---|
+| Real language model | P1 | P1, waiting on an API key | Core to the product, so not moved; the model interface is in place. |
+| Supervisor/Router | P1 (§9.3) | P3 | The weekly check-in always runs the same agents; routing serves Coach Chat. |
+| "Request changes" loop | P1 (§9.2) | P3 | Users can already edit values or reject and start again; revising belongs with Coach Chat. |
+| Exercise substitution | P1 (§9.5) | Out of scope | Training proposals adjust a routine's targets only, which can be validated deterministically. |
+| Agent run metrics | P1 (implied) | P2 | Part of logging and monitoring. |
+| AI quality evaluation | §26 | P2 | Measured alongside the test report. |
+| Cloud deployment | P2 | Design document only | The project is not deployed. |
 
 ## 7. Core User Journeys
 

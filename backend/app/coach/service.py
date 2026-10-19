@@ -167,12 +167,14 @@ class CoachService:
         await self.session.refresh(check_in)
 
     async def _mark_failed(self, check_in_id: str, steps: list[dict[str, str]], reason: str) -> None:
-        """Mark a RUNNING check-in failed. Does nothing if it already moved on, e.g. finished meanwhile."""
+        """Mark a RUNNING check-in failed, and drop its checkpoints: a failed run is never
+        resumed. Does nothing if it already moved on, e.g. finished meanwhile."""
 
         if await self.repository.finish_run(
             check_in_id, status=CheckInStatus.FAILED, failure_reason=reason, pipeline=_failed_pipeline(steps)
         ):
             await self.session.commit()
+            await _forget_run(check_in_id)
 
     async def start_check_in(self, idempotency_key: str, actor: ActorContext) -> tuple[CheckIn, bool]:
         """Create a check-in for the last 7 days; returns it and whether it was newly created.
