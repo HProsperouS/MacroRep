@@ -72,7 +72,7 @@ class ProgressRepository:
             .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
             .where(
                 WorkoutSetLog.owner_id == owner_id,
-                WorkoutSetLog.kind == SetKind.WORKING,
+                WorkoutSetLog.kind != SetKind.WARMUP,
                 WorkoutSetLog.rpe.is_not(None),
                 WorkoutSession.started_at >= since,
                 WorkoutSession.started_at < until,
@@ -92,7 +92,7 @@ class ProgressRepository:
             .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
             .where(
                 WorkoutSetLog.owner_id == owner_id,
-                WorkoutSetLog.kind == SetKind.WORKING,
+                WorkoutSetLog.kind != SetKind.WARMUP,
                 WorkoutSession.started_at >= since,
                 WorkoutSession.started_at < until,
             )
@@ -118,7 +118,7 @@ class ProgressRepository:
             .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
             .where(
                 WorkoutSetLog.owner_id == owner_id,
-                WorkoutSetLog.kind == SetKind.WORKING,
+                WorkoutSetLog.kind != SetKind.WARMUP,
                 WorkoutSession.started_at < until,
             )
         )

@@ -1,4 +1,4 @@
-import { EQUIPMENT_LABELS, MUSCLE_LABELS, type Exercise, type FinishWorkoutInput, type PlannedExercise, type PlannedSet, type PlannedWorkout, type SetKind } from "@/types/workout"
+import { EQUIPMENT_LABELS, MUSCLE_LABELS, SET_KIND_LABELS, type Exercise, type FinishWorkoutInput, type PlannedExercise, type PlannedSet, type PlannedWorkout, type SetKind } from "@/types/workout"
 
 /** Pure state for a live workout. Inputs are kept as strings so "57." can be typed. */
 
@@ -34,6 +34,7 @@ const DEFAULT_SET_COUNT = 3
 
 export type SessionAction =
   | { type: "edit"; exerciseId: string; setId: string; field: "weight" | "reps" | "rpe"; value: string }
+  | { type: "set-kind"; exerciseId: string; setId: string; kind: SetKind }
   | { type: "toggle"; exerciseId: string; setId: string; now: number }
   | { type: "add-set"; exerciseId: string }
   | { type: "adjust-rest"; seconds: number; now: number }
@@ -94,10 +95,10 @@ function exerciseToSession(exercise: Exercise, instanceId: string): SessionExerc
 }
 
 /** Weight may be 0 (bodyweight); reps must be a positive whole number. */
-function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
+export function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
   const weightKg = set.weight.trim() === "" ? Number.NaN : Number(set.weight)
   const reps = set.reps.trim() === "" ? Number.NaN : Number(set.reps)
-  const valid = Number.isFinite(weightKg) && weightKg >= 0 && weightKg <= 1000 && Number.isInteger(reps) && reps > 0 && reps <= 200
+  const valid = Number.isFinite(weightKg) && weightKg >= 0 && weightKg <= 1000 && Number.isInteger(reps) && reps > 0 && reps <= 100
   return valid ? { weightKg, reps } : null
 }
 
@@ -125,6 +126,9 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
   switch (action.type) {
     case "edit":
       return { ...state, exercises: updateSet(state, action.exerciseId, action.setId, (set) => ({ ...set, [action.field]: action.value })) }
+
+    case "set-kind":
+      return { ...state, exercises: updateSet(state, action.exerciseId, action.setId, (set) => ({ ...set, kind: action.kind })) }
 
     case "toggle": {
       const exercise = state.exercises.find((e) => e.id === action.exerciseId)
@@ -202,15 +206,20 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
   }
 }
 
-/** Row labels: "W" for warm-ups, then 1, 2, 3… for working sets. */
+const SET_KIND_LETTERS: Partial<Record<SetKind, string>> = { warmup: "W", failure: "F", drop: "D" }
+
+/** Row labels: a letter for warm-up, failure and drop sets, and 1, 2, 3… for working sets. */
 export function setLabels(sets: Pick<SessionSet, "kind">[]) {
   const labels: string[] = []
   let working = 0
-  for (const set of sets) {
-    if (set.kind === "warmup") labels.push("W")
-    else labels.push(String(++working))
-  }
+  for (const set of sets) labels.push(SET_KIND_LETTERS[set.kind] ?? String(++working))
   return labels
+}
+
+/** Labels for a finished exercise's sets: "Warm-up", "Set 1", "Set 2", "Failure", "Drop set". */
+export function historySetLabels(sets: Pick<SessionSet, "kind">[]) {
+  const letters = setLabels(sets)
+  return sets.map((set, index) => (set.kind === "working" ? `Set ${letters[index]}` : SET_KIND_LABELS[set.kind]))
 }
 
 export function sessionTotals(exercises: SessionExercise[]) {
@@ -223,7 +232,7 @@ export function sessionTotals(exercises: SessionExercise[]) {
       if (!set.done) continue
       done += 1
       const parsed = parseSet(set)
-      if (parsed && set.kind === "working") volumeKg += parsed.weightKg * parsed.reps
+      if (parsed && set.kind !== "warmup") volumeKg += parsed.weightKg * parsed.reps
     }
   }
   return { done, total, volumeKg }

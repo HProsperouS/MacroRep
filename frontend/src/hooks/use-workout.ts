@@ -2,7 +2,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 
 import { progressKeys, workoutKeys } from "@/api/query-keys"
 import { workoutApi } from "@/api/workout-api"
-import type { CreateExerciseInput, ExerciseFilters, FinishWorkoutInput, SavePlanDayInput } from "@/types/workout"
+import type { CreateExerciseInput, ExerciseFilters, FinishWorkoutInput, SavePlanDayInput, UpdateWorkoutInput } from "@/types/workout"
 
 export function useTodayWorkout() {
   return useQuery({
@@ -83,7 +83,31 @@ export function useWorkoutHistory() {
   })
 }
 
-/** Fetched only once a workout is expanded. A saved workout never changes, so it stays cached. */
+function useInvalidateAfterWorkoutChange() {
+  const queryClient = useQueryClient()
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: workoutKeys.all })
+    void queryClient.invalidateQueries({ queryKey: progressKeys.all })
+  }
+}
+
+export function useUpdateWorkout() {
+  const invalidate = useInvalidateAfterWorkoutChange()
+  return useMutation({
+    mutationFn: ({ sessionId, input }: { sessionId: string; input: UpdateWorkoutInput }) => workoutApi.updateSession(sessionId, input),
+    onSuccess: invalidate,
+  })
+}
+
+export function useDeleteWorkout() {
+  const invalidate = useInvalidateAfterWorkoutChange()
+  return useMutation({
+    mutationFn: (sessionId: string) => workoutApi.deleteSession(sessionId),
+    onSuccess: invalidate,
+  })
+}
+
+/** Fetched only once a workout is expanded. It is cached until the workout is edited or deleted. */
 export function useWorkoutDetail(sessionId: string, enabled: boolean) {
   return useQuery({
     queryKey: workoutKeys.session(sessionId),

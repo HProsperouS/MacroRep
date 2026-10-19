@@ -187,6 +187,19 @@ class WorkoutSessionRepository:
         self.session.add_all(set_logs)
         await self.session.flush()
 
+    async def delete_sets(self, owner_id: str, session_id: str) -> None:
+        await self.session.execute(
+            delete(WorkoutSetLog).where(
+                WorkoutSetLog.owner_id == owner_id, WorkoutSetLog.session_id == session_id
+            )
+        )
+
+    async def delete_session(self, workout_session: WorkoutSession) -> None:
+        # Sets first: SQLite doesn't enforce ON DELETE CASCADE unless asked to.
+        await self.delete_sets(workout_session.owner_id, workout_session.id)
+        await self.session.delete(workout_session)
+        await self.session.flush()
+
     async def list_sessions(self, owner_id: str, limit: int, offset: int) -> list[WorkoutSession]:
         """Newest first; the id breaks ties so paging never repeats or skips a session."""
 
@@ -238,7 +251,7 @@ class WorkoutSessionRepository:
                     WorkoutSetLog.owner_id == owner_id,
                     WorkoutSetLog.exercise_id.in_(exercise_ids),
                     WorkoutSetLog.session_id != before_session_id,
-                    WorkoutSetLog.kind == SetKind.WORKING,
+                    WorkoutSetLog.kind != SetKind.WARMUP,
                 )
             )
         )

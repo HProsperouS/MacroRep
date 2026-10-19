@@ -103,6 +103,7 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
                 label={labels[index]}
                 active={set.id === activeSetId}
                 onEdit={(field, value) => dispatch({ type: "edit", exerciseId: exercise.id, setId: set.id, field, value })}
+                onKindChange={(kind) => dispatch({ type: "set-kind", exerciseId: exercise.id, setId: set.id, kind })}
                 onToggle={() => dispatch({ type: "toggle", exerciseId: exercise.id, setId: set.id, now: Date.now() })}
               />
             )

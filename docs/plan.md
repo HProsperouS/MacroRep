@@ -784,10 +784,12 @@ GET    /api/v1/workouts/today
 GET    /api/v1/workouts/sessions
 POST   /api/v1/workouts/sessions
 GET    /api/v1/workouts/sessions/{session_id}
+PUT    /api/v1/workouts/sessions/{session_id}
+DELETE /api/v1/workouts/sessions/{session_id}
 GET    /api/v1/progress
 ```
 
-The weekly plan is edited per day rather than through standalone routines. A session is posted once, with its sets, when the workout is finished.
+The weekly plan is edited per day rather than through standalone routines. A session is posted once, with its sets, when the workout is finished; afterwards its name and sets can be corrected (`PUT`, which keeps the logged times) or the whole workout deleted. Set types are warm-up, working, failure, and drop; every type but warm-up counts toward volume and personal records.
 
 ### Check-in and agent workflow
 

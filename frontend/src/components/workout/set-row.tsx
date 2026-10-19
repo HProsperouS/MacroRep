@@ -1,24 +1,27 @@
 import { Check } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { isSetCompletable, parseRpe, type SessionSet } from "@/lib/workout-session"
+import { SET_KIND_LABELS, SET_KINDS, type SetKind } from "@/types/workout"
 
 type SetRowProps = {
   exerciseName: string
   set: SessionSet
-  /** "W" for warm-ups, otherwise the working set number. */
+  /** A letter for warm-up, failure and drop sets, otherwise the working set number. */
   label: string
   active: boolean
   onEdit: (field: "weight" | "reps" | "rpe", value: string) => void
+  onKindChange: (kind: SetKind) => void
   onToggle: () => void
 }
 
 export const SET_GRID = "grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_3rem_2.75rem] items-center gap-1.5"
 
-export function SetRow({ exerciseName, set, label, active, onEdit, onToggle }: SetRowProps) {
+export function SetRow({ exerciseName, set, label, active, onEdit, onKindChange, onToggle }: SetRowProps) {
   const name = `${exerciseName} set ${label}`
   const weightInvalid = set.weight.trim() !== "" && !(Number(set.weight) >= 0)
   const repsInvalid = set.reps.trim() !== "" && !(Number.isInteger(Number(set.reps)) && Number(set.reps) > 0)
@@ -34,10 +37,30 @@ export function SetRow({ exerciseName, set, label, active, onEdit, onToggle }: S
         active && "ring-1 ring-primary/45",
       )}
     >
-      <span className={cn("font-display text-xl font-semibold", set.kind === "warmup" ? "text-carbs" : "text-foreground")}>
-        {label}
-        {set.kind === "warmup" ? <span className="sr-only"> (warm-up)</span> : null}
-      </span>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={set.done}
+            aria-label={`${name} type: ${SET_KIND_LABELS[set.kind]}. Change type`}
+            className={cn(
+              "-ml-1 h-11 rounded-md font-display text-xl font-semibold enabled:hover:bg-muted",
+              set.kind === "warmup" ? "text-carbs" : set.kind === "working" ? "text-foreground" : "text-primary",
+            )}
+          >
+            {label}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-40">
+          <DropdownMenuRadioGroup value={set.kind} onValueChange={(value) => onKindChange(value as SetKind)}>
+            {SET_KINDS.map((kind) => (
+              <DropdownMenuRadioItem key={kind} value={kind}>
+                {SET_KIND_LABELS[kind]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <span className="truncate text-sm text-muted-foreground">
         {set.previous
           ? `${formatNumber(set.previous.weightKg, 1)} × ${set.previous.reps}${set.previous.rpe != null ? ` @${set.previous.rpe}` : ""}`

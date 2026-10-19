@@ -128,6 +128,13 @@ class FinishWorkoutInput(CamelModel):
         return self
 
 
+class UpdateWorkoutInput(CamelModel):
+    """A logged workout's corrected name and sets (its times stay as logged)."""
+
+    name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
+    exercises: list[FinishWorkoutExercise] = Field(min_length=1, max_length=MAX_EXERCISES_PER_WORKOUT)
+
+
 class WorkoutSummary(CamelModel):
     id: str
     name: str
@@ -155,6 +162,8 @@ class HistorySet(CamelModel):
 
 
 class HistoryExercise(CamelModel):
+    # Null only if the exercise was removed from the catalog after it was logged.
+    exercise_id: str | None
     name: str
     sets: list[HistorySet]
 

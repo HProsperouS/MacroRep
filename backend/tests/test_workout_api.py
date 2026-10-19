@@ -377,6 +377,10 @@ def test_history_detail_keeps_exercise_order_and_set_values(client: TestClient) 
     assert response.status_code == 200
     detail = response.json()
     assert [exercise["name"] for exercise in detail["exercises"]] == ["Barbell Squat", "Barbell Bench Press"]
+    assert [exercise["exerciseId"] for exercise in detail["exercises"]] == [
+        "exercise-squat",
+        "exercise-bench-press",
+    ]
     assert detail["exercises"][0]["sets"] == [
         {"kind": "warmup", "weightKg": 40.0, "reps": 10, "rpe": None},
         {"kind": "working", "weightKg": 100.0, "reps": 5, "rpe": 8.0},
@@ -392,3 +396,150 @@ def test_history_is_private_to_the_owner(client: TestClient) -> None:
     assert client.get("/api/v1/workouts/sessions", headers=other).json() == []
     assert client.get(f"/api/v1/workouts/sessions/{created.json()['id']}", headers=other).status_code == 404
     assert client.get("/api/v1/workouts/sessions/does-not-exist", headers=owner).status_code == 404
+
+
+def test_failure_and_drop_sets_count_toward_volume_and_prs(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    exercise_id = _fresh_exercise(client, auth_headers, "Set kind check")
+    payload = _session_payload(
+        exercise_id,
+        [
+            {"kind": "warmup", "weightKg": 40, "reps": 10},
+            {"kind": "working", "weightKg": 60, "reps": 5},
+            {"kind": "failure", "weightKg": 60, "reps": 8},
+            {"kind": "drop", "weightKg": 40, "reps": 10},
+        ],
+    )
+    response = client.post("/api/v1/workouts/sessions", headers=auth_headers, json=payload)
+    assert response.status_code == 201
+    body = response.json()
+    assert body["volumeKg"] == 1180.0  # 60x5 + 60x8 + 40x10; the warmup is excluded
+    assert body["setsCompleted"] == 4
+    assert body["personalRecords"], "the failure set (60 x 8) is the best estimated 1RM"
+
+    detail = client.get(f"/api/v1/workouts/sessions/{body['id']}", headers=auth_headers).json()
+    assert [s["kind"] for s in detail["exercises"][0]["sets"]] == ["warmup", "working", "failure", "drop"]
+
+
+def test_unknown_set_kind_is_rejected(client: TestClient, auth_headers: dict[str, str]) -> None:
+    payload = _session_payload("exercise-squat", [{"kind": "superset", "weightKg": 60, "reps": 5}])
+    assert client.post("/api/v1/workouts/sessions", headers=auth_headers, json=payload).status_code == 422
+
+
+def test_update_session_replaces_name_and_sets(client: TestClient) -> None:
+    headers = register_user(client)
+    created = client.post(
+        "/api/v1/workouts/sessions", headers=headers, json=_two_exercise_session(60, "Typo")
+    )
+    session_id = created.json()["id"]
+
+    corrected = {
+        "name": "Legs then chest",
+        "exercises": [
+            {
+                "exerciseId": "exercise-bench-press",
+                "name": "Barbell Bench Press",
+                "sets": [
+                    {"kind": "working", "weightKg": 62.5, "reps": 8, "rpe": 8.5},
+                    {"kind": "drop", "weightKg": 40, "reps": 12},
+                ],
+            }
+        ],
+    }
+    response = client.put(f"/api/v1/workouts/sessions/{session_id}", headers=headers, json=corrected)
+    assert response.status_code == 200
+    detail = response.json()
+    assert detail["name"] == "Legs then chest"
+    assert detail["durationSeconds"] == 1800, "start and finish times are kept"
+    assert detail["exerciseCount"] == 1
+    assert detail["volumeKg"] == 500.0 + 480.0  # 62.5 x 8 + 40 x 12
+    assert detail["exercises"][0]["sets"][1] == {"kind": "drop", "weightKg": 40.0, "reps": 12, "rpe": None}
+
+    listed = client.get("/api/v1/workouts/sessions", headers=headers).json()
+    assert [item["id"] for item in listed] == [session_id]
+    assert listed[0]["setsCompleted"] == 2
+
+
+def test_update_session_rejects_unknown_exercise_and_leaves_the_workout_alone(client: TestClient) -> None:
+    headers = register_user(client)
+    session_id = client.post(
+        "/api/v1/workouts/sessions", headers=headers, json=_two_exercise_session(60, "Keep me")
+    ).json()["id"]
+
+    bad = {
+        "name": "Changed",
+        "exercises": [
+            {"exerciseId": "nope", "name": "X", "sets": [{"kind": "working", "weightKg": 1, "reps": 1}]}
+        ],
+    }
+    assert client.put(f"/api/v1/workouts/sessions/{session_id}", headers=headers, json=bad).status_code == 404
+
+    detail = client.get(f"/api/v1/workouts/sessions/{session_id}", headers=headers).json()
+    assert detail["name"] == "Keep me"
+    assert detail["setsCompleted"] == 3
+
+
+def test_update_session_requires_at_least_one_set(client: TestClient) -> None:
+    headers = register_user(client)
+    session_id = client.post(
+        "/api/v1/workouts/sessions", headers=headers, json=_two_exercise_session(60, "A")
+    ).json()["id"]
+    empty = {
+        "name": "A",
+        "exercises": [{"exerciseId": "exercise-squat", "name": "Barbell Squat", "sets": []}],
+    }
+    assert (
+        client.put(f"/api/v1/workouts/sessions/{session_id}", headers=headers, json=empty).status_code == 422
+    )
+
+
+def test_delete_session_removes_it_from_history(client: TestClient) -> None:
+    headers = register_user(client)
+    session_id = client.post(
+        "/api/v1/workouts/sessions", headers=headers, json=_two_exercise_session(60, "Gone")
+    ).json()["id"]
+
+    assert client.delete(f"/api/v1/workouts/sessions/{session_id}", headers=headers).status_code == 204
+    assert client.get("/api/v1/workouts/sessions", headers=headers).json() == []
+    assert client.get(f"/api/v1/workouts/sessions/{session_id}", headers=headers).status_code == 404
+    assert client.delete(f"/api/v1/workouts/sessions/{session_id}", headers=headers).status_code == 404
+
+
+def test_deleting_a_session_gives_the_pr_back(client: TestClient) -> None:
+    headers = register_user(client)
+    exercise_id = _fresh_exercise(client, headers, "PR after delete")
+    heavy = client.post(
+        "/api/v1/workouts/sessions",
+        headers=headers,
+        json=_session_payload(exercise_id, [{"kind": "working", "weightKg": 100, "reps": 5}]),
+    ).json()["id"]
+    client.delete(f"/api/v1/workouts/sessions/{heavy}", headers=headers)
+
+    lighter = client.post(
+        "/api/v1/workouts/sessions",
+        headers=headers,
+        json=_session_payload(exercise_id, [{"kind": "working", "weightKg": 60, "reps": 5}]),
+    )
+    assert lighter.json()["personalRecords"], "the deleted session no longer sets the bar"
+
+
+def test_other_users_cannot_edit_or_delete_a_session(client: TestClient) -> None:
+    owner, other = register_user(client), register_user(client)
+    session_id = client.post(
+        "/api/v1/workouts/sessions", headers=owner, json=_two_exercise_session(60, "Mine")
+    ).json()["id"]
+    edit = {
+        "name": "Hijacked",
+        "exercises": [
+            {
+                "exerciseId": "exercise-squat",
+                "name": "Barbell Squat",
+                "sets": [{"kind": "working", "weightKg": 1, "reps": 1}],
+            }
+        ],
+    }
+
+    assert client.put(f"/api/v1/workouts/sessions/{session_id}", headers=other, json=edit).status_code == 404
+    assert client.delete(f"/api/v1/workouts/sessions/{session_id}", headers=other).status_code == 404
+    assert client.get(f"/api/v1/workouts/sessions/{session_id}", headers=owner).json()["name"] == "Mine"

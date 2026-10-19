@@ -20,6 +20,7 @@ from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessio
 from .schemas import (
     CreateExerciseInput,
     ExerciseRead,
+    FinishWorkoutExercise,
     FinishWorkoutInput,
     HistoryExercise,
     HistorySet,
@@ -29,6 +30,7 @@ from .schemas import (
     PlannedWorkout,
     PreviousSet,
     SavePlanDayInput,
+    UpdateWorkoutInput,
     WeekPlanDay,
     WorkoutDetail,
     WorkoutHistoryItem,
@@ -48,7 +50,7 @@ def _to_exercise_read(exercise: Exercise, last_session: LastSession | None) -> E
 
 
 def _history_item(workout_session: WorkoutSession, sets: list[WorkoutSetLog]) -> WorkoutHistoryItem:
-    """Totals follow ``finish_session``: every set is completed, only working sets add volume."""
+    """Totals follow ``finish_session``: every set is completed, every set but a warm-up adds volume."""
 
     started_at, finished_at = _as_utc(workout_session.started_at), _as_utc(workout_session.finished_at)
     return WorkoutHistoryItem(
@@ -58,10 +60,35 @@ def _history_item(workout_session: WorkoutSession, sets: list[WorkoutSetLog]) ->
         duration_seconds=max(int((finished_at - started_at).total_seconds()), 0),
         exercise_count=len({(s.exercise_position, s.exercise_name) for s in sets}),
         sets_completed=len(sets),
-        volume_kg=round(
-            volume_kg((float(s.weight_kg), s.reps) for s in sets if s.kind == SetKind.WORKING), 1
-        ),
+        volume_kg=round(volume_kg((float(s.weight_kg), s.reps) for s in sets if s.kind != SetKind.WARMUP), 1),
     )
+
+
+def _planning_kind(kind: SetKind) -> SetKind:
+    """Warm-up or working: failure and drop sets are working sets that went further."""
+
+    return SetKind.WARMUP if kind == SetKind.WARMUP else SetKind.WORKING
+
+
+def _build_set_logs(
+    session_id: str, owner_id: str, exercises: list[FinishWorkoutExercise]
+) -> list[WorkoutSetLog]:
+    return [
+        WorkoutSetLog(
+            session_id=session_id,
+            owner_id=owner_id,
+            exercise_id=exercise_entry.exercise_id,
+            exercise_name=exercise_entry.name,
+            kind=logged_set.kind,
+            weight_kg=logged_set.weight_kg,
+            reps=logged_set.reps,
+            rpe=logged_set.rpe,
+            position=index,
+            exercise_position=exercise_index,
+        )
+        for exercise_index, exercise_entry in enumerate(exercises)
+        for index, logged_set in enumerate(exercise_entry.sets)
+    ]
 
 
 def _as_utc(moment: datetime) -> datetime:
@@ -78,6 +105,7 @@ def _history_exercises(sets: list[WorkoutSetLog]) -> list[HistoryExercise]:
     ordered = sorted(grouped, key=lambda key: (key[0] is None, key[0] or 0, key[1]))
     return [
         HistoryExercise(
+            exercise_id=grouped[(position, name)][0].exercise_id,
             name=name,
             sets=[
                 HistorySet(
@@ -295,22 +323,23 @@ class WorkoutService:
                 continue
             last_session = last_sessions.get(exercise.id)
             previous_sets = last_session[1] if last_session else []
-            # Match previous sets to planned sets by kind (warmup/working), not raw list
-            # position — a past session with a different set layout would otherwise pair
-            # a planned warmup with what was actually a working set's numbers.
+            # Match previous sets to planned sets by kind (warm-up vs. any other set), not
+            # raw list position — a past session with a different set layout would otherwise
+            # pair a planned warmup with what was actually a working set's numbers.
             previous_by_kind: dict[SetKind, list[WorkoutSetLog]] = {}
             for row in previous_sets:
-                previous_by_kind.setdefault(row.kind, []).append(row)
+                previous_by_kind.setdefault(_planning_kind(row.kind), []).append(row)
             next_index_by_kind: dict[SetKind, int] = {}
 
             sets: list[PlannedSet] = []
             for index, planned in enumerate(plan_exercise.planned_sets):
                 kind = cast(SetKind, planned["kind"])
-                bucket = previous_by_kind.get(kind, [])
-                cursor = next_index_by_kind.get(kind, 0)
+                bucket_kind = _planning_kind(kind)
+                bucket = previous_by_kind.get(bucket_kind, [])
+                cursor = next_index_by_kind.get(bucket_kind, 0)
                 previous_row = bucket[cursor] if cursor < len(bucket) else None
                 if previous_row is not None:
-                    next_index_by_kind[kind] = cursor + 1
+                    next_index_by_kind[bucket_kind] = cursor + 1
                 sets.append(
                     PlannedSet(
                         id=f"{plan_exercise.id}-{index}",
@@ -365,23 +394,7 @@ class WorkoutService:
         )
         await self.sessions.add_session(workout_session)
 
-        set_logs: list[WorkoutSetLog] = []
-        for exercise_index, exercise_entry in enumerate(payload.exercises):
-            for index, logged_set in enumerate(exercise_entry.sets):
-                set_logs.append(
-                    WorkoutSetLog(
-                        session_id=workout_session.id,
-                        owner_id=actor.actor_id,
-                        exercise_id=exercise_entry.exercise_id,
-                        exercise_name=exercise_entry.name,
-                        kind=logged_set.kind,
-                        weight_kg=logged_set.weight_kg,
-                        reps=logged_set.reps,
-                        rpe=logged_set.rpe,
-                        position=index,
-                        exercise_position=exercise_index,
-                    )
-                )
+        set_logs = _build_set_logs(workout_session.id, actor.actor_id, payload.exercises)
         await self.sessions.add_sets(set_logs)
 
         best_before_by_exercise = await self.sessions.best_e1rms_before(
@@ -390,7 +403,7 @@ class WorkoutService:
         personal_records: list[str] = []
         for exercise_entry in payload.exercises:
             best_new = best_estimated_one_rep_max(
-                (s.weight_kg, s.reps) for s in exercise_entry.sets if s.kind == SetKind.WORKING
+                (s.weight_kg, s.reps) for s in exercise_entry.sets if s.kind != SetKind.WARMUP
             )
             if best_new is not None and is_personal_record(
                 best_new, best_before_by_exercise.get(exercise_entry.exercise_id)
@@ -398,7 +411,7 @@ class WorkoutService:
                 personal_records.append(f"{exercise_entry.name} — new estimated 1RM {round(best_new, 1)} kg")
 
         session_volume_kg = volume_kg(
-            (s.weight_kg, s.reps) for e in payload.exercises for s in e.sets if s.kind == SetKind.WORKING
+            (s.weight_kg, s.reps) for e in payload.exercises for s in e.sets if s.kind != SetKind.WARMUP
         )
         sets_completed = sum(len(e.sets) for e in payload.exercises)
         duration_seconds = int((payload.finished_at - payload.started_at).total_seconds())
@@ -429,3 +442,28 @@ class WorkoutService:
         return WorkoutDetail(
             **_history_item(workout_session, sets).model_dump(), exercises=_history_exercises(sets)
         )
+
+    async def update_session(
+        self, actor: ActorContext, session_id: str, payload: UpdateWorkoutInput
+    ) -> WorkoutDetail:
+        """Replace a logged workout's name and sets; its start and finish times are kept."""
+
+        workout_session = await self.sessions.get_session(actor.actor_id, session_id)
+        if workout_session is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Workout not found")
+        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
+
+        workout_session.name = payload.name
+        workout_session.touch()
+        await self.sessions.delete_sets(actor.actor_id, workout_session.id)
+        set_logs = _build_set_logs(workout_session.id, actor.actor_id, payload.exercises)
+        await self.sessions.add_sets(set_logs)
+        await self.session.commit()
+        return await self.get_history_detail(actor, session_id)
+
+    async def delete_session(self, actor: ActorContext, session_id: str) -> None:
+        workout_session = await self.sessions.get_session(actor.actor_id, session_id)
+        if workout_session is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Workout not found")
+        await self.sessions.delete_session(workout_session)
+        await self.session.commit()

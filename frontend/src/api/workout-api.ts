@@ -6,6 +6,7 @@ import type {
   FinishWorkoutInput,
   PlannedWorkout,
   SavePlanDayInput,
+  UpdateWorkoutInput,
   WeekPlanDay,
   WorkoutDetail,
   WorkoutHistoryItem,
@@ -43,6 +44,15 @@ export const workoutApi = {
   async getSession(sessionId: string, signal?: AbortSignal) {
     const { data } = await apiClient.get<WorkoutDetail>(`/workouts/sessions/${encodeURIComponent(sessionId)}`, { signal })
     return data
+  },
+
+  async updateSession(sessionId: string, input: UpdateWorkoutInput) {
+    const { data } = await apiClient.put<WorkoutDetail>(`/workouts/sessions/${encodeURIComponent(sessionId)}`, input)
+    return data
+  },
+
+  async deleteSession(sessionId: string) {
+    await apiClient.delete(`/workouts/sessions/${encodeURIComponent(sessionId)}`)
   },
 
   /** All 7 days of the user's weekly routine; a day's `plan` is null on a rest day. */

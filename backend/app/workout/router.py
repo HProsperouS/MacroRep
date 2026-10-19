@@ -20,6 +20,7 @@ from .schemas import (
     FinishWorkoutInput,
     PlannedWorkout,
     SavePlanDayInput,
+    UpdateWorkoutInput,
     WeekPlanDay,
     WorkoutDetail,
     WorkoutHistoryItem,
@@ -94,6 +95,19 @@ async def list_sessions(
 @router.get("/workouts/sessions/{session_id}", response_model=WorkoutDetail)
 async def get_session_detail(session_id: str, actor: ActorDep, service: WorkoutServiceDep) -> WorkoutDetail:
     return await service.get_history_detail(actor, session_id)
+
+
+@router.put("/workouts/sessions/{session_id}", response_model=WorkoutDetail)
+async def update_session(
+    session_id: str, payload: UpdateWorkoutInput, actor: ActorDep, service: WorkoutServiceDep
+) -> WorkoutDetail:
+    return await service.update_session(actor, session_id, payload)
+
+
+@router.delete("/workouts/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(session_id: str, actor: ActorDep, service: WorkoutServiceDep) -> Response:
+    await service.delete_session(actor, session_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/workouts/plan", response_model=list[WeekPlanDay])

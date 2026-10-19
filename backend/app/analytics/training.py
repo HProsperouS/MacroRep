@@ -1,8 +1,9 @@
 """Strength and training-load calculations.
 
-Callers decide which sets to pass in. By convention only *working* sets are
-counted for volume, estimated 1RM, and personal records; warmups are excluded
-so a heavy warmup can neither inflate volume nor mask a genuine PR.
+Callers decide which sets to pass in. By convention every set except a warm-up
+(working, failure and drop sets) is counted for volume, estimated 1RM, and
+personal records; warmups are excluded so a heavy warmup can neither inflate
+volume nor mask a genuine PR.
 """
 
 from __future__ import annotations

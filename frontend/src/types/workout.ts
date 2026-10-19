@@ -27,7 +27,15 @@ export const MUSCLE_LABELS: Record<MuscleGroup, string> = {
   core: "Core",
 }
 
-export type SetKind = "warmup" | "working"
+export const SET_KINDS = ["warmup", "working", "failure", "drop"] as const
+export type SetKind = (typeof SET_KINDS)[number]
+
+export const SET_KIND_LABELS: Record<SetKind, string> = {
+  warmup: "Warm-up",
+  working: "Working",
+  failure: "Failure",
+  drop: "Drop set",
+}
 
 export type PreviousSet = {
   weightKg: number
@@ -112,6 +120,12 @@ export type FinishWorkoutInput = {
   exercises: { exerciseId: string; name: string; sets: LoggedSet[] }[]
 }
 
+/** A logged workout's corrected name and sets; its start and finish times stay as logged. */
+export type UpdateWorkoutInput = {
+  name: string
+  exercises: FinishWorkoutInput["exercises"]
+}
+
 export type WorkoutSummary = {
   id: string
   name: string
@@ -141,6 +155,8 @@ export type HistorySet = {
 }
 
 export type HistoryExercise = {
+  /** Null only if the exercise was removed from the catalog after it was logged. */
+  exerciseId: string | null
   name: string
   sets: HistorySet[]
 }

@@ -49,6 +49,8 @@ Components are generated into `src/components/ui` — edit them freely.
 | `npm run preview` | Serve the production build locally |
 | `npm run lint` | Lint with oxlint |
 | `npm run typecheck` | Type-check without emitting |
+| `npm test` | Run the Vitest suite once (jsdom; needs Node 22+) |
+| `npm run test:watch` | Re-run tests on change |
 
 ## Environment variables
 

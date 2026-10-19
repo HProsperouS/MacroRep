@@ -30,6 +30,8 @@ MUSCLE_GROUPS = (
 class SetKind(StrEnum):
     WARMUP = "warmup"
     WORKING = "working"
+    FAILURE = "failure"
+    DROP = "drop"
 
 
 class Exercise(TimestampMixin, Base):
