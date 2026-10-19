@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { useCurrentCheckIn, useDecideProposal, useStartCheckIn } from "@/hooks/use-coach"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
+import { appliedDescription } from "@/lib/coach-messages"
 import type { CheckIn, Proposal, ProposalDecisionInput } from "@/types/coach"
 
 export default function CoachPage() {
@@ -132,7 +133,7 @@ function CheckInView({ checkIn }: { checkIn: CheckIn }) {
         onSuccess: () => {
           onDone?.()
           toast.success(input.decision === "reject" ? "Proposal rejected" : "Change applied", {
-            description: input.decision === "reject" ? "Your plan stays as it is." : proposal.kind === "nutrition" ? "Your daily targets are updated." : "Saved. Your weekly plan isn’t changed automatically yet.",
+            description: input.decision === "reject" ? "Your plan stays as it is." : proposal.kind === "nutrition" ? "Your daily targets are updated." : "Your routine is updated.",
           })
         },
         onError: (error) => toast.error("Couldn’t save your decision", { description: apiErrorMessage(error) }),
@@ -146,7 +147,7 @@ function CheckInView({ checkIn }: { checkIn: CheckIn }) {
       for (const proposal of pending) {
         await decide.mutateAsync({ proposal, decision: "apply" })
       }
-      toast.success("All changes applied", { description: "Your daily targets are updated." })
+      toast.success("All changes applied", { description: appliedDescription(pending) })
     } catch (error) {
       toast.error("Some changes weren’t applied", { description: apiErrorMessage(error) })
     }

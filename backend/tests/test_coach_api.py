@@ -876,3 +876,273 @@ def test_the_snapshot_counts_working_sets_only(client: TestClient) -> None:
     exercise = routines[0]["exercises"][0]  # type: ignore[index]
     assert (exercise["working_sets"], exercise["target_weight_kg"]) == (3, 80.0), "no warm-up or drop set"
     assert trends["exercise-bench-press"]["recent_avg_rpe"] == 7.0, "the failure set's RPE 10 is left out"  # type: ignore[index]
+
+
+# --- Applying training proposals ----------------------------------------------
+
+
+def _routine_sets(client: TestClient, headers: dict[str, str], routine_id: str) -> list[dict]:
+    routine = next(
+        r for r in client.get("/api/v1/workouts/routines", headers=headers).json() if r["id"] == routine_id
+    )
+    return [
+        {"kind": s["kind"], "w": s["targetWeightKg"], "r": s["targetReps"]}
+        for s in routine["exercises"][0]["sets"]
+    ]
+
+
+def _training_check_in(client: TestClient, headers: dict[str, str]) -> tuple[dict, dict]:
+    """A routine (warm-up + 3 x 100 kg x 5 bench) and a check-in proposing to ease it to 95 kg."""
+
+    routine = client.post(
+        "/api/v1/workouts/routines",
+        headers=headers,
+        json={
+            "name": "Push",
+            "weekLabel": "Week 1",
+            "estimatedMinutes": 45,
+            "exercises": [
+                {
+                    "exerciseId": "exercise-bench-press",
+                    "restSeconds": 120,
+                    "sets": [
+                        {"kind": "warmup", "targetWeightKg": 40, "targetReps": 10},
+                        *[{"kind": "working", "targetWeightKg": 100, "targetReps": 5}] * 3,
+                    ],
+                }
+            ],
+        },
+    ).json()
+    for day in range(7):
+        client.put(f"/api/v1/workouts/plan/{day}", headers=headers, json={"routineId": routine["id"]})
+    _week_with_a_proposal(client, headers)
+    _log_bench(client, headers, days_ago=14, weight_kg=100, rpe=8)
+    _log_bench(client, headers, days_ago=2, weight_kg=95, rpe=9.5)
+    _log_bench(client, headers, days_ago=1, weight_kg=95, rpe=9.5)
+    _start(client, headers, "training")
+    check_in = _ready(client, headers)
+    training = next(p for p in check_in["proposals"] if p["kind"] == "training")
+    return routine, {**check_in, "proposals": [training]}
+
+
+def test_applying_a_training_proposal_updates_the_routine(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+
+    decided = _decide(client, headers, check_in, {"decision": "apply"})
+
+    assert decided.status_code == 200, decided.text
+    assert decided.json()["status"] == "applied"
+    assert _routine_sets(client, headers, routine["id"]) == [
+        {"kind": "warmup", "w": 40.0, "r": 10},
+        *[{"kind": "working", "w": 95.0, "r": 5}] * 3,
+    ]
+    # Today's planned workout, which pre-fills the logger, follows the routine.
+    today = client.get("/api/v1/workouts/today", headers=headers).json()
+    assert [s["targetWeightKg"] for s in today["exercises"][0]["sets"]] == [40.0, 95.0, 95.0, 95.0]
+
+
+def test_an_edited_training_value_within_the_limits_is_applied(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    change_id = check_in["proposals"][0]["changes"][0]["id"]
+
+    decided = _decide(
+        client, headers, check_in, {"decision": "apply", "changes": [{"id": change_id, "after": 92.5}]}
+    )
+
+    assert decided.json()["status"] == "edited"
+    assert decided.json()["proposedChanges"][0]["after"] == 95.0
+    assert [s["w"] for s in _routine_sets(client, headers, routine["id"])][1:] == [92.5] * 3
+
+
+def test_an_edited_training_value_past_the_limits_is_refused(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    change_id = check_in["proposals"][0]["changes"][0]["id"]
+    before = _routine_sets(client, headers, routine["id"])
+
+    refused = _decide(
+        client, headers, check_in, {"decision": "apply", "changes": [{"id": change_id, "after": 85}]}
+    )
+
+    assert refused.status_code == 422
+    assert "at most 10%" in refused.json()["detail"]
+    assert _routine_sets(client, headers, routine["id"]) == before
+    assert _ready(client, headers)["proposals"][0]["status"] == "pending"
+
+
+def test_a_training_proposal_is_refused_once_the_routine_changed(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    edited = {
+        "name": "Push",
+        "weekLabel": "Week 1",
+        "estimatedMinutes": 45,
+        "exercises": [
+            {
+                "exerciseId": "exercise-bench-press",
+                "restSeconds": 120,
+                "sets": [{"kind": "working", "targetWeightKg": 105, "targetReps": 5}] * 3,
+            }
+        ],
+    }
+    client.put(f"/api/v1/workouts/routines/{routine['id']}", headers=headers, json=edited)
+
+    refused = _decide(client, headers, check_in, {"decision": "apply"})
+
+    assert refused.status_code == 409
+    assert "out of date" in refused.json()["detail"]
+    assert [s["w"] for s in _routine_sets(client, headers, routine["id"])] == [105.0] * 3
+
+
+def test_a_training_proposal_for_a_deleted_routine_is_refused(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    client.delete(f"/api/v1/workouts/routines/{routine['id']}", headers=headers)
+
+    refused = _decide(client, headers, check_in, {"decision": "apply"})
+
+    assert refused.status_code == 409
+    assert _decide(client, headers, check_in, {"decision": "reject"}).status_code == 200
+
+
+def test_rejecting_a_training_proposal_leaves_the_routine_alone(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    before = _routine_sets(client, headers, routine["id"])
+
+    assert _decide(client, headers, check_in, {"decision": "reject"}).status_code == 200
+    assert _routine_sets(client, headers, routine["id"]) == before
+
+
+def _rewrite_proposal_changes(client: TestClient, proposal_id: str, changes: list[dict]) -> None:
+    """Swap in other proposed changes, to exercise fields the fake agent never proposes."""
+
+    from sqlalchemy import update
+
+    from app.coach.models import Proposal as ProposalRow
+    from app.core.database import get_session_factory
+
+    async def write() -> None:
+        async with get_session_factory()() as session:
+            await session.execute(
+                update(ProposalRow)
+                .where(ProposalRow.id == proposal_id)
+                .values(changes=changes, proposed_changes=changes)
+            )
+            await session.commit()
+
+    assert client.portal is not None
+    client.portal.call(write)
+
+
+def _training_change(change_id: str, routine_id: str, field: str, before: float, after: float) -> dict:
+    return {
+        "id": change_id,
+        "label": f"Bench · {field}",
+        "unit": "sets" if field == "working_sets" else "reps",
+        "before": before,
+        "after": after,
+        "step": 1,
+        "routine_id": routine_id,
+        "exercise_id": "exercise-bench-press",
+        "field": field,
+    }
+
+
+def test_set_and_rep_changes_build_on_each_other(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    _rewrite_proposal_changes(
+        client,
+        check_in["proposals"][0]["id"],
+        [
+            _training_change("training-1", routine["id"], "working_sets", 3, 4),
+            _training_change("training-2", routine["id"], "target_reps", 5, 6),
+        ],
+    )
+
+    assert _decide(client, headers, check_in, {"decision": "apply"}).status_code == 200
+    assert _routine_sets(client, headers, routine["id"]) == [
+        {"kind": "warmup", "w": 40.0, "r": 10},
+        *[{"kind": "working", "w": 100.0, "r": 6}] * 4,
+    ]
+
+
+def test_one_change_out_of_limits_means_none_are_applied(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    before = _routine_sets(client, headers, routine["id"])
+    _rewrite_proposal_changes(
+        client,
+        check_in["proposals"][0]["id"],
+        [
+            _training_change("training-1", routine["id"], "working_sets", 3, 4),
+            _training_change("training-2", routine["id"], "target_reps", 5, 9),  # +4 reps: too much
+        ],
+    )
+
+    refused = _decide(client, headers, check_in, {"decision": "apply"})
+
+    assert refused.status_code == 422
+    assert "at most 3" in refused.json()["detail"]
+    assert _routine_sets(client, headers, routine["id"]) == before
+
+
+def test_a_change_without_a_routine_reference_is_refused(client: TestClient) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    broken = {**_training_change("training-1", routine["id"], "target_reps", 5, 6), "routine_id": None}
+    _rewrite_proposal_changes(client, check_in["proposals"][0]["id"], [broken])
+
+    assert _decide(client, headers, check_in, {"decision": "apply"}).status_code == 422
+
+
+def test_a_routine_saved_again_after_the_check_in_is_out_of_date_even_with_the_same_top_weight(
+    client: TestClient,
+) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    # Still 100 kg at the top, but now 5 x 3: not the routine the proposal was made for.
+    resaved = {
+        "name": "Push",
+        "weekLabel": "Week 1",
+        "estimatedMinutes": 45,
+        "exercises": [
+            {
+                "exerciseId": "exercise-bench-press",
+                "restSeconds": 120,
+                "sets": [{"kind": "working", "targetWeightKg": 100, "targetReps": 3}] * 5,
+            }
+        ],
+    }
+    client.put(f"/api/v1/workouts/routines/{routine['id']}", headers=headers, json=resaved)
+
+    refused = _decide(client, headers, check_in, {"decision": "apply"})
+
+    assert refused.status_code == 409
+    assert [s["w"] for s in _routine_sets(client, headers, routine["id"])] == [100.0] * 5
+
+
+def test_dropping_a_set_and_lowering_the_weight_together_check_against_the_original_routine(
+    client: TestClient,
+) -> None:
+    headers = _new_user(client)
+    routine, check_in = _training_check_in(client, headers)
+    _rewrite_proposal_changes(
+        client,
+        check_in["proposals"][0]["id"],
+        [
+            _training_change("training-1", routine["id"], "working_sets", 3, 2),
+            {**_training_change("training-2", routine["id"], "target_weight_kg", 100, 95), "unit": "kg"},
+        ],
+    )
+
+    decided = _decide(client, headers, check_in, {"decision": "apply"})
+
+    assert decided.status_code == 200, decided.text
+    assert _routine_sets(client, headers, routine["id"]) == [
+        {"kind": "warmup", "w": 40.0, "r": 10},
+        *[{"kind": "working", "w": 95.0, "r": 5}] * 2,
+    ]

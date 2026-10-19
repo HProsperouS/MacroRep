@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, date, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.analytics.nutrition import (
     DayStatus,
@@ -31,10 +32,21 @@ from app.profile.service import DEFAULT_TARGETS
 from app.progress.repository import ProgressRepository
 from app.shared.timezones import local_today, user_zone
 from app.shared.validation import ensure_plausible_calories
+from app.workout.models import WorkoutPlanEntry, WorkoutPlanExercise
+from app.workout.repository import WorkoutPlanRepository
+from app.workout.targets import (
+    TARGET_FIELDS,
+    TargetField,
+    adjust_targets,
+    routine_revision,
+    working_targets,
+)
 
+from .agents import limits
 from .agents.checkpoint import get_checkpointer
 from .agents.graph import run_agents
 from .agents.model import get_coach_model
+from .agents.validate import training_change_error
 from .models import CheckIn as CheckInModel
 from .models import CheckInStatus, MessageRole, ProposalKind, ProposalStatus
 from .models import CoachMessage as CoachMessageModel
@@ -77,6 +89,13 @@ MIN_WEIGH_INS = 2
 # target the user couldn't type in themselves. See docs/follow-ups.md.
 MIN_TARGET_CALORIES = 1_000
 MAX_TARGET_CALORIES = 6_000
+ROUTINE_GONE = (
+    "The routine this change was for no longer has that exercise. Reject it and start a new check-in."
+)
+ROUTINE_CHANGED = (
+    "Your routine changed after this check-in was made, so its proposal is out of date. "
+    "Reject it and start a new check-in."
+)
 # A run that hasn't finished by then is abandoned and marked failed.
 RUN_TIMEOUT_SECONDS = 120
 # A check-in still RUNNING this long after it started was lost (e.g. a restart mid-run).
@@ -421,13 +440,19 @@ class CoachService:
             # Checked before anything is changed, so a refused proposal stays pending.
             if proposal.kind == ProposalKind.NUTRITION:
                 await self._apply_nutrition_targets(actor, check_in, proposal, changes)
-            # Training proposals are only recorded for now; they don't edit the weekly plan yet.
+            else:
+                await self._apply_training_changes(actor, check_in, changes)
             proposal.changes = changes
             proposal.status = status_after
 
         # Only now: a refused apply above leaves the proposal pending, with no decision time.
         proposal.decided_utc = datetime.now(UTC)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except StaleDataError:
+            # The routine was saved elsewhere (its exercises replaced) while this was applied.
+            await self.session.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_CHANGED) from None
         await self.session.refresh(proposal)
         return _to_proposal_read(proposal)
 
@@ -490,6 +515,72 @@ class CoachService:
             raise HTTPException(
                 status.HTTP_409_CONFLICT, "Your targets were just changed elsewhere, please retry"
             ) from None
+
+    async def _apply_training_changes(
+        self, actor: ActorContext, check_in: CheckInModel, changes: list[dict[str, object]]
+    ) -> None:
+        """Write accepted training changes to the user's routines, all of them or none.
+
+        Raises 409 when a routine or exercise is gone, or the routine was saved again after
+        the check-in (so the proposal is out of date), and 422 when an edited value is past
+        the limits. Nothing is changed then. Every change is checked against the routine as
+        the check-in saw it, then applied weight and reps first, the number of sets last.
+        """
+
+        plans = WorkoutPlanRepository(self.session)
+        seen = {
+            cast(str, routine["routine_id"]): routine
+            for routine in cast(list[dict[str, Any]], (check_in.input_snapshot or {}).get("routines") or [])
+        }
+        routines: dict[str, WorkoutPlanEntry] = {}
+        exercises: dict[str, list[WorkoutPlanExercise]] = {}
+        planned_changes: dict[str, tuple[WorkoutPlanExercise, list[tuple[TargetField, float]]]] = {}
+        for change in changes:
+            routine_id, exercise_id, field = (
+                change.get("routine_id"),
+                change.get("exercise_id"),
+                change.get("field"),
+            )
+            if (
+                not isinstance(routine_id, str)
+                or not isinstance(exercise_id, str)
+                or field not in TARGET_FIELDS
+            ):
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "This change can't be applied to a routine."
+                )
+            if routine_id not in routines:
+                routine = await plans.get(routine_id)
+                if routine is None or routine.owner_id != actor.actor_id:
+                    raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_GONE)
+                # Snapshots from before revisions were recorded fall back to the value check below.
+                revision = seen.get(routine_id, {}).get("revision")
+                if revision is not None and revision != routine_revision(routine):
+                    raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_CHANGED)
+                routines[routine_id] = routine
+                exercises[routine_id] = await plans.list_exercises(routine_id)
+            # The first occurrence, as the snapshot described it to the agent.
+            planned = next((pe for pe in exercises[routine_id] if pe.exercise_id == exercise_id), None)
+            if planned is None:
+                raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_GONE)
+            target: TargetField = field
+            before, after = float(cast(float, change["before"])), float(cast(float, change["after"]))
+            current = working_targets(planned.planned_sets)[target]
+            if current is None or abs(current - before) > 1e-9:
+                raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_CHANGED)
+            error = training_change_error(target, before, after)
+            if error is not None:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"{change['label']}: {error}")
+            planned_changes.setdefault(planned.id, (planned, []))[1].append((target, after))
+
+        for planned, targets in planned_changes.values():
+            sets = list(planned.planned_sets)
+            # Sets last, so a weight change scales the sets the check-in saw, then any are added or dropped.
+            for target, after in sorted(targets, key=lambda item: item[0] == "working_sets"):
+                sets = adjust_targets(sets, target, after, load_step=limits.LOAD_STEP_KG)
+            planned.planned_sets = sets
+        for routine in routines.values():
+            routine.touch()
 
     async def ask_coach(self, check_in_id: str, text: str, actor: ActorContext) -> CoachMessage:
         check_in = await self.repository.get_owned(check_in_id, actor.actor_id)

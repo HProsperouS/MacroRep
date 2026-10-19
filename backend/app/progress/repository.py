@@ -33,6 +33,7 @@ from app.workout.models import (
     WorkoutSession,
     WorkoutSetLog,
 )
+from app.workout.targets import routine_revision, working_targets
 
 # How far back an exercise's recent performance is compared to, before the week under review.
 _TREND_BASELINE_DAYS = 21
@@ -183,7 +184,14 @@ class ProgressRepository:
         routines: dict[str, dict[str, object]] = {}
         for day, routine in schedule:
             entry = routines.setdefault(
-                routine.id, {"routine_id": routine.id, "name": routine.name, "days": [], "exercises": []}
+                routine.id,
+                {
+                    "routine_id": routine.id,
+                    "name": routine.name,
+                    "revision": routine_revision(routine),
+                    "days": [],
+                    "exercises": [],
+                },
             )
             cast(list[int], entry["days"]).append(day)
         if not routines:
@@ -195,18 +203,8 @@ class ProgressRepository:
             .order_by(WorkoutPlanExercise.plan_entry_id, WorkoutPlanExercise.position)
         )
         for planned, name in rows:
-            # Working sets only: warm-ups don't count, and failure/drop sets are extras on top.
-            working = [s for s in planned.planned_sets if s.get("kind") == SetKind.WORKING.value]
-            weights = [float(s["target_weight_kg"]) for s in working if s.get("target_weight_kg") is not None]
-            reps = [int(s["target_reps"]) for s in working if s.get("target_reps") is not None]
             cast(list[dict[str, object]], routines[planned.plan_entry_id]["exercises"]).append(
-                {
-                    "exercise_id": planned.exercise_id,
-                    "name": name,
-                    "working_sets": len(working),
-                    "target_weight_kg": max(weights) if weights else None,
-                    "target_reps": max(reps) if reps else None,
-                }
+                {"exercise_id": planned.exercise_id, "name": name, **working_targets(planned.planned_sets)}
             )
         return list(routines.values())
 

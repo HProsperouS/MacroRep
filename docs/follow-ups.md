@@ -11,17 +11,15 @@ The Profile page's targets form accepts **1,000–6,000 kcal** (protein ≤ 500 
 fat ≤ 400 g). The server accepts **0–10,000 kcal** (macros ≤ 1,000 g). The form
 is deliberately stricter for now.
 
-Before widening the form to the server's range, make sure the coach can handle
-a very low target. With a 0 kcal target, the placeholder pipeline
-(`backend/app/coach/pipeline.py`) proposes a *negative* target, and the edit
-form (`frontend/src/components/coach/edit-proposal-form.tsx`) can't correct it
-because it only allows ±25% of the current value (±25% of 0 is 0).
+The coach can't push a target outside 1,000–6,000 kcal: its proposals are held
+to those bounds (`backend/app/coach/agents/limits.py`), and applying one outside
+them is refused (422). The proposal edit form still limits kcal edits to ±25% of
+the current value, which would be stuck at a 0 kcal target, but the form never
+lets a target go below 1,000.
 
-- **Revisit with:** step 4, safe limits for plan changes. Applying a proposal
-  is now refused (422) outside 1,000-6,000 kcal, but the coach itself should
-  still never propose a negative or implausibly low target.
 - **Open question:** raise only the form's upper limit to 10,000 (so a large
-  athlete can set 6,500) while keeping the 1,000 floor?
+  athlete can set 6,500) while keeping the 1,000 floor? The coach's 6,000 cap
+  would then need raising too.
 
 ### Password rules
 
@@ -41,16 +39,8 @@ against a common-password list (NIST SP 800-63B), either a small built-in list
   locally; on AWS with several containers it needs a shared store (Redis) or
   an AWS WAF rate-based rule.
 
-- **Applying a training proposal doesn't change the plan:** accepting a
-  nutrition proposal now updates the daily calorie target (1,000-6,000 kcal,
-  and not far below the macros), but a training proposal is only recorded; it
-  doesn't edit the weekly workout plan yet. The placeholder pipeline doesn't
-  produce training proposals today.
-
 ## Verification pending
 
-- **Migration `e5a9d2c4f1b6`** (food-entry quantity) hasn't been run against
-  Postgres yet. The dev container applies it on start (`docker compose up`).
 - **Migrations don't run on SQLite:** `alembic upgrade head` against a SQLite
   database stops at `a1f4c9e2b7d3`, which drops a column without batch mode
   (`ALTER TABLE users DROP COLUMN cognito_subject`). The README's SQLite quick

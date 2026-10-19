@@ -90,17 +90,55 @@ def find_exercise(
     return None
 
 
-def _bounded(field: str, before: float, wanted: float) -> float:
+def field_bounds(field: str, before: float) -> tuple[float, float]:
+    """The lowest and highest value one check-in may move a training target to from ``before``.
+    The one source of the limits, both when clamping an agent's value and when checking a user's."""
+
     if field == "working_sets":
-        value = _clamp(round(wanted), before - limits.MAX_SET_CHANGE, before + limits.MAX_SET_CHANGE)
-        return _clamp(value, limits.MIN_WORKING_SETS, limits.MAX_WORKING_SETS)
+        return (
+            max(limits.MIN_WORKING_SETS, before - limits.MAX_SET_CHANGE),
+            min(limits.MAX_WORKING_SETS, before + limits.MAX_SET_CHANGE),
+        )
     if field == "target_reps":
-        value = _clamp(round(wanted), before - limits.MAX_REP_CHANGE, before + limits.MAX_REP_CHANGE)
-        return _clamp(value, limits.MIN_TARGET_REPS, limits.MAX_TARGET_REPS)
+        return (
+            max(limits.MIN_TARGET_REPS, before - limits.MAX_REP_CHANGE),
+            min(limits.MAX_TARGET_REPS, before + limits.MAX_REP_CHANGE),
+        )
     room = before * limits.MAX_LOAD_CHANGE_SHARE
+    return max(0.0, before - room), before + room
+
+
+def _bounded(field: str, before: float, wanted: float) -> float:
+    low, high = field_bounds(field, before)
+    if low > high:  # already outside the absolute range: leave it to the user
+        return before
+    if field != "target_weight_kg":
+        return _clamp(round(wanted), low, high)
     # A light weight may have no plate step within the limit at all: then it stays as it is.
-    bounded = _round_within(wanted, max(0.0, before - room), before + room, limits.LOAD_STEP_KG)
+    bounded = _round_within(wanted, low, high, limits.LOAD_STEP_KG)
     return before if bounded is None else bounded
+
+
+def training_change_error(field: str, before: float, after: float) -> str | None:
+    """Why an edited training value can't be applied, or None. The same limits an agent's
+    change is clamped to, checked rather than clamped: the user chose this value."""
+
+    if field != "target_weight_kg" and after != int(after):
+        return "Sets and reps must be whole numbers."
+    low, high = field_bounds(field, before)
+    if low - 1e-9 <= after <= high + 1e-9:
+        return None
+    if field == "target_weight_kg":
+        if after < 0:
+            return "A target weight can't be negative."
+        return f"A target weight can change by at most {int(limits.MAX_LOAD_CHANGE_SHARE * 100)}% at a time."
+    if field == "working_sets":
+        if not limits.MIN_WORKING_SETS <= after <= limits.MAX_WORKING_SETS:
+            return f"Keep {limits.MIN_WORKING_SETS}-{limits.MAX_WORKING_SETS} working sets."
+        return f"Working sets can change by at most {limits.MAX_SET_CHANGE} at a time."
+    if not limits.MIN_TARGET_REPS <= after <= limits.MAX_TARGET_REPS:
+        return f"Keep target reps within {limits.MIN_TARGET_REPS}-{limits.MAX_TARGET_REPS}."
+    return f"Target reps can change by at most {limits.MAX_REP_CHANGE} at a time."
 
 
 def validate_workout(

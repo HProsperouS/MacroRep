@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { nutritionProposal } from "@/components/coach/proposal-fixtures"
+import { appliedDescription } from "@/lib/coach-messages"
 import CoachPage from "@/pages/coach-page"
 import { renderWithQuery } from "@/test/render"
 import type { CheckIn } from "@/types/coach"
@@ -97,5 +98,14 @@ describe("CoachPage", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }))
     await waitFor(() => expect(api.startCheckIn).toHaveBeenCalledOnce())
     expect(await screen.findByText(/This page updates by itself/)).toBeInTheDocument()
+  })
+})
+
+describe("appliedDescription", () => {
+  it("names only what was actually applied", () => {
+    const training = nutritionProposal({ id: "t", kind: "training" })
+    expect(appliedDescription([nutritionProposal()])).toBe("Your daily targets are updated.")
+    expect(appliedDescription([training])).toBe("Your routines are updated.")
+    expect(appliedDescription([nutritionProposal(), training])).toBe("Your daily targets and routines are updated.")
   })
 })

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import HTTPException, status
@@ -11,12 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.identity.dependencies import ActorContext
 from app.identity.repository import UserRepository
-from app.shared.timezones import local_today, user_zone
+from app.shared.timezones import DEFAULT_TIMEZONE, local_today, user_zone
 
 from .models import ExperienceLevel, Goal, NutritionTarget, Profile, TargetSource
 from .repository import ProfileRepository
 from .schemas import DailyTargets, ProfileRead, TargetVersionRead, TimezoneInput, UpdateProfileInput
 
+# A profile this young that sets its timezone is a new sign-up, not a user who travelled.
+_NEW_ACCOUNT = timedelta(days=1)
 # Given to a new profile, and used to judge days for a user who has no targets yet.
 DEFAULT_TARGETS = DailyTargets(calories=2200, protein=150, carbs=230, fat=70)
 
@@ -99,11 +101,30 @@ class ProfileService:
     async def set_timezone(self, payload: TimezoneInput, actor: ActorContext) -> ProfileRead:
         profile = await self._get_or_create(actor)
         if profile.timezone != payload.timezone:
+            first_sync = profile.timezone == DEFAULT_TIMEZONE
             profile.timezone = payload.timezone
             profile.touch()
+            if first_sync:
+                await self._redate_starting_targets(profile)
             await self.session.commit()
             await self.session.refresh(profile)
         return await self._to_read(profile, actor)
+
+    async def _redate_starting_targets(self, profile: Profile) -> None:
+        """A new profile is created before the browser has sent its timezone, so its starting
+        targets were dated by UTC: a day off around midnight. When the real zone arrives for a
+        new account that has changed nothing yet, date them by the user's own day instead,
+        or a target set on sign-up day would look like it came a day after the starting one."""
+
+        history = await self.repository.target_history(profile.user_id)
+        if len(history) != 1 or history[0].source != TargetSource.INITIAL:
+            return
+        created = (
+            profile.created_utc if profile.created_utc.tzinfo else profile.created_utc.replace(tzinfo=UTC)
+        )
+        if datetime.now(UTC) - created > _NEW_ACCOUNT:
+            return
+        history[0].effective_date = local_today(user_zone(profile.timezone))
 
     async def _add_targets(
         self, profile: Profile, previous: NutritionTarget | None, targets: DailyTargets, source: TargetSource

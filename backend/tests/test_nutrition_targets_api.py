@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
@@ -221,3 +222,55 @@ def test_a_change_decided_on_outdated_targets_is_refused_not_written_over(client
     assert client.portal is not None
     assert client.portal.call(race) == ("written", "refused")
     assert client.get(TARGETS, headers=headers).json()["calories"] == 2100
+
+
+def _zone_on_another_day_than_utc() -> tuple[str, date]:
+    """A timezone whose calendar day differs from UTC's right now, and its date."""
+
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(UTC)
+    zone = "Etc/GMT-14" if now.hour >= 10 else "Etc/GMT+12"  # UTC+14 or UTC-12
+    return zone, now.astimezone(ZoneInfo(zone)).date()
+
+
+def test_a_new_accounts_starting_targets_are_dated_by_its_own_timezone(client: TestClient) -> None:
+    registered = client.post(
+        "/api/v1/auth/register",
+        json={"name": "New", "email": f"{uuid.uuid4().hex}@example.com", "password": "long-enough-pw"},
+    )
+    headers = {"Authorization": f"Bearer {registered.json()['accessToken']}"}
+    client.get("/api/v1/profile", headers=headers)  # provisioned before the browser sends its zone
+    zone, local_day = _zone_on_another_day_than_utc()
+
+    client.put("/api/v1/profile/timezone", headers=headers, json={"timezone": zone})
+
+    assert _history(client, headers)[0]["effectiveDate"] == local_day.isoformat()
+
+
+def test_a_changed_timezone_doesnt_redate_targets_the_user_already_changed(client: TestClient) -> None:
+    headers = register_user(client, timezone="UTC")
+    _set_targets(client, headers, 2000)
+    dates = [v["effectiveDate"] for v in _history(client, headers)]
+    zone, _ = _zone_on_another_day_than_utc()
+
+    client.put("/api/v1/profile/timezone", headers=headers, json={"timezone": zone})
+
+    assert [v["effectiveDate"] for v in _history(client, headers)] == dates
+
+
+def test_only_the_first_timezone_sync_redates_the_starting_targets(client: TestClient) -> None:
+    registered = client.post(
+        "/api/v1/auth/register",
+        json={"name": "New", "email": f"{uuid.uuid4().hex}@example.com", "password": "long-enough-pw"},
+    )
+    headers = {"Authorization": f"Bearer {registered.json()['accessToken']}"}
+    client.get("/api/v1/profile", headers=headers)
+    zone, local_day = _zone_on_another_day_than_utc()
+    client.put("/api/v1/profile/timezone", headers=headers, json={"timezone": zone})
+    assert _history(client, headers)[0]["effectiveDate"] == local_day.isoformat()
+
+    # Travelling (or a VPN) later the same day doesn't move it again.
+    client.put("/api/v1/profile/timezone", headers=headers, json={"timezone": "UTC"})
+    assert _history(client, headers)[0]["effectiveDate"] == local_day.isoformat()
