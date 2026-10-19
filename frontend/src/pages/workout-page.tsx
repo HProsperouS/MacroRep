@@ -19,7 +19,7 @@ import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { useActiveWorkout } from "@/hooks/use-active-workout"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
-import { useFinishWorkout, useTodayWorkout } from "@/hooks/use-workout"
+import { useFinishWorkout, useRoutines, useTodayWorkout } from "@/hooks/use-workout"
 import { beginWorkout, clearActiveWorkout, pauseWorkout, resumeWorkout, updateActiveSession, type ActiveWorkout } from "@/lib/active-workout-store"
 import { savedTimes } from "@/lib/workout-clock"
 import { sessionReducer, sessionTotals, toFinishInput, type SessionAction, type SessionExercise } from "@/lib/workout-session"
@@ -30,6 +30,7 @@ const dispatch = (action: SessionAction) => updateActiveSession((session) => ses
 export default function WorkoutPage() {
   const navigate = useNavigate()
   const workout = useTodayWorkout()
+  const routines = useRoutines()
   const active = useActiveWorkout()
   const [finished, setFinished] = useState<{ summary: WorkoutSummaryData; weekLabel?: string } | null>(null)
 
@@ -77,6 +78,8 @@ export default function WorkoutPage() {
         onRetryPlan={() => void workout.refetch()}
         onStartPlan={() => beginWorkout(workout.data ?? null)}
         onStartEmpty={() => beginWorkout(null)}
+        routines={routines.data}
+        onStartRoutine={(routine) => beginWorkout(routine)}
       />
     </>
   )

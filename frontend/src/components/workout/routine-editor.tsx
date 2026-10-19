@@ -1,4 +1,4 @@
-import { Dumbbell, Minus, Plus, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, Dumbbell, Minus, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 
 import { createRequestId } from "@/api/client"
@@ -13,7 +13,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
 import { toNumber } from "@/lib/format"
-import type { Exercise, PlannedWorkout, SavePlanDayInput, SetKind } from "@/types/workout"
+import { WEEKDAY_LABELS, type Exercise, type PlannedWorkout, type SaveRoutineInput, type SetKind } from "@/types/workout"
 
 type EditorSet = { id: string; kind: SetKind; targetWeightKg: string; targetReps: string }
 
@@ -27,8 +27,8 @@ type EditorExercise = {
   sets: EditorSet[]
 }
 
-function fromPlan(plan: PlannedWorkout | null, dayLabel: string) {
-  if (!plan) return { name: `${dayLabel} workout`, weekLabel: "Week 1", estimatedMinutes: "45", exercises: [] as EditorExercise[] }
+function fromRoutine(plan: PlannedWorkout | null) {
+  if (!plan) return { name: "New routine", weekLabel: "Week 1", estimatedMinutes: "45", exercises: [] as EditorExercise[] }
   return {
     name: plan.name,
     weekLabel: plan.weekLabel,
@@ -54,19 +54,22 @@ function newSet(kind: SetKind, id: string): EditorSet {
   return { id, kind, targetWeightKg: "", targetReps: "" }
 }
 
-type PlanDayEditorProps = {
-  dayLabel: string
-  plan: PlannedWorkout | null
+type RoutineEditorProps = {
+  /** The routine being edited, or null to create a new one. */
+  routine: PlannedWorkout | null
+  /** Weekdays (0=Monday) the routine is scheduled on, named in the delete confirmation. */
+  scheduledDays?: number[]
   submitting: boolean
   deleting: boolean
-  onSave: (input: SavePlanDayInput) => void
-  onClearDay: () => void
+  onSave: (input: SaveRoutineInput) => void
+  onDelete: () => void
   onCancel: () => void
 }
 
-export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, onClearDay, onCancel }: PlanDayEditorProps) {
+export function RoutineEditor({ routine, scheduledDays = [], submitting, deleting, onSave, onDelete, onCancel }: RoutineEditorProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
-  const [initial] = useState(() => fromPlan(plan, dayLabel))
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [initial] = useState(() => fromRoutine(routine))
   const [name, setName] = useState(initial.name)
   const [weekLabel, setWeekLabel] = useState(initial.weekLabel)
   const [estimatedMinutes, setEstimatedMinutes] = useState(initial.estimatedMinutes)
@@ -88,6 +91,18 @@ export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, on
       }
     })
     setExercises((prev) => [...prev, ...added])
+  }
+
+  function moveExercise(instanceId: string, direction: -1 | 1) {
+    setExercises((prev) => {
+      const from = prev.findIndex((exercise) => exercise.instanceId === instanceId)
+      const to = from + direction
+      if (from < 0 || to < 0 || to >= prev.length) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
   }
 
   function removeExercise(instanceId: string) {
@@ -116,8 +131,8 @@ export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, on
   }
 
   function submit() {
-    const input: SavePlanDayInput = {
-      name: name.trim() || `${dayLabel} workout`,
+    const input: SaveRoutineInput = {
+      name: name.trim(),
       weekLabel: weekLabel.trim() || "Week 1",
       estimatedMinutes: toNumber(estimatedMinutes) ?? 45,
       exercises: exercises.map((exercise) => ({
@@ -133,15 +148,17 @@ export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, on
     onSave(input)
   }
 
-  const canSave = exercises.length > 0 && exercises.every((exercise) => exercise.sets.length > 0) && !submitting
+  // A name is required: it is how the routine is picked in the week schedule.
+  const nameMissing = name.trim() === ""
+  const canSave = !nameMissing && exercises.length > 0 && exercises.every((exercise) => exercise.sets.length > 0) && !submitting
 
   return (
     <div className="flex flex-col gap-4">
       <FieldGroup className="grid gap-4 sm:grid-cols-3">
-        <TextField id="plan-day-name" label="Name" value={name} onChange={(event) => setName(event.target.value)} />
-        <TextField id="plan-day-week-label" label="Week label" value={weekLabel} onChange={(event) => setWeekLabel(event.target.value)} />
+        <TextField id="routine-name" label="Name" value={name} maxLength={255} error={nameMissing ? "Give the routine a name" : undefined} onChange={(event) => setName(event.target.value)} />
+        <TextField id="routine-week-label" label="Week label" value={weekLabel} onChange={(event) => setWeekLabel(event.target.value)} />
         <TextField
-          id="plan-day-minutes"
+          id="routine-minutes"
           label="Estimated time"
           unit="min"
           inputMode="numeric"
@@ -157,7 +174,7 @@ export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, on
               <Dumbbell />
             </EmptyMedia>
             <EmptyTitle>No exercises yet</EmptyTitle>
-            <EmptyDescription>Add exercises to plan this day, or leave it empty and clear it to a rest day.</EmptyDescription>
+            <EmptyDescription>Add the exercises this routine is made of.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button onClick={() => setPickerOpen(true)}>
@@ -168,19 +185,41 @@ export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, on
         </Empty>
       ) : (
         <div className="flex flex-col gap-3">
-          {exercises.map((exercise) => (
+          {exercises.map((exercise, index) => (
             <Card key={exercise.instanceId}>
               <CardHeader>
                 <CardTitle className="text-base">{exercise.name}</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="icon-lg"
-                  className="ml-auto size-9 text-muted-foreground"
-                  aria-label={`Remove ${exercise.name}`}
-                  onClick={() => removeExercise(exercise.instanceId)}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
+                <div className="ml-auto flex items-center">
+                  <Button
+                    variant="ghost"
+                    size="icon-lg"
+                    className="size-9 text-muted-foreground"
+                    aria-label={`Move ${exercise.name} up`}
+                    disabled={index === 0}
+                    onClick={() => moveExercise(exercise.instanceId, -1)}
+                  >
+                    <ArrowUp className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-lg"
+                    className="size-9 text-muted-foreground"
+                    aria-label={`Move ${exercise.name} down`}
+                    disabled={index === exercises.length - 1}
+                    onClick={() => moveExercise(exercise.instanceId, 1)}
+                  >
+                    <ArrowDown className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-lg"
+                    className="size-9 text-muted-foreground"
+                    aria-label={`Remove ${exercise.name}`}
+                    onClick={() => removeExercise(exercise.instanceId)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 <TextField
@@ -263,18 +302,39 @@ export function PlanDayEditor({ dayLabel, plan, submitting, deleting, onSave, on
           <Button variant="ghost" className="h-10" onClick={onCancel} disabled={submitting || deleting}>
             Cancel
           </Button>
-          {plan ? (
-            <Button variant="outline" className="h-10 text-destructive" onClick={onClearDay} disabled={submitting || deleting}>
-              {deleting ? <Spinner data-icon="inline-start" /> : null}
-              Clear to rest day
+          {routine ? (
+            <Button variant="outline" className="h-10 text-destructive" onClick={() => setConfirmDelete(true)} disabled={submitting || deleting}>
+              Delete routine
             </Button>
           ) : null}
         </div>
         <Button className="h-10" onClick={submit} disabled={!canSave}>
           {submitting ? <Spinner data-icon="inline-start" /> : null}
-          Save day
+          Save routine
         </Button>
       </div>
+
+      <ResponsiveOverlay
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        layout={isDesktop ? "dialog" : "drawer"}
+        title="Delete this routine?"
+        description={
+          scheduledDays.length > 0
+            ? `It will also be removed from ${scheduledDays.map((day) => WEEKDAY_LABELS[day]).join(", ")}, which become rest days. Workouts you already logged are kept.`
+            : "Workouts you already logged from it are kept."
+        }
+      >
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="outline" className="h-10" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button variant="destructive" className="h-10" onClick={onDelete} disabled={deleting}>
+            {deleting ? <Spinner data-icon="inline-start" /> : null}
+            Delete routine
+          </Button>
+        </div>
+      </ResponsiveOverlay>
 
       <ResponsiveOverlay
         open={pickerOpen}

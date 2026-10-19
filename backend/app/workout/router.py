@@ -15,11 +15,13 @@ from app.shared.validation import MAX_SEARCH_LENGTH
 from .models import EQUIPMENT, MUSCLE_GROUPS
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
 from .schemas import (
+    AssignDayInput,
     CreateExerciseInput,
     ExerciseRead,
     FinishWorkoutInput,
     PlannedWorkout,
-    SavePlanDayInput,
+    RoutineRead,
+    SaveRoutineInput,
     UpdateWorkoutInput,
     WeekPlanDay,
     WorkoutDetail,
@@ -116,18 +118,47 @@ async def get_week_plan(actor: ActorDep, service: WorkoutServiceDep) -> list[Wee
 
 
 @router.put("/workouts/plan/{day_of_week}", response_model=WeekPlanDay)
-async def save_plan_day(
-    payload: SavePlanDayInput,
+async def assign_plan_day(
+    payload: AssignDayInput,
     actor: ActorDep,
     service: WorkoutServiceDep,
     day_of_week: Annotated[int, Path(ge=0, le=6)],
 ) -> WeekPlanDay:
-    return await service.save_day(actor, day_of_week, payload)
+    """Schedule one of the user's routines on a weekday."""
+
+    return await service.assign_day(actor, day_of_week, payload)
 
 
 @router.delete("/workouts/plan/{day_of_week}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_plan_day(
+async def clear_plan_day(
     actor: ActorDep, service: WorkoutServiceDep, day_of_week: Annotated[int, Path(ge=0, le=6)]
 ) -> Response:
-    await service.delete_day(actor, day_of_week)
+    """Make a weekday a rest day. The routine itself is kept."""
+
+    await service.clear_day(actor, day_of_week)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/workouts/routines", response_model=list[RoutineRead])
+async def list_routines(actor: ActorDep, service: WorkoutServiceDep) -> list[RoutineRead]:
+    return await service.list_routines(actor)
+
+
+@router.post("/workouts/routines", response_model=RoutineRead, status_code=status.HTTP_201_CREATED)
+async def create_routine(
+    payload: SaveRoutineInput, actor: ActorDep, service: WorkoutServiceDep
+) -> RoutineRead:
+    return await service.create_routine(actor, payload)
+
+
+@router.put("/workouts/routines/{routine_id}", response_model=RoutineRead)
+async def update_routine(
+    routine_id: str, payload: SaveRoutineInput, actor: ActorDep, service: WorkoutServiceDep
+) -> RoutineRead:
+    return await service.update_routine(actor, routine_id, payload)
+
+
+@router.delete("/workouts/routines/{routine_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_routine(routine_id: str, actor: ActorDep, service: WorkoutServiceDep) -> Response:
+    await service.delete_routine(actor, routine_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

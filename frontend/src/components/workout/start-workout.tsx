@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { PlannedWorkout } from "@/types/workout"
+import { WEEKDAY_LABELS, type PlannedWorkout, type Routine } from "@/types/workout"
 
 type StartWorkoutProps = {
   plan: PlannedWorkout | null | undefined
@@ -14,10 +14,13 @@ type StartWorkoutProps = {
   onRetryPlan: () => void
   onStartPlan: () => void
   onStartEmpty: () => void
+  /** The user's routines, to start any of them today. Not shown until loaded. */
+  routines?: Routine[]
+  onStartRoutine: (routine: Routine) => void
 }
 
-/** Choose between today's planned session and an empty workout. */
-export function StartWorkout({ plan, planPending, planError, onRetryPlan, onStartPlan, onStartEmpty }: StartWorkoutProps) {
+/** Choose between today's planned session, one of your routines, and an empty workout. */
+export function StartWorkout({ plan, planPending, planError, onRetryPlan, onStartPlan, onStartEmpty, routines, onStartRoutine }: StartWorkoutProps) {
   const setCount = plan ? plan.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) : 0
 
   return (
@@ -90,6 +93,34 @@ export function StartWorkout({ plan, planPending, planError, onRetryPlan, onStar
           </Button>
         </CardFooter>
       </Card>
+
+      {routines && routines.length > 0 ? (
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Your routines</CardTitle>
+            <CardDescription>Start any routine today, whatever day it’s scheduled on.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col divide-y">
+              {routines.map((routine) => (
+                <li key={routine.id} className="flex items-center gap-3 py-2">
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-sm font-medium">{routine.name}</span>
+                    <span className="truncate text-sm text-muted-foreground">
+                      {routine.exercises.length} exercise{routine.exercises.length === 1 ? "" : "s"}
+                      {routine.scheduledDays.length > 0 ? ` · ${routine.scheduledDays.map((day) => WEEKDAY_LABELS[day].slice(0, 3)).join(", ")}` : ""}
+                    </span>
+                  </div>
+                  <Button variant="outline" className="h-10" onClick={() => onStartRoutine(routine)} aria-label={`Start ${routine.name}`}>
+                    <Play data-icon="inline-start" />
+                    Start
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   )
 }

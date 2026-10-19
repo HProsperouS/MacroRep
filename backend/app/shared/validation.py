@@ -54,6 +54,7 @@ MAX_SERVING_SIZE = 5_000
 MAX_SET_WEIGHT_KG = 1_000
 MAX_REPS = 100
 MAX_EXERCISES_PER_WORKOUT = 50
+MAX_ROUTINES_PER_USER = 50
 MAX_SETS_PER_EXERCISE = 50
 # Tolerated difference between the client's clock and the server's when
 # checking that a workout didn't happen in the future.

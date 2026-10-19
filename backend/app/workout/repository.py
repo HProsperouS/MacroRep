@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import estimated_one_rep_max
@@ -17,6 +17,7 @@ from .models import (
     SetKind,
     WorkoutPlanEntry,
     WorkoutPlanExercise,
+    WorkoutScheduleDay,
     WorkoutSession,
     WorkoutSetLog,
 )
@@ -113,12 +114,14 @@ class WorkoutPlanRepository:
         self.session = session
 
     async def get_for_day(self, owner_id: str, day_of_week: int) -> WorkoutPlanEntry | None:
+        """The routine scheduled on a weekday, or None on a rest day."""
+
         return cast(
             "WorkoutPlanEntry | None",
             await self.session.scalar(
-                select(WorkoutPlanEntry).where(
-                    WorkoutPlanEntry.owner_id == owner_id, WorkoutPlanEntry.day_of_week == day_of_week
-                )
+                select(WorkoutPlanEntry)
+                .join(WorkoutScheduleDay, WorkoutScheduleDay.routine_id == WorkoutPlanEntry.id)
+                .where(WorkoutScheduleDay.owner_id == owner_id, WorkoutScheduleDay.day_of_week == day_of_week)
             ),
         )
 
@@ -127,7 +130,21 @@ class WorkoutPlanRepository:
 
     async def list_for_owner(self, owner_id: str) -> list[WorkoutPlanEntry]:
         return list(
-            await self.session.scalars(select(WorkoutPlanEntry).where(WorkoutPlanEntry.owner_id == owner_id))
+            await self.session.scalars(
+                select(WorkoutPlanEntry)
+                .where(WorkoutPlanEntry.owner_id == owner_id)
+                .order_by(WorkoutPlanEntry.name.asc(), WorkoutPlanEntry.id)
+            )
+        )
+
+    async def count_for_owner(self, owner_id: str) -> int:
+        return int(
+            await self.session.scalar(
+                select(func.count())
+                .select_from(WorkoutPlanEntry)
+                .where(WorkoutPlanEntry.owner_id == owner_id)
+            )
+            or 0
         )
 
     async def add(self, plan_entry: WorkoutPlanEntry) -> WorkoutPlanEntry:
@@ -136,7 +153,54 @@ class WorkoutPlanRepository:
         return plan_entry
 
     async def delete(self, plan_entry: WorkoutPlanEntry) -> None:
+        """Remove a routine with its exercises and schedule days; logged workouts keep their history.
+
+        Done by hand rather than leaning on ON DELETE, which SQLite doesn't enforce by default.
+        """
+
+        await self.session.execute(
+            delete(WorkoutScheduleDay).where(WorkoutScheduleDay.routine_id == plan_entry.id)
+        )
+        await self.session.execute(
+            delete(WorkoutPlanExercise).where(WorkoutPlanExercise.plan_entry_id == plan_entry.id)
+        )
+        await self.session.execute(
+            update(WorkoutSession)
+            .where(WorkoutSession.plan_entry_id == plan_entry.id)
+            .values(plan_entry_id=None)
+        )
         await self.session.delete(plan_entry)
+        await self.session.flush()
+
+    async def list_schedule(self, owner_id: str) -> list[WorkoutScheduleDay]:
+        return list(
+            await self.session.scalars(
+                select(WorkoutScheduleDay).where(WorkoutScheduleDay.owner_id == owner_id)
+            )
+        )
+
+    async def set_day(self, owner_id: str, day_of_week: int, routine_id: str) -> None:
+        """Schedule a routine on a weekday, replacing whatever was there."""
+
+        existing = await self.session.scalar(
+            select(WorkoutScheduleDay).where(
+                WorkoutScheduleDay.owner_id == owner_id, WorkoutScheduleDay.day_of_week == day_of_week
+            )
+        )
+        if existing is None:
+            self.session.add(
+                WorkoutScheduleDay(owner_id=owner_id, day_of_week=day_of_week, routine_id=routine_id)
+            )
+        else:
+            existing.routine_id = routine_id
+        await self.session.flush()
+
+    async def clear_day(self, owner_id: str, day_of_week: int) -> None:
+        await self.session.execute(
+            delete(WorkoutScheduleDay).where(
+                WorkoutScheduleDay.owner_id == owner_id, WorkoutScheduleDay.day_of_week == day_of_week
+            )
+        )
 
     async def list_exercises(self, plan_entry_id: str) -> list[WorkoutPlanExercise]:
         return list(

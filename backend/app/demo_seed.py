@@ -20,7 +20,7 @@ from app.food.models import Food
 from app.identity.models import User, UserStatus
 from app.profile.models import ExperienceLevel, Goal, Profile
 from app.shared.timezones import local_today, user_zone
-from app.workout.models import Exercise, WorkoutPlanEntry, WorkoutPlanExercise
+from app.workout.models import Exercise, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutScheduleDay
 
 DEMO_USER_ID = "USR-DEMO"
 DEMO_USER_EMAIL = "alex.tan@example.com"
@@ -136,13 +136,17 @@ async def seed_demo_data() -> None:
         if await _is_empty(session, WorkoutPlanEntry):
             today_entry = WorkoutPlanEntry(
                 owner_id=DEMO_USER_ID,
-                day_of_week=_demo_today().weekday(),
                 name="Push day",
                 week_label="Week 1",
                 estimated_minutes=50,
             )
             session.add(today_entry)
             await session.flush()
+            session.add(
+                WorkoutScheduleDay(
+                    owner_id=DEMO_USER_ID, day_of_week=_demo_today().weekday(), routine_id=today_entry.id
+                )
+            )
             session.add(
                 WorkoutPlanExercise(
                     plan_entry_id=today_entry.id,

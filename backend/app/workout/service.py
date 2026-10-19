@@ -1,4 +1,4 @@
-"""Exercise catalog, today's plan, and session-finishing business rules."""
+"""Exercise catalog, routines and the weekly schedule, and session business rules."""
 
 from __future__ import annotations
 
@@ -14,10 +14,12 @@ from app.analytics.training import best_estimated_one_rep_max, is_personal_recor
 from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
 from app.shared.timezones import local_today, user_zone
+from app.shared.validation import MAX_ROUTINES_PER_USER
 
 from .models import Exercise, SetKind, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutSession, WorkoutSetLog
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
 from .schemas import (
+    AssignDayInput,
     CreateExerciseInput,
     ExerciseRead,
     FinishWorkoutExercise,
@@ -29,7 +31,8 @@ from .schemas import (
     PlannedSet,
     PlannedWorkout,
     PreviousSet,
-    SavePlanDayInput,
+    RoutineRead,
+    SaveRoutineInput,
     UpdateWorkoutInput,
     WeekPlanDay,
     WorkoutDetail,
@@ -193,30 +196,47 @@ class WorkoutService:
             return None
         return await self._build_planned_workout(plan_entry, actor)
 
-    async def get_week_plan(self, actor: ActorContext) -> list[WeekPlanDay]:
-        entries = await self.plans.list_for_owner(actor.actor_id)
-        entries_by_day = {entry.day_of_week: entry for entry in entries}
+    async def _planned_workouts(
+        self, actor: ActorContext, entries: list[WorkoutPlanEntry]
+    ) -> dict[str, PlannedWorkout]:
+        """Several routines assembled together, in a handful of queries instead of a few per routine."""
 
-        # Batched across all 7 days (a handful of queries total) rather than
-        # calling _build_planned_workout per day, which would otherwise run
-        # its own 3 queries per day — up to 21 sequential round trips here.
         plan_exercises_by_entry = await self.plans.list_exercises_for_entries([entry.id for entry in entries])
         all_exercise_ids = [pe.exercise_id for pes in plan_exercises_by_entry.values() for pe in pes]
         exercises_by_id = await self.exercises.get_many(all_exercise_ids)
         last_sessions = await self._last_sessions(actor, all_exercise_ids)
-
-        result: list[WeekPlanDay] = []
-        for day_of_week in range(7):
-            entry = entries_by_day.get(day_of_week)
-            plan = (
-                self._assemble_planned_workout(
-                    entry, plan_exercises_by_entry[entry.id], exercises_by_id, last_sessions
-                )
-                if entry is not None
-                else None
+        return {
+            entry.id: self._assemble_planned_workout(
+                entry, plan_exercises_by_entry[entry.id], exercises_by_id, last_sessions
             )
-            result.append(WeekPlanDay(day_of_week=day_of_week, plan=plan))
-        return result
+            for entry in entries
+        }
+
+    async def get_week_plan(self, actor: ActorContext) -> list[WeekPlanDay]:
+        schedule = {row.day_of_week: row.routine_id for row in await self.plans.list_schedule(actor.actor_id)}
+        entries = [
+            entry
+            for entry in await self.plans.list_for_owner(actor.actor_id)
+            if entry.id in schedule.values()
+        ]
+        planned = await self._planned_workouts(actor, entries)
+        return [
+            WeekPlanDay(day_of_week=day, plan=planned.get(schedule[day]) if day in schedule else None)
+            for day in range(7)
+        ]
+
+    async def list_routines(self, actor: ActorContext) -> list[RoutineRead]:
+        entries = await self.plans.list_for_owner(actor.actor_id)
+        planned = await self._planned_workouts(actor, entries)
+        days_by_routine: dict[str, list[int]] = {}
+        for row in await self.plans.list_schedule(actor.actor_id):
+            days_by_routine.setdefault(row.routine_id, []).append(row.day_of_week)
+        return [
+            RoutineRead(
+                **planned[entry.id].model_dump(), scheduled_days=sorted(days_by_routine.get(entry.id, []))
+            )
+            for entry in entries
+        ]
 
     async def _verify_exercises_owned(
         self, actor: ActorContext, exercise_ids: list[str]
@@ -230,41 +250,18 @@ class WorkoutService:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, f"Exercise {exercise_id} not found")
         return exercises_by_id
 
-    async def save_day(self, actor: ActorContext, day_of_week: int, payload: SavePlanDayInput) -> WeekPlanDay:
-        exercises_by_id = await self._verify_exercises_owned(
-            actor, [e.exercise_id for e in payload.exercises]
-        )
+    async def _owned_routine(self, actor: ActorContext, routine_id: str) -> WorkoutPlanEntry:
+        entry = await self.plans.get(routine_id)
+        if entry is None or entry.owner_id != actor.actor_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Routine not found")
+        return entry
 
-        plan_entry = await self.plans.get_for_day(actor.actor_id, day_of_week)
-        if plan_entry is None:
-            plan_entry = WorkoutPlanEntry(
-                owner_id=actor.actor_id,
-                day_of_week=day_of_week,
-                name=payload.name,
-                week_label=payload.week_label,
-                estimated_minutes=payload.estimated_minutes,
-            )
-            try:
-                await self.plans.add(plan_entry)
-            except IntegrityError:
-                # Lost a race with a concurrent save for this same day (e.g. a
-                # double-submit) — the unique (owner_id, day_of_week) index
-                # rejected the second insert. Ask the client to retry rather
-                # than surfacing a raw 500; a retry will see the row that won
-                # and take the update branch below instead.
-                await self.session.rollback()
-                raise HTTPException(
-                    status.HTTP_409_CONFLICT, "This day was just saved elsewhere, please retry"
-                ) from None
-        else:
-            plan_entry.name = payload.name
-            plan_entry.week_label = payload.week_label
-            plan_entry.estimated_minutes = payload.estimated_minutes
-            plan_entry.touch()
-
+    async def _save_routine_exercises(
+        self, entry: WorkoutPlanEntry, payload: SaveRoutineInput
+    ) -> list[WorkoutPlanExercise]:
         new_exercises = [
             WorkoutPlanExercise(
-                plan_entry_id=plan_entry.id,
+                plan_entry_id=entry.id,
                 exercise_id=plan_exercise.exercise_id,
                 position=index,
                 rest_seconds=plan_exercise.rest_seconds,
@@ -279,21 +276,72 @@ class WorkoutService:
             )
             for index, plan_exercise in enumerate(payload.exercises)
         ]
-        await self.plans.replace_exercises(plan_entry.id, new_exercises)
+        await self.plans.replace_exercises(entry.id, new_exercises)
+        return new_exercises
+
+    async def _routine_read(self, actor: ActorContext, entry: WorkoutPlanEntry) -> RoutineRead:
+        planned = await self._build_planned_workout(entry, actor)
+        days = [
+            row.day_of_week
+            for row in await self.plans.list_schedule(actor.actor_id)
+            if row.routine_id == entry.id
+        ]
+        return RoutineRead(**planned.model_dump(), scheduled_days=sorted(days))
+
+    async def create_routine(self, actor: ActorContext, payload: SaveRoutineInput) -> RoutineRead:
+        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
+        if await self.plans.count_for_owner(actor.actor_id) >= MAX_ROUTINES_PER_USER:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"You can keep up to {MAX_ROUTINES_PER_USER} routines. Delete one to add another.",
+            )
+        entry = WorkoutPlanEntry(
+            owner_id=actor.actor_id,
+            name=payload.name,
+            week_label=payload.week_label,
+            estimated_minutes=payload.estimated_minutes,
+        )
+        await self.plans.add(entry)
+        await self._save_routine_exercises(entry, payload)
+        await self.session.commit()
+        return await self._routine_read(actor, entry)
+
+    async def update_routine(
+        self, actor: ActorContext, routine_id: str, payload: SaveRoutineInput
+    ) -> RoutineRead:
+        entry = await self._owned_routine(actor, routine_id)
+        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
+        entry.name = payload.name
+        entry.week_label = payload.week_label
+        entry.estimated_minutes = payload.estimated_minutes
+        entry.touch()
+        await self._save_routine_exercises(entry, payload)
+        await self.session.commit()
+        return await self._routine_read(actor, entry)
+
+    async def delete_routine(self, actor: ActorContext, routine_id: str) -> None:
+        """Delete the routine and take it off the schedule; workouts already logged from it stay."""
+
+        entry = await self._owned_routine(actor, routine_id)
+        await self.plans.delete(entry)
         await self.session.commit()
 
-        # Assemble from what we already have in memory (new_exercises, exercises_by_id)
-        # instead of re-querying them via _build_planned_workout — only the last-session
-        # data is actually new here.
-        last_sessions = await self._last_sessions(actor, [e.exercise_id for e in payload.exercises])
-        plan = self._assemble_planned_workout(plan_entry, new_exercises, exercises_by_id, last_sessions)
-        return WeekPlanDay(day_of_week=day_of_week, plan=plan)
+    async def assign_day(self, actor: ActorContext, day_of_week: int, payload: AssignDayInput) -> WeekPlanDay:
+        entry = await self._owned_routine(actor, payload.routine_id)
+        try:
+            await self.plans.set_day(actor.actor_id, day_of_week, entry.id)
+            await self.session.commit()
+        except IntegrityError:
+            # Lost a race: a concurrent save for this same day (e.g. a double-submit) hit
+            # the unique (owner_id, day_of_week) index, or the routine was deleted meanwhile.
+            await self.session.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "This day was just changed elsewhere, please retry"
+            ) from None
+        return WeekPlanDay(day_of_week=day_of_week, plan=await self._build_planned_workout(entry, actor))
 
-    async def delete_day(self, actor: ActorContext, day_of_week: int) -> None:
-        plan_entry = await self.plans.get_for_day(actor.actor_id, day_of_week)
-        if plan_entry is None:
-            return
-        await self.plans.delete(plan_entry)
+    async def clear_day(self, actor: ActorContext, day_of_week: int) -> None:
+        await self.plans.clear_day(actor.actor_id, day_of_week)
         await self.session.commit()
 
     async def _build_planned_workout(
@@ -376,16 +424,21 @@ class WorkoutService:
         )
 
     async def finish_session(self, payload: FinishWorkoutInput, actor: ActorContext) -> WorkoutSummary:
-        if payload.plan_id is not None:
-            plan_entry = await self.plans.get(payload.plan_id)
-            if plan_entry is None or plan_entry.owner_id != actor.actor_id:
+        plan_id = payload.plan_id
+        if plan_id is not None:
+            plan_entry = await self.plans.get(plan_id)
+            if plan_entry is not None and plan_entry.owner_id != actor.actor_id:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Workout plan not found")
+            if plan_entry is None:
+                # The routine was deleted while the workout was in progress: keep the
+                # workout, just without the link (as deleting a routine does to past ones).
+                plan_id = None
 
         await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
 
         workout_session = WorkoutSession(
             owner_id=actor.actor_id,
-            plan_entry_id=payload.plan_id,
+            plan_entry_id=plan_id,
             name=payload.name,
             # Stored as UTC whatever offset the client sent, so every reader can
             # rely on it (SQLite keeps the wall-clock time and drops the offset).

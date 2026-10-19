@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import register_user
+from tests.helpers import plan_every_day, register_user
 
 
 def test_today_plan_seeded(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -90,12 +90,39 @@ def test_finish_session_rejects_unknown_exercise(client: TestClient, auth_header
     assert response.status_code == 404
 
 
-def test_finish_session_rejects_unknown_plan(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_finish_session_keeps_a_workout_whose_routine_no_longer_exists(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    # E.g. the routine was deleted from another tab mid-workout: the sets must not be lost.
     payload = _session_payload(
         "exercise-bench-press", [{"kind": "working", "weightKg": 60, "reps": 5}], plan_id="does-not-exist"
     )
     response = client.post("/api/v1/workouts/sessions", headers=auth_headers, json=payload)
-    assert response.status_code == 404
+    assert response.status_code == 201
+
+
+def test_finish_session_rejects_another_users_routine(client: TestClient) -> None:
+    owner, other = register_user(client), register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=owner, json=_routine_payload()).json()
+    payload = _session_payload(
+        "exercise-squat", [{"kind": "working", "weightKg": 60, "reps": 5}], plan_id=routine["id"]
+    )
+    assert client.post("/api/v1/workouts/sessions", headers=other, json=payload).status_code == 404
+
+
+def test_a_routine_deleted_mid_workout_still_lets_the_workout_be_saved(client: TestClient) -> None:
+    headers = register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload()).json()
+    client.delete(f"/api/v1/workouts/routines/{routine['id']}", headers=headers)
+
+    payload = _session_payload(
+        "exercise-squat", [{"kind": "working", "weightKg": 80, "reps": 5}], plan_id=routine["id"]
+    )
+    saved = client.post("/api/v1/workouts/sessions", headers=headers, json=payload)
+    assert saved.status_code == 201
+    assert [w["id"] for w in client.get("/api/v1/workouts/sessions", headers=headers).json()] == [
+        saved.json()["id"]
+    ]
 
 
 def test_finish_session_rejects_negative_reps(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -213,14 +240,14 @@ def test_get_week_plan_includes_todays_seeded_day(client: TestClient, auth_heade
     assert seeded["plan"]["name"] == "Push day"
 
 
-def test_save_and_delete_plan_day(client: TestClient, auth_headers: dict[str, str]) -> None:
-    save_payload = {
-        "name": "Leg day",
+def _routine_payload(name: str = "Leg day", exercise_id: str = "exercise-squat") -> dict:
+    return {
+        "name": name,
         "weekLabel": "Week 1",
         "estimatedMinutes": 45,
         "exercises": [
             {
-                "exerciseId": "exercise-squat",
+                "exerciseId": exercise_id,
                 "restSeconds": 120,
                 "sets": [
                     {"kind": "warmup", "targetWeightKg": 40, "targetReps": 10},
@@ -229,53 +256,167 @@ def test_save_and_delete_plan_day(client: TestClient, auth_headers: dict[str, st
             }
         ],
     }
-    saved = client.put("/api/v1/workouts/plan/3", headers=auth_headers, json=save_payload)
-    assert saved.status_code == 200
-    body = saved.json()
-    assert body["dayOfWeek"] == 3
-    assert body["plan"]["name"] == "Leg day"
-    assert len(body["plan"]["exercises"][0]["sets"]) == 2
 
-    listed = client.get("/api/v1/workouts/plan", headers=auth_headers).json()
-    day3 = next(day for day in listed if day["dayOfWeek"] == 3)
-    assert day3["plan"]["name"] == "Leg day"
 
-    # Saving the same day again must update in place, not collide with the
-    # existing (owner_id, day_of_week) row.
-    resaved = client.put(
-        "/api/v1/workouts/plan/3", headers=auth_headers, json={**save_payload, "name": "Leg day v2"}
+def test_create_update_and_delete_a_routine(client: TestClient) -> None:
+    headers = register_user(client)
+    created = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload())
+    assert created.status_code == 201
+    routine = created.json()
+    assert routine["name"] == "Leg day"
+    assert routine["scheduledDays"] == []
+    assert len(routine["exercises"][0]["sets"]) == 2
+
+    payload = {**_routine_payload("Leg day v2"), "exercises": _routine_payload()["exercises"][:1]}
+    payload["exercises"][0]["sets"] = [{"kind": "working", "targetWeightKg": 90, "targetReps": 3}]
+    updated = client.put(f"/api/v1/workouts/routines/{routine['id']}", headers=headers, json=payload)
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Leg day v2"
+    assert [s["targetWeightKg"] for s in updated.json()["exercises"][0]["sets"]] == [90.0]
+
+    listed = client.get("/api/v1/workouts/routines", headers=headers).json()
+    assert [r["name"] for r in listed] == ["Leg day v2"]
+
+    assert client.delete(f"/api/v1/workouts/routines/{routine['id']}", headers=headers).status_code == 204
+    assert client.get("/api/v1/workouts/routines", headers=headers).json() == []
+    assert client.delete(f"/api/v1/workouts/routines/{routine['id']}", headers=headers).status_code == 404
+
+
+def test_one_routine_can_be_scheduled_on_several_days(client: TestClient) -> None:
+    headers = register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload("Push")).json()
+
+    for day in (0, 4):
+        assigned = client.put(
+            f"/api/v1/workouts/plan/{day}", headers=headers, json={"routineId": routine["id"]}
+        )
+        assert assigned.status_code == 200
+        assert assigned.json()["dayOfWeek"] == day
+        assert assigned.json()["plan"]["name"] == "Push"
+
+    week = client.get("/api/v1/workouts/plan", headers=headers).json()
+    assert [d["dayOfWeek"] for d in week if d["plan"]] == [0, 4]
+    assert client.get("/api/v1/workouts/routines", headers=headers).json()[0]["scheduledDays"] == [0, 4]
+
+
+def test_editing_a_routine_changes_every_day_it_is_scheduled_on(client: TestClient) -> None:
+    headers = register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload("Push")).json()
+    for day in (1, 3):
+        client.put(f"/api/v1/workouts/plan/{day}", headers=headers, json={"routineId": routine["id"]})
+
+    client.put(
+        f"/api/v1/workouts/routines/{routine['id']}", headers=headers, json=_routine_payload("Push v2")
     )
-    assert resaved.status_code == 200
-    assert resaved.json()["plan"]["name"] == "Leg day v2"
 
-    deleted = client.delete("/api/v1/workouts/plan/3", headers=auth_headers)
-    assert deleted.status_code == 204
-
-    listed_after = client.get("/api/v1/workouts/plan", headers=auth_headers).json()
-    day3_after = next(day for day in listed_after if day["dayOfWeek"] == 3)
-    assert day3_after["plan"] is None
+    week = client.get("/api/v1/workouts/plan", headers=headers).json()
+    assert [d["plan"]["name"] for d in week if d["plan"]] == ["Push v2", "Push v2"]
 
 
-def test_save_plan_day_rejects_unknown_exercise(client: TestClient, auth_headers: dict[str, str]) -> None:
-    payload = {
-        "name": "Leg day",
-        "weekLabel": "Week 1",
-        "estimatedMinutes": 45,
-        "exercises": [{"exerciseId": "does-not-exist", "restSeconds": 90, "sets": [{"kind": "working"}]}],
+def test_assigning_a_day_again_replaces_its_routine(client: TestClient) -> None:
+    headers = register_user(client)
+    push = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload("Push")).json()
+    pull = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload("Pull")).json()
+
+    client.put("/api/v1/workouts/plan/2", headers=headers, json={"routineId": push["id"]})
+    client.put("/api/v1/workouts/plan/2", headers=headers, json={"routineId": pull["id"]})
+
+    day = next(d for d in client.get("/api/v1/workouts/plan", headers=headers).json() if d["dayOfWeek"] == 2)
+    assert day["plan"]["name"] == "Pull"
+    routines = {
+        r["name"]: r["scheduledDays"] for r in client.get("/api/v1/workouts/routines", headers=headers).json()
     }
-    response = client.put("/api/v1/workouts/plan/4", headers=auth_headers, json=payload)
-    assert response.status_code == 404
+    assert routines == {"Push": [], "Pull": [2]}
 
 
-def test_save_plan_day_rejects_out_of_range_day(client: TestClient, auth_headers: dict[str, str]) -> None:
-    payload = {
-        "name": "Leg day",
-        "weekLabel": "Week 1",
-        "estimatedMinutes": 45,
-        "exercises": [{"exerciseId": "exercise-squat", "restSeconds": 90, "sets": [{"kind": "working"}]}],
-    }
-    response = client.put("/api/v1/workouts/plan/7", headers=auth_headers, json=payload)
-    assert response.status_code == 422
+def test_clearing_a_day_keeps_the_routine(client: TestClient) -> None:
+    headers = register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload()).json()
+    client.put("/api/v1/workouts/plan/3", headers=headers, json={"routineId": routine["id"]})
+
+    assert client.delete("/api/v1/workouts/plan/3", headers=headers).status_code == 204
+
+    day = next(d for d in client.get("/api/v1/workouts/plan", headers=headers).json() if d["dayOfWeek"] == 3)
+    assert day["plan"] is None
+    assert [r["scheduledDays"] for r in client.get("/api/v1/workouts/routines", headers=headers).json()] == [
+        []
+    ]
+
+
+def test_deleting_a_routine_takes_it_off_the_schedule_but_keeps_logged_workouts(client: TestClient) -> None:
+    headers = register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload()).json()
+    client.put("/api/v1/workouts/plan/5", headers=headers, json={"routineId": routine["id"]})
+    session = _session_payload(
+        "exercise-squat", [{"kind": "working", "weightKg": 80, "reps": 5}], plan_id=routine["id"]
+    )
+    logged = client.post("/api/v1/workouts/sessions", headers=headers, json=session)
+    assert logged.status_code == 201
+
+    assert client.delete(f"/api/v1/workouts/routines/{routine['id']}", headers=headers).status_code == 204
+
+    day = next(d for d in client.get("/api/v1/workouts/plan", headers=headers).json() if d["dayOfWeek"] == 5)
+    assert day["plan"] is None
+    assert [w["id"] for w in client.get("/api/v1/workouts/sessions", headers=headers).json()] == [
+        logged.json()["id"]
+    ]
+
+
+def test_today_follows_the_schedule(client: TestClient) -> None:
+    headers = register_user(client)
+    assert client.get("/api/v1/workouts/today", headers=headers).json() is None
+    plan_every_day(client, headers)
+    assert client.get("/api/v1/workouts/today", headers=headers).json()["name"] == "Full body"
+
+
+def test_routines_are_private_to_their_owner(client: TestClient) -> None:
+    owner, other = register_user(client), register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=owner, json=_routine_payload()).json()
+
+    assert client.get("/api/v1/workouts/routines", headers=other).json() == []
+    assert (
+        client.put(
+            f"/api/v1/workouts/routines/{routine['id']}", headers=other, json=_routine_payload("X")
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/api/v1/workouts/routines/{routine['id']}", headers=other).status_code == 404
+    assert (
+        client.put("/api/v1/workouts/plan/1", headers=other, json={"routineId": routine["id"]}).status_code
+        == 404
+    )
+    assert client.get("/api/v1/workouts/routines", headers=owner).json()[0]["name"] == "Leg day"
+
+
+def test_a_routine_needs_known_exercises(client: TestClient, auth_headers: dict[str, str]) -> None:
+    payload = _routine_payload(exercise_id="does-not-exist")
+    assert client.post("/api/v1/workouts/routines", headers=auth_headers, json=payload).status_code == 404
+
+
+def test_assign_day_rejects_out_of_range_day_and_unknown_routine(client: TestClient) -> None:
+    headers = register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload()).json()
+    assert (
+        client.put("/api/v1/workouts/plan/7", headers=headers, json={"routineId": routine["id"]}).status_code
+        == 422
+    )
+    assert (
+        client.put("/api/v1/workouts/plan/1", headers=headers, json={"routineId": "nope"}).status_code == 404
+    )
+    assert client.put("/api/v1/workouts/plan/1", headers=headers, json={}).status_code == 422
+
+
+def test_routines_per_user_are_capped(client: TestClient) -> None:
+    headers = register_user(client)
+    for index in range(50):
+        assert (
+            client.post(
+                "/api/v1/workouts/routines", headers=headers, json=_routine_payload(f"R{index}")
+            ).status_code
+            == 201
+        )
+    over = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload("One too many"))
+    assert over.status_code == 422
 
 
 def _two_exercise_session(started_minutes_ago: int, name: str) -> dict:

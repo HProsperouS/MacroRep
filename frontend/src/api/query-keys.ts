@@ -16,6 +16,7 @@ export const workoutKeys = {
   today: () => [...workoutKeys.all, "today"] as const,
   exercises: (filters: ExerciseFilters) => [...workoutKeys.all, "exercises", filters] as const,
   plan: () => [...workoutKeys.all, "plan"] as const,
+  routines: () => [...workoutKeys.all, "routines"] as const,
   history: () => [...workoutKeys.all, "history"] as const,
   session: (sessionId: string) => [...workoutKeys.all, "session", sessionId] as const,
 }

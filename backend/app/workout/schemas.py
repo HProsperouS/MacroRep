@@ -184,16 +184,26 @@ class PlanExerciseInput(CamelModel):
     sets: list[PlanSetInput] = Field(min_length=1, max_length=MAX_SETS_PER_EXERCISE)
 
 
-class SavePlanDayInput(CamelModel):
+class SaveRoutineInput(CamelModel):
     name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
     week_label: PlainText = Field(min_length=1, max_length=MAX_LABEL_LENGTH)
     estimated_minutes: int = Field(ge=1, le=600)
     exercises: list[PlanExerciseInput] = Field(min_length=1, max_length=MAX_EXERCISES_PER_WORKOUT)
 
 
+class RoutineRead(PlannedWorkout):
+    """A routine and the weekdays (0=Monday .. 6=Sunday) it is scheduled on."""
+
+    scheduled_days: list[int]
+
+
+class AssignDayInput(CamelModel):
+    routine_id: Identifier
+
+
 class WeekPlanDay(CamelModel):
-    """A user's plan for one day of the week (0=Monday .. 6=Sunday); `plan` is
-    null for a rest day (no `WorkoutPlanEntry` saved for that day)."""
+    """The routine scheduled for one day of the week (0=Monday .. 6=Sunday); `plan` is
+    null for a rest day."""
 
     day_of_week: int
     plan: PlannedWorkout | None

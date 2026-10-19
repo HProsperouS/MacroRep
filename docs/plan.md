@@ -777,6 +777,10 @@ DELETE /api/v1/body/weigh-ins/{weigh_in_id}
 ```text
 GET    /api/v1/exercises
 POST   /api/v1/exercises
+GET    /api/v1/workouts/routines
+POST   /api/v1/workouts/routines
+PUT    /api/v1/workouts/routines/{routine_id}
+DELETE /api/v1/workouts/routines/{routine_id}
 GET    /api/v1/workouts/plan
 PUT    /api/v1/workouts/plan/{day_of_week}
 DELETE /api/v1/workouts/plan/{day_of_week}
@@ -789,7 +793,7 @@ DELETE /api/v1/workouts/sessions/{session_id}
 GET    /api/v1/progress
 ```
 
-The weekly plan is edited per day rather than through standalone routines. A session is posted once, with its sets, when the workout is finished; afterwards its name and sets can be corrected (`PUT`, which keeps the logged times) or the whole workout deleted. Set types are warm-up, working, failure, and drop; every type but warm-up counts toward volume and personal records.
+A routine is a named, reusable workout (exercises, planned sets, rest times). The weekly plan schedules routines onto weekdays: `PUT /workouts/plan/{day}` takes `{ "routineId": ... }`, `DELETE` makes the day a rest day and keeps the routine, and one routine can fill several days. Deleting a routine also clears its days; workouts already logged from it stay in history. A session is posted once, with its sets, when the workout is finished; afterwards its name and sets can be corrected (`PUT`, which keeps the logged times) or the whole workout deleted. Set types are warm-up, working, failure, and drop; every type but warm-up counts toward volume and personal records.
 
 ### Check-in and agent workflow
 

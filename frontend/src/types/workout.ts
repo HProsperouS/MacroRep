@@ -180,14 +180,19 @@ export type PlanExerciseInput = {
   sets: PlanSetInput[]
 }
 
-export type SavePlanDayInput = {
+export type SaveRoutineInput = {
   name: string
   weekLabel: string
   estimatedMinutes: number
   exercises: PlanExerciseInput[]
 }
 
-/** A user's plan for one day of the week (0=Monday .. 6=Sunday); `plan` is
+/** A named, reusable workout and the weekdays (0=Monday .. 6=Sunday) it is scheduled on. */
+export type Routine = PlannedWorkout & {
+  scheduledDays: number[]
+}
+
+/** The routine scheduled for one day of the week (0=Monday .. 6=Sunday); `plan` is
  * null for a rest day. */
 export type WeekPlanDay = {
   dayOfWeek: number

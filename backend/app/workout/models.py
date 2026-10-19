@@ -1,4 +1,4 @@
-"""Exercise catalog, weekly workout plan, and logged sessions."""
+"""Exercise catalog, routines, weekly schedule, and logged sessions."""
 
 from __future__ import annotations
 
@@ -52,21 +52,38 @@ class Exercise(TimestampMixin, Base):
 
 
 class WorkoutPlanEntry(TimestampMixin, Base):
-    """A user's planned session for one day of the week (0=Monday .. 6=Sunday)."""
+    """A routine: a named, reusable workout with its exercises (see ``WorkoutPlanExercise``).
+
+    The table keeps its original name from when each weekday held its own plan.
+    Which weekdays a routine is done on is ``WorkoutScheduleDay``'s business.
+    """
 
     __tablename__ = "workout_plan_entries"
-    __table_args__ = (Index("uq_workout_plan_owner_day", "owner_id", "day_of_week", unique=True),)
+    __table_args__ = (Index("ix_workout_plan_entries_owner", "owner_id"),)
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    day_of_week: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     week_label: Mapped[str] = mapped_column(String(64), nullable=False)
     estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class WorkoutScheduleDay(Base):
+    """The routine a user does on one day of the week (0=Monday .. 6=Sunday). No row means a rest day."""
+
+    __tablename__ = "workout_schedule_days"
+    __table_args__ = (Index("uq_workout_schedule_owner_day", "owner_id", "day_of_week", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    day_of_week: Mapped[int] = mapped_column(Integer, nullable=False)
+    routine_id: Mapped[str] = mapped_column(
+        ForeignKey("workout_plan_entries.id", ondelete="CASCADE"), nullable=False
+    )
+
+
 class WorkoutPlanExercise(Base):
-    """One exercise within a planned day, in display order."""
+    """One exercise within a routine, in display order."""
 
     __tablename__ = "workout_plan_exercises"
     __table_args__ = (Index("ix_workout_plan_exercises_entry", "plan_entry_id", "position"),)

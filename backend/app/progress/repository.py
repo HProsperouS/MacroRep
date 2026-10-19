@@ -22,7 +22,7 @@ from app.body.models import WeighIn
 from app.coach.models import CheckIn
 from app.food.models import FoodEntry
 from app.shared.timezones import local_date, utc_bounds
-from app.workout.models import SetKind, WorkoutPlanEntry, WorkoutSession, WorkoutSetLog
+from app.workout.models import SetKind, WorkoutScheduleDay, WorkoutSession, WorkoutSetLog
 
 
 class ProgressRepository:
@@ -58,7 +58,7 @@ class ProgressRepository:
     async def plan_weekdays(self, owner_id: str) -> set[int]:
         """Days of the week (0=Monday) with a planned workout."""
 
-        statement = select(WorkoutPlanEntry.day_of_week).where(WorkoutPlanEntry.owner_id == owner_id)
+        statement = select(WorkoutScheduleDay.day_of_week).where(WorkoutScheduleDay.owner_id == owner_id)
         return set(await self.session.scalars(statement))
 
     async def rpe_entries(

@@ -46,21 +46,25 @@ def register_user(client: TestClient, timezone: str | None = None) -> dict[str, 
 def plan_every_day(client: TestClient, headers: dict[str, str]) -> None:
     """Give the user a planned workout on all seven days of the week."""
 
+    created = client.post(
+        "/api/v1/workouts/routines",
+        headers=headers,
+        json={
+            "name": "Full body",
+            "weekLabel": "Week 1",
+            "estimatedMinutes": 45,
+            "exercises": [
+                {
+                    "exerciseId": "exercise-squat",
+                    "restSeconds": 120,
+                    "sets": [{"kind": "working", "targetWeightKg": 80, "targetReps": 5}],
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201
     for day_of_week in range(7):
         response = client.put(
-            f"/api/v1/workouts/plan/{day_of_week}",
-            headers=headers,
-            json={
-                "name": "Full body",
-                "weekLabel": "Week 1",
-                "estimatedMinutes": 45,
-                "exercises": [
-                    {
-                        "exerciseId": "exercise-squat",
-                        "restSeconds": 120,
-                        "sets": [{"kind": "working", "targetWeightKg": 80, "targetReps": 5}],
-                    }
-                ],
-            },
+            f"/api/v1/workouts/plan/{day_of_week}", headers=headers, json={"routineId": created.json()["id"]}
         )
         assert response.status_code == 200

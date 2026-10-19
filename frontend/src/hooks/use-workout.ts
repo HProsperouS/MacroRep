@@ -2,7 +2,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 
 import { progressKeys, workoutKeys } from "@/api/query-keys"
 import { workoutApi } from "@/api/workout-api"
-import type { CreateExerciseInput, ExerciseFilters, FinishWorkoutInput, SavePlanDayInput, UpdateWorkoutInput } from "@/types/workout"
+import type { CreateExerciseInput, ExerciseFilters, FinishWorkoutInput, SaveRoutineInput, UpdateWorkoutInput } from "@/types/workout"
 
 export function useTodayWorkout() {
   return useQuery({
@@ -48,27 +48,53 @@ export function useWeekPlan() {
   })
 }
 
-export function useSavePlanDay() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ dayOfWeek, input }: { dayOfWeek: number; input: SavePlanDayInput }) =>
-      workoutApi.savePlanDay(dayOfWeek, input),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: workoutKeys.plan() })
-      void queryClient.invalidateQueries({ queryKey: workoutKeys.today() })
-    },
+export function useRoutines() {
+  return useQuery({
+    queryKey: workoutKeys.routines(),
+    queryFn: ({ signal }) => workoutApi.listRoutines(signal),
+    staleTime: 60_000,
   })
 }
 
-export function useDeletePlanDay() {
+/** A routine feeds the routine list, the week schedule and today's workout, so all three refresh together. */
+function useInvalidateAfterPlanChange() {
   const queryClient = useQueryClient()
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: workoutKeys.routines() })
+    void queryClient.invalidateQueries({ queryKey: workoutKeys.plan() })
+    void queryClient.invalidateQueries({ queryKey: workoutKeys.today() })
+  }
+}
+
+export function useCreateRoutine() {
+  const invalidate = useInvalidateAfterPlanChange()
+  return useMutation({ mutationFn: (input: SaveRoutineInput) => workoutApi.createRoutine(input), onSuccess: invalidate })
+}
+
+export function useUpdateRoutine() {
+  const invalidate = useInvalidateAfterPlanChange()
   return useMutation({
-    mutationFn: (dayOfWeek: number) => workoutApi.deletePlanDay(dayOfWeek),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: workoutKeys.plan() })
-      void queryClient.invalidateQueries({ queryKey: workoutKeys.today() })
-    },
+    mutationFn: ({ routineId, input }: { routineId: string; input: SaveRoutineInput }) => workoutApi.updateRoutine(routineId, input),
+    onSuccess: invalidate,
   })
+}
+
+export function useDeleteRoutine() {
+  const invalidate = useInvalidateAfterPlanChange()
+  return useMutation({ mutationFn: (routineId: string) => workoutApi.deleteRoutine(routineId), onSuccess: invalidate })
+}
+
+export function useAssignDay() {
+  const invalidate = useInvalidateAfterPlanChange()
+  return useMutation({
+    mutationFn: ({ dayOfWeek, routineId }: { dayOfWeek: number; routineId: string }) => workoutApi.assignDay(dayOfWeek, routineId),
+    onSuccess: invalidate,
+  })
+}
+
+export function useClearDay() {
+  const invalidate = useInvalidateAfterPlanChange()
+  return useMutation({ mutationFn: (dayOfWeek: number) => workoutApi.deletePlanDay(dayOfWeek), onSuccess: invalidate })
 }
 
 export const HISTORY_PAGE_SIZE = 20

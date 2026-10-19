@@ -5,7 +5,8 @@ import type {
   ExerciseFilters,
   FinishWorkoutInput,
   PlannedWorkout,
-  SavePlanDayInput,
+  Routine,
+  SaveRoutineInput,
   UpdateWorkoutInput,
   WeekPlanDay,
   WorkoutDetail,
@@ -61,12 +62,33 @@ export const workoutApi = {
     return data
   },
 
-  async savePlanDay(dayOfWeek: number, input: SavePlanDayInput) {
-    const { data } = await apiClient.put<WeekPlanDay>(`/workouts/plan/${dayOfWeek}`, input)
+  async listRoutines(signal?: AbortSignal) {
+    const { data } = await apiClient.get<Routine[]>("/workouts/routines", { signal })
     return data
   },
 
-  /** Clears a day back to a rest day. */
+  async createRoutine(input: SaveRoutineInput) {
+    const { data } = await apiClient.post<Routine>("/workouts/routines", input)
+    return data
+  },
+
+  async updateRoutine(routineId: string, input: SaveRoutineInput) {
+    const { data } = await apiClient.put<Routine>(`/workouts/routines/${encodeURIComponent(routineId)}`, input)
+    return data
+  },
+
+  /** Also takes the routine off the schedule; workouts already logged from it stay in history. */
+  async deleteRoutine(routineId: string) {
+    await apiClient.delete(`/workouts/routines/${encodeURIComponent(routineId)}`)
+  },
+
+  /** Schedules a routine on a weekday, replacing whatever was there. */
+  async assignDay(dayOfWeek: number, routineId: string) {
+    const { data } = await apiClient.put<WeekPlanDay>(`/workouts/plan/${dayOfWeek}`, { routineId })
+    return data
+  },
+
+  /** Makes a weekday a rest day. The routine is kept. */
   async deletePlanDay(dayOfWeek: number) {
     await apiClient.delete(`/workouts/plan/${dayOfWeek}`)
   },
