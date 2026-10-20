@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -45,6 +46,7 @@ from app.workout.targets import (
 from .agents import limits
 from .agents.checkpoint import get_checkpointer
 from .agents.graph import run_agents
+from .agents.metrics import RunMetrics, RunOutcome, elapsed_ms
 from .agents.model import get_coach_model
 from .agents.validate import training_change_error
 from .models import CheckIn as CheckInModel
@@ -260,32 +262,53 @@ class CoachService:
         if check_in.status != CheckInStatus.RUNNING:
             return
         steps, snapshot = check_in.pipeline, check_in.input_snapshot or {}
+        metrics = RunMetrics(model="unknown")
+        outcome: RunOutcome = "failed"
+        error_name: str | None = None
+        started = time.monotonic()
         try:
+            model = get_coach_model()
+            metrics.model = model.name
             draft = await asyncio.wait_for(
                 run_agents(
-                    snapshot, get_coach_model(), thread_id=check_in_id, checkpointer=get_checkpointer()
+                    snapshot,
+                    model,
+                    thread_id=check_in_id,
+                    checkpointer=get_checkpointer(),
+                    metrics=metrics,
                 ),
                 timeout=RUN_TIMEOUT_SECONDS,
             )
-            if await self.repository.finish_run(
+            stored = await self.repository.finish_run(
                 check_in_id,
                 status=CheckInStatus.NEEDS_REVIEW if draft.proposals else CheckInStatus.REVIEWED,
                 summary=draft.summary,
                 stats=draft.stats,
                 pipeline=draft.pipeline,
                 suggested_questions=draft.suggested_questions,
-            ):
+            )
+            if stored:
                 await self.repository.add_proposals(
                     [ProposalModel.from_draft(check_in_id, proposal) for proposal in draft.proposals]
                 )
                 await self.session.commit()
             # Otherwise it was already marked failed (or finished) while this run was drafting.
-        except Exception:
+            outcome = "completed" if stored else "discarded"
+        except Exception as error:
             # Not asyncio.CancelledError (a BaseException): a run stopped at shutdown stays
             # RUNNING, with its checkpoints, so it can be resumed.
             logger.exception("check-in generation failed", extra={"check_in_id": check_in_id})
+            outcome = "timed_out" if isinstance(error, TimeoutError) else "failed"
+            error_name = type(error).__name__
             await self.session.rollback()
             await self._mark_failed(check_in_id, steps, FAILED_REASON)
+        except asyncio.CancelledError:
+            outcome = "interrupted"
+            raise
+        finally:
+            # Logged however the run ended, even if marking it failed went wrong too.
+            summary = metrics.summary(outcome=outcome, duration_ms=elapsed_ms(started), error=error_name)
+            logger.info("check-in run finished", extra={"check_in_id": check_in_id, "run_metrics": summary})
         await _forget_run(check_in_id)
 
     async def _snapshot_week(

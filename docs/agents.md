@@ -137,6 +137,28 @@ output (a JSON object or text), which the caller validates.
 `OpenAICoachModel`, selected by a new `COACH_MODEL_PROVIDER` value. The graph, the
 validation and the retries stay as they are.
 
+## Run metrics
+
+Every model call is recorded (`metrics.py`), including the ones LangGraph retries and the
+second try after an answer that doesn't fit the schema. When a run ends, completed or
+not, a summary is logged as `check-in run finished`, with the check-in id, so it lands in
+the daily log files under `backend/logs` when `LOG_DIR` is set. It isn't stored in the
+database:
+
+| Field | Meaning |
+|---|---|
+| `outcome` | `completed`; `discarded` (finished, but the check-in had already been failed or finished by another run, so nothing was stored); `failed`; `timed_out` (the run or one of its steps ran out of time); `interrupted` (stopped at shutdown, to be resumed) |
+| `error` | Class name of what failed the run, e.g. `ModelUnavailableError`; never its message |
+| `duration_ms` | The whole run |
+| `model` | `fake` or `openai/<model>` |
+| `resumed` | Continued from a checkpoint, so agents finished earlier aren't counted |
+| `model` is `unknown` | The model couldn't be set up; the run failed before any call |
+| `calls`, `input_tokens`, `output_tokens` | Totals over all model calls (tokens from OpenAI only) |
+| `agents.<name>` | Per agent: `calls`, `duration_ms`, the last call's `outcome` (`valid`, `invalid` or `error`), `errors` by class, and tokens |
+
+A run lost to a restart and swept as stale logs none. For example, one OpenAI run took
+5.6 s: three calls, 1,395 input and 474 output tokens.
+
 ## Differences from the plan
 
 - **No interrupt for approval.** The plan had the graph pause on a LangGraph interrupt
@@ -166,6 +188,7 @@ validation and the retries stay as they are.
 
 `backend/tests/test_coach_openai.py` covers the OpenAI provider against a stand-in client:
 what it sends, a whole check-in run on it, which errors are retried, and that it needs a key.
+Both files, and the API tests, check that every call is counted in the run metrics.
 
 `backend/tests/test_coach_api.py` covers the whole check-in through the API:
 

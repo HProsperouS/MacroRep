@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from app.coach.agents import model as model_module
 from app.coach.agents.graph import run_agents
+from app.coach.agents.metrics import RunMetrics
 from app.coach.agents.model import AgentTask, ModelUnavailableError, OpenAICoachModel, get_coach_model
 from app.coach.agents.schemas import NutritionAdvice
 from app.core.config import Settings
@@ -52,7 +53,10 @@ class StubClient:
         name = request["response_format"]["json_schema"]["name"]
         content = self.content if self.content is not None else json.dumps(ANSWERS[name])
         message = SimpleNamespace(content=content or None, refusal=None)
-        return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=self.finish_reason)])
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason=self.finish_reason)],
+            usage=SimpleNamespace(prompt_tokens=100, completion_tokens=20),
+        )
 
 
 def task() -> AgentTask[NutritionAdvice]:
@@ -66,7 +70,7 @@ def task() -> AgentTask[NutritionAdvice]:
 
 async def test_sends_the_instructions_context_and_output_schema() -> None:
     client = StubClient()
-    raw = await OpenAICoachModel(client, "gpt-test").generate(task())  # type: ignore[arg-type]
+    reply = await OpenAICoachModel(client, "gpt-test").generate(task())  # type: ignore[arg-type]
 
     [request] = client.requests
     assert request["model"] == "gpt-test"
@@ -79,12 +83,15 @@ async def test_sends_the_instructions_context_and_output_schema() -> None:
         "schema": NutritionAdvice.model_json_schema(),
         "strict": False,
     }
-    assert NutritionAdvice.model_validate_json(raw).new_calorie_target == 2100
+    assert NutritionAdvice.model_validate_json(reply.output).new_calorie_target == 2100  # type: ignore[arg-type]
+    assert (reply.input_tokens, reply.output_tokens) == (100, 20)
 
 
 async def test_a_check_in_runs_end_to_end_on_it() -> None:
     client = StubClient()
-    draft = await run_agents(snapshot(), OpenAICoachModel(client, "gpt-test"))  # type: ignore[arg-type]
+    model = OpenAICoachModel(client, "gpt-test")  # type: ignore[arg-type]
+    metrics = RunMetrics(model=model.name)
+    draft = await run_agents(snapshot(), model, metrics=metrics)
 
     assert [r["response_format"]["json_schema"]["name"] for r in client.requests[:2]] in (
         ["NutritionAdvice", "WorkoutAdvice"],
@@ -93,6 +100,12 @@ async def test_a_check_in_runs_end_to_end_on_it() -> None:
     assert client.requests[2]["response_format"]["json_schema"]["name"] == "Review"
     assert [proposal.kind for proposal in draft.proposals] == ["nutrition"]
     assert draft.proposals[0].changes[0].after == 2100
+    summary = metrics.summary(outcome="completed", duration_ms=0)
+    assert (summary["model"], summary["input_tokens"], summary["output_tokens"]) == (
+        "openai/gpt-test",
+        300,
+        60,
+    )
 
 
 @pytest.mark.parametrize(
@@ -128,16 +141,16 @@ async def test_lasting_errors_are_not_retried(error: Exception) -> None:
 
 
 async def test_a_refusal_is_an_unusable_answer() -> None:
-    raw = await OpenAICoachModel(StubClient(content=""), "gpt-test").generate(task())  # type: ignore[arg-type]
+    reply = await OpenAICoachModel(StubClient(content=""), "gpt-test").generate(task())  # type: ignore[arg-type]
     with pytest.raises(ValidationError):
-        NutritionAdvice.model_validate_json(raw)
+        NutritionAdvice.model_validate_json(reply.output)  # type: ignore[arg-type]
 
 
 async def test_a_cut_off_answer_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     client = StubClient(content='{"action": "ke', finish_reason="length")
-    raw = await OpenAICoachModel(client, "gpt-test").generate(task())  # type: ignore[arg-type]
+    reply = await OpenAICoachModel(client, "gpt-test").generate(task())  # type: ignore[arg-type]
     with pytest.raises(ValidationError):
-        NutritionAdvice.model_validate_json(raw)
+        NutritionAdvice.model_validate_json(reply.output)  # type: ignore[arg-type]
     [record] = [r for r in caplog.records if r.message == "model answer incomplete"]
     assert (record.agent, record.finish_reason) == ("nutrition", "length")
 

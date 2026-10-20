@@ -17,6 +17,7 @@ check-in is marked failed. Each step is checkpointed under the check-in's id.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping
 from dataclasses import asdict
 from typing import Any, TypedDict, TypeVar
@@ -29,6 +30,7 @@ from pydantic import BaseModel, ValidationError
 
 from ..pipeline import CheckInDraft, ProposalChangeDraft, ProposalDraft, summarize_week
 from . import limits
+from .metrics import RunMetrics
 from .model import AgentName, AgentTask, CoachModel, ModelUnavailableError
 from .schemas import NutritionAdvice, Review, WorkoutAdvice
 from .validate import ValidAdjustment, find_exercise, resolve_conflicts, validate_nutrition, validate_workout
@@ -74,17 +76,39 @@ class CoachState(TypedDict, total=False):
 
 
 async def _ask(
-    model: CoachModel, agent: AgentName, instructions: str, context: Mapping[str, Any], output: type[T]
+    model: CoachModel,
+    agent: AgentName,
+    instructions: str,
+    context: Mapping[str, Any],
+    output: type[T],
+    metrics: RunMetrics,
 ) -> T | None:
-    """The agent's validated answer, or None if it never produced one that fits the schema."""
+    """The agent's validated answer, or None if it never produced one that fits the schema.
+    Every model call is added to ``metrics``, including one that fails."""
 
     task = AgentTask(agent=agent, instructions=instructions, context=context, output=output)
     for attempt in range(1, STRUCTURED_OUTPUT_ATTEMPTS + 1):
-        raw = await model.generate(task)
+        started = time.monotonic()
         try:
-            return output.model_validate_json(raw) if isinstance(raw, str) else output.model_validate(raw)
+            reply = await model.generate(task)
+        except BaseException as error:  # also a cancelled call, when the step runs out of time
+            metrics.add(agent, started, "error", error=type(error).__name__)
+            raise
+        raw = reply.output
+        try:
+            parsed = output.model_validate_json(raw) if isinstance(raw, str) else output.model_validate(raw)
         except ValidationError:
+            parsed = None
             logger.warning("agent output rejected", extra={"agent": agent, "attempt": attempt})
+        metrics.add(
+            agent,
+            started,
+            "invalid" if parsed is None else "valid",
+            input_tokens=reply.input_tokens,
+            output_tokens=reply.output_tokens,
+        )
+        if parsed is not None:
+            return parsed
     return None
 
 
@@ -120,16 +144,21 @@ def _current_value(snapshot: Mapping[str, Any], routine_id: str, exercise_id: st
     return found[1].get(field) if found else None
 
 
-def build_graph(model: CoachModel) -> StateGraph[CoachState]:
+def build_graph(model: CoachModel, metrics: RunMetrics) -> StateGraph[CoachState]:
     async def nutrition(state: CoachState) -> CoachState:
         advice = await _ask(
-            model, "nutrition", NUTRITION_INSTRUCTIONS, nutrition_context(state["snapshot"]), NutritionAdvice
+            model,
+            "nutrition",
+            NUTRITION_INSTRUCTIONS,
+            nutrition_context(state["snapshot"]),
+            NutritionAdvice,
+            metrics,
         )
         return {"nutrition": advice.model_dump() if advice else None}
 
     async def workout(state: CoachState) -> CoachState:
         advice = await _ask(
-            model, "workout", WORKOUT_INSTRUCTIONS, workout_context(state["snapshot"]), WorkoutAdvice
+            model, "workout", WORKOUT_INSTRUCTIONS, workout_context(state["snapshot"]), WorkoutAdvice, metrics
         )
         return {"workout": advice.model_dump() if advice else None}
 
@@ -159,7 +188,7 @@ def build_graph(model: CoachModel) -> StateGraph[CoachState]:
             "nutrition": state.get("nutrition"),
             "workout": workout_advice,
         }
-        review = await _ask(model, "reviewer", REVIEWER_INSTRUCTIONS, context, Review)
+        review = await _ask(model, "reviewer", REVIEWER_INSTRUCTIONS, context, Review, metrics)
         return {"review": review.model_dump() if review else None}
 
     def finalize(state: CoachState) -> CoachState:
@@ -333,20 +362,25 @@ async def run_agents(
     *,
     thread_id: str | None = None,
     checkpointer: BaseCheckpointSaver[str] | None = None,
+    metrics: RunMetrics | None = None,
 ) -> CheckInDraft:
-    """Run the check-in graph on ``snapshot``. With a ``thread_id`` and ``checkpointer`` each
-    step is saved, and a run that was interrupted continues from its last saved step."""
+    """Run the check-in graph on ``snapshot``, adding each model call to ``metrics``. With a
+    ``thread_id`` and ``checkpointer`` each step is saved, and a run that was interrupted
+    continues from its last saved step."""
 
+    metrics = metrics if metrics is not None else RunMetrics(model=model.name)
     start: CoachState = {"snapshot": dict(snapshot)}
-    graph = build_graph(model).compile(checkpointer=checkpointer if thread_id else None)
+    graph = build_graph(model, metrics).compile(checkpointer=checkpointer if thread_id else None)
     if thread_id is None or checkpointer is None:
         result = await graph.ainvoke(start)
         return draft_from_dict(result["draft"])
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     saved = await graph.aget_state(config)
     if "draft" in saved.values:
+        metrics.resumed = True  # finished before an interruption: no model calls this time
         result = saved.values
     elif saved.next:
+        metrics.resumed = True
         result = await graph.ainvoke(None, config)  # continue an interrupted run
     else:
         result = await graph.ainvoke(start, config)

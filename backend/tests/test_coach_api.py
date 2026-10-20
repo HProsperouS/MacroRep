@@ -433,6 +433,17 @@ def _week_with_a_proposal(client: TestClient, headers: dict[str, str]) -> None:
     _weigh_in(client, headers, days_ago=0, weight_kg=78)
 
 
+def _run_metrics(caplog: pytest.LogCaptureFixture, check_in_id: str) -> dict:
+    """What the run logged when it ended."""
+
+    [record] = [
+        record
+        for record in caplog.records
+        if record.message == "check-in run finished" and getattr(record, "check_in_id", None) == check_in_id
+    ]
+    return record.run_metrics  # type: ignore[attr-defined,no-any-return]
+
+
 def test_a_check_in_is_generated_in_the_background(client: TestClient) -> None:
     headers = _new_user(client)
     _week_with_a_proposal(client, headers)
@@ -449,9 +460,31 @@ def test_a_check_in_is_generated_in_the_background(client: TestClient) -> None:
     assert ready["failureReason"] is None
 
 
+def test_a_run_records_how_it_went(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+    with caplog.at_level("INFO", logger="app.coach.service"):
+        check_in_id = _start(client, headers, "metrics").json()["id"]
+
+    metrics = _run_metrics(caplog, check_in_id)
+    assert (metrics["outcome"], metrics["error"], metrics["model"], metrics["resumed"]) == (
+        "completed",
+        None,
+        "fake",
+        False,
+    )
+    assert metrics["calls"] == 3 and metrics["duration_ms"] >= 0
+    assert {name: agent["outcome"] for name, agent in metrics["agents"].items()} == {
+        "nutrition": "valid",
+        "workout": "valid",
+        "reviewer": "valid",
+    }
+
+
 def test_a_failed_generation_is_reported_and_changes_nothing(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level("INFO", logger="app.coach.service")
     headers = _new_user(client)
     _week_with_a_proposal(client, headers)
     targets_before = _targets(client, headers)
@@ -468,6 +501,9 @@ def test_a_failed_generation_is_reported_and_changes_nothing(
     assert "Nothing was changed" in current["failureReason"]
     assert "model unavailable" not in current["failureReason"], "internal errors stay in the logs"
     assert "failed" in [step["status"] for step in current["pipeline"]]
+    metrics = _run_metrics(caplog, current["id"])
+    assert (metrics["outcome"], metrics["error"]) == ("failed", "RuntimeError")
+    assert metrics["agents"]["nutrition"]["errors"] == ["RuntimeError"]
     assert _targets(client, headers) == targets_before
     history = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["checkIns"]
     assert history == [], "a failed check-in has no outcome to list"
@@ -577,9 +613,52 @@ def test_a_run_that_outlived_the_stale_sweep_does_not_bring_its_check_in_back(
     assert current["proposals"] == []
 
 
-def test_a_run_that_takes_too_long_is_stopped_and_marked_failed(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+def test_a_run_whose_check_in_moved_on_meanwhile_is_logged_as_discarded(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    from app.coach.repository import CoachRepository
+
+    caplog.set_level("INFO", logger="app.coach.service")
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    async def already_moved_on(*_: object, **__: object) -> bool:
+        return False  # as when the stale sweep failed it, or another run finished it, mid-run
+
+    monkeypatch.setattr(CoachRepository, "finish_run", already_moved_on)
+    check_in_id = _start(client, headers, "moved-on").json()["id"]
+
+    metrics = _run_metrics(caplog, check_in_id)
+    assert (metrics["outcome"], metrics["calls"]) == ("discarded", 3)
+
+
+def test_a_model_that_cant_be_set_up_fails_the_check_in(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("INFO", logger="app.coach.service")
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    def broken() -> None:
+        raise RuntimeError("bad model settings")
+
+    monkeypatch.setattr("app.coach.service.get_coach_model", broken)
+    check_in_id = _start(client, headers, "no-model").json()["id"]
+
+    assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"
+    metrics = _run_metrics(caplog, check_in_id)
+    assert (metrics["outcome"], metrics["error"], metrics["model"], metrics["calls"]) == (
+        "failed",
+        "RuntimeError",
+        "unknown",
+        0,
+    )
+
+
+def test_a_run_that_takes_too_long_is_stopped_and_marked_failed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("INFO", logger="app.coach.service")
     headers = _new_user(client)
     _week_with_a_proposal(client, headers)
     monkeypatch.setattr("app.coach.service.RUN_TIMEOUT_SECONDS", 0.2)
@@ -593,6 +672,9 @@ def test_a_run_that_takes_too_long_is_stopped_and_marked_failed(
 
     current = client.get(f"{CHECK_INS}/current", headers=headers).json()
     assert current["status"] == "failed"
+    metrics = _run_metrics(caplog, current["id"])
+    assert (metrics["outcome"], metrics["error"]) == ("timed_out", "TimeoutError")
+    assert {agent["errors"][0] for agent in metrics["agents"].values()} == {"CancelledError"}
 
 
 def test_an_error_while_saving_the_proposals_marks_the_check_in_failed(

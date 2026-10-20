@@ -41,9 +41,21 @@ class AgentTask(Generic[T]):
     output: type[T]
 
 
+@dataclass(frozen=True)
+class ModelReply:
+    """Raw output, with the tokens it took when the provider reports them."""
+
+    output: Mapping[str, Any] | str
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
 class CoachModel(Protocol):
-    async def generate(self, task: AgentTask[T]) -> Mapping[str, Any] | str:
-        """Raw structured output for ``task``: a JSON object, or JSON text."""
+    # Recorded with each run, e.g. "fake" or "openai/gpt-5.4-mini".
+    name: str
+
+    async def generate(self, task: AgentTask[T]) -> ModelReply:
+        """Raw structured output for ``task`` (a JSON object, or JSON text) and its tokens."""
         ...
 
 
@@ -51,12 +63,14 @@ class FakeCoachModel:
     """Rule-based answers in the shape a real model would give. Not a good coach:
     it exists so the graph, validation and approval flow run end to end."""
 
-    async def generate(self, task: AgentTask[T]) -> Mapping[str, Any]:
+    name = "fake"
+
+    async def generate(self, task: AgentTask[T]) -> ModelReply:
         if task.agent == "nutrition":
-            return _fake_nutrition(task.context)
+            return ModelReply(_fake_nutrition(task.context))
         if task.agent == "workout":
-            return _fake_workout(task.context)
-        return _fake_review(task.context)
+            return ModelReply(_fake_workout(task.context))
+        return ModelReply(_fake_review(task.context))
 
 
 class OpenAICoachModel:
@@ -69,8 +83,9 @@ class OpenAICoachModel:
     def __init__(self, client: openai.AsyncOpenAI, model: str) -> None:
         self.client = client
         self.model = model
+        self.name = f"openai/{model}"
 
-    async def generate(self, task: AgentTask[T]) -> str:
+    async def generate(self, task: AgentTask[T]) -> ModelReply:
         try:
             completion = await self.client.chat.completions.create(
                 model=self.model,
@@ -107,7 +122,12 @@ class OpenAICoachModel:
                     "refused": bool(choice.message.refusal),
                 },
             )
-        return choice.message.content or ""
+        usage = completion.usage
+        return ModelReply(
+            output=choice.message.content or "",
+            input_tokens=usage.prompt_tokens if usage else 0,
+            output_tokens=usage.completion_tokens if usage else 0,
+        )
 
 
 _RETRYABLE_STATUSES = frozenset({408, 409, 429})

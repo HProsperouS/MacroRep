@@ -11,7 +11,8 @@ from langgraph.types import RetryPolicy
 
 from app.coach.agents import graph as graph_module
 from app.coach.agents.graph import nutrition_context, run_agents, workout_context
-from app.coach.agents.model import AgentTask, FakeCoachModel, ModelUnavailableError, _fake_review
+from app.coach.agents.metrics import RunMetrics
+from app.coach.agents.model import AgentTask, FakeCoachModel, ModelReply, ModelUnavailableError, _fake_review
 from app.coach.agents.schemas import ExerciseAdjustment, NutritionAdvice, WorkoutAdvice
 from app.coach.agents.validate import resolve_conflicts, validate_nutrition, validate_workout
 
@@ -21,18 +22,18 @@ Answer = Mapping[str, Any] | str | Callable[[AgentTask[Any]], Any]
 class ScriptedModel:
     """Answers each agent from a script (one entry per call, the last repeating); records what it saw."""
 
+    name = "scripted"
+
     def __init__(self, **script: list[Answer]) -> None:
         self.script = script
         self.calls: dict[str, list[Mapping[str, Any]]] = {"nutrition": [], "workout": [], "reviewer": []}
 
-    async def generate(self, task: AgentTask[Any]) -> Mapping[str, Any] | str:
+    async def generate(self, task: AgentTask[Any]) -> ModelReply:
         calls = self.calls[task.agent]
         calls.append(task.context)
         answers = self.script[task.agent]
         answer = answers[min(len(calls), len(answers)) - 1]
-        if callable(answer):
-            return answer(task)  # type: ignore[no-any-return]
-        return answer
+        return ModelReply(answer(task) if callable(answer) else answer)
 
 
 def snapshot(**overrides: Any) -> dict[str, Any]:
@@ -235,6 +236,37 @@ async def test_a_transient_model_error_is_retried(monkeypatch: pytest.MonkeyPatc
     assert draft.pipeline[1]["status"] == "done"
 
 
+async def test_every_model_call_is_counted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        graph_module,
+        "MODEL_RETRY",
+        RetryPolicy(max_attempts=3, initial_interval=0.01, jitter=False, retry_on=ModelUnavailableError),
+    )
+
+    def flaky(task: AgentTask[Any]) -> Any:
+        raise ModelUnavailableError("rate limited")
+
+    model = ScriptedModel(
+        nutrition=[flaky, KEEP_NUTRITION], workout=["not json", KEEP_WORKOUT], reviewer=[APPROVE]
+    )
+    metrics = RunMetrics(model="scripted")
+    await run_agents(snapshot(), model, metrics=metrics)
+
+    summary = metrics.summary(outcome="completed", duration_ms=1234)
+    assert (summary["outcome"], summary["model"], summary["resumed"]) == ("completed", "scripted", False)
+    assert (summary["duration_ms"], summary["calls"]) == (1234, 5)
+    agents = summary["agents"]
+    assert (agents["nutrition"]["calls"], agents["nutrition"]["outcome"]) == (2, "valid")
+    assert agents["nutrition"]["errors"] == ["ModelUnavailableError"], "the retried error, by class only"
+    assert (agents["workout"]["calls"], agents["workout"]["outcome"], agents["workout"]["errors"]) == (
+        2,
+        "valid",
+        [],
+    )
+    assert agents["reviewer"]["calls"] == 1
+    assert [call.outcome for call in metrics.calls if call.agent == "workout"] == ["invalid", "valid"]
+
+
 async def test_a_model_that_stays_down_fails_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         graph_module,
@@ -261,16 +293,21 @@ async def test_an_interrupted_run_resumes_from_its_checkpoint_without_redoing_fi
         await run_agents(snapshot(), model, thread_id="check-in-1", checkpointer=saver)
     assert len(model.calls["nutrition"]) == 1
 
-    draft = await run_agents(snapshot(), model, thread_id="check-in-1", checkpointer=saver)
+    metrics = RunMetrics(model="scripted")
+    draft = await run_agents(snapshot(), model, thread_id="check-in-1", checkpointer=saver, metrics=metrics)
 
     assert len(model.calls["nutrition"]) == 1, "the finished nutrition step was kept, not run again"
+    assert metrics.resumed
+    assert {call.agent for call in metrics.calls} == {"workout", "reviewer"}
     assert len(model.calls["workout"]) == 2
     assert draft.proposals[0].changes[0].after == 2000
 
     # A finished run is read back from its checkpoint, not run a third time.
-    again = await run_agents(snapshot(), model, thread_id="check-in-1", checkpointer=saver)
+    reread = RunMetrics(model="scripted")
+    again = await run_agents(snapshot(), model, thread_id="check-in-1", checkpointer=saver, metrics=reread)
     assert again == draft
     assert len(model.calls["reviewer"]) == 1
+    assert reread.resumed and reread.calls == [], "counted as resumed, not as a free fresh run"
 
 
 async def test_too_little_data_is_reported_rather_than_a_change_invented() -> None:
