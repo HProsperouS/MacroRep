@@ -174,7 +174,7 @@ These exclusions protect the four-person team from excessive scope and keep the 
 - Integration and end-to-end tests.
 - ~~Load testing for selected endpoints.~~ Dropped (see the scope changes below).
 - Logging, health checks, and basic monitoring, including agent run metrics (duration, outcome, retries).
-- Evaluation of the agents' quality (§26), as far as a rule-based model allows: conflict detection, validation, structured-output handling.
+- Evaluation of the agents' quality (§26) on the real model: fixed scenarios with known sensible answers ([agent-evaluation.md](agent-evaluation.md)).
 - Architecture documentation, ERD, API documentation, and setup guide.
 
 ### P3: Stretch features

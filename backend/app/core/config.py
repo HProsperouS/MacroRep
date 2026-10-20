@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from openai.types.shared import ReasoningEffort
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -79,6 +80,10 @@ class Settings(BaseSettings):
     coach_model_provider: Literal["fake", "openai"] = Field(default="fake", alias="COACH_MODEL_PROVIDER")
     openai_api_key: SecretStr | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-5.4-mini", alias="OPENAI_MODEL", min_length=1)
+    # For reasoning models. Without it gpt-5.4-mini answers without reasoning and got the
+    # direction of a calorie change wrong in 5 of 12 evaluation runs; "low" got all 12 right
+    # for about 0.3 s more (docs/agent-evaluation.md). Leave it empty for a model without reasoning.
+    openai_reasoning_effort: ReasoningEffort = Field(default="low", alias="OPENAI_REASONING_EFFORT")
     # One model call. Short enough that a call that times out can be tried again within the
     # agent step's 60 s limit (see NODE_TIMEOUT_SECONDS).
     openai_timeout_seconds: float = Field(default=20, alias="OPENAI_TIMEOUT_SECONDS", gt=0, le=25)
@@ -102,6 +107,11 @@ class Settings(BaseSettings):
         """
 
         return LOCAL_JWT_SECRET if value == "" else value
+
+    @field_validator("openai_reasoning_effort", mode="before")
+    @classmethod
+    def blank_effort_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("openai_api_key", mode="before")
     @classmethod

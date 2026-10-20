@@ -85,6 +85,13 @@ async def test_sends_the_instructions_context_and_output_schema() -> None:
     }
     assert NutritionAdvice.model_validate_json(reply.output).new_calorie_target == 2100  # type: ignore[arg-type]
     assert (reply.input_tokens, reply.output_tokens) == (100, 20)
+    assert request["reasoning_effort"] is openai.omit, "not sent unless set"
+
+
+async def test_asks_for_the_configured_reasoning_effort() -> None:
+    client = StubClient()
+    await OpenAICoachModel(client, "gpt-test", "low").generate(task())  # type: ignore[arg-type]
+    assert client.requests[0]["reasoning_effort"] == "low"
 
 
 async def test_a_check_in_runs_end_to_end_on_it() -> None:
@@ -182,9 +189,25 @@ def test_the_configured_provider_is_used_and_the_key_stays_hidden(monkeypatch: p
     assert model.model == "gpt-test"
     assert model.client.max_retries == 0  # LangGraph retries instead
     assert model.client.timeout == 20
+    assert model.reasoning_effort == "low"  # the default
     assert get_coach_model() is model  # one client, reused
     assert "sk-secret" not in repr(configured)
     model_module._openai_model.cache_clear()
+
+
+async def test_a_blank_reasoning_effort_is_not_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    configured = settings(COACH_MODEL_PROVIDER="openai", OPENAI_API_KEY="sk-x", OPENAI_REASONING_EFFORT="")
+    monkeypatch.setattr(model_module, "get_settings", lambda: configured)
+    model_module._openai_model.cache_clear()
+    model = get_coach_model()
+    assert isinstance(model, OpenAICoachModel)
+    client = StubClient()
+    model.client = client  # type: ignore[assignment]
+    try:
+        await model.generate(task())
+    finally:
+        model_module._openai_model.cache_clear()
+    assert client.requests[0]["reasoning_effort"] is openai.omit
 
 
 def test_the_fake_needs_no_key() -> None:

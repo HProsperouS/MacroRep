@@ -103,8 +103,8 @@ jq -r '[.timestamp, .event, .correlation_id] | @tsv' logs/error-$(date -u +%F).l
 ```
 
 ```bash
-uv run ruff check app migrations tests
-uv run mypy --config-file pyproject.toml app
+uv run ruff check app migrations tests evals
+uv run mypy --config-file pyproject.toml app evals
 uv run pytest
 uv run pytest --cov            # with branch coverage; fails below 90%
 ```

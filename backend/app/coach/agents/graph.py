@@ -20,8 +20,9 @@ import logging
 import time
 from collections.abc import Mapping
 from dataclasses import asdict
-from typing import Any, TypedDict, TypeVar
+from typing import Any, TypedDict, TypeVar, get_args, get_origin
 
+from annotated_types import MaxLen
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -45,26 +46,72 @@ MODEL_RETRY = RetryPolicy(max_attempts=3, initial_interval=1.0, retry_on=ModelUn
 # Per-node ceiling on one model step, retries included.
 NODE_TIMEOUT_SECONDS = 60
 
+
+def _length_limits(schema: type[BaseModel], owner: str = "") -> list[str]:
+    """The schema's length limits, in words: the model isn't held to them while generating."""
+
+    found: list[str] = []
+    for name, field in schema.model_fields.items():
+        label = f"{owner}{name}"
+        limit = next((m.max_length for m in field.metadata if isinstance(m, MaxLen)), None)
+        if get_origin(field.annotation) is list:
+            if limit is not None:
+                found.append(f"at most {limit} {label} items")
+            [item] = get_args(field.annotation)
+            if isinstance(item, type) and issubclass(item, BaseModel):
+                found += _length_limits(item, f"each {name} item's ")
+        elif limit is not None:
+            found.append(f"{label} under {limit} characters")
+    return found
+
+
+def _limits(schema: type[BaseModel]) -> str:
+    return f"Stay within these limits: {'; '.join(_length_limits(schema))}."
+
+
 NUTRITION_INSTRUCTIONS = f"""You are the Nutrition agent of a fitness app's weekly check-in.
 From the week's figures, decide whether the user's daily calorie target should change.
-Be conservative: propose at most a {limits.MAX_WEEKLY_CALORIE_CHANGE} kcal change, never below
+
+The figures: weight_change_kg is how much the user's trend weight (a smoothed average that
+already filters out day-to-day water swings) moved over these 7 days, so it is a reliable
+weekly rate, not a single noisy weigh-in. goal_rate_kg_per_week is the planned rate:
+negative to lose, positive to gain, 0 to maintain. food_log_days is how many of the 7 days
+have food logged. avg_calories is the average over those days; target_gap_kcal is intake
+minus target summed over the finished days logged (today isn't finished, so
+complete_days + partial_days + missing_days is 6).
+
+When food_log_days is at least 5 and the trend misses the goal rate by more than
+about 0.2 kg a week, change the target to close the gap: lower it when weight is falling
+slower than planned (or rising when it should fall), raise it when weight is falling faster
+than planned (or not rising when it should). Roughly 1,100 kcal a day moves the rate by 1 kg a
+week. If intake well above the target already explains the gap, keep the target and say so:
+the target isn't the problem. Otherwise keep it.
+
+Propose at most a {limits.MAX_WEEKLY_CALORIE_CHANGE} kcal change, never below
 {limits.MIN_TARGET_CALORIES} kcal. Never treat an unlogged day as zero intake. If too few days
 were logged to judge, keep the target and say why in `uncertainty`. Cite the figures you used
-as evidence. You are not a medical service: no diagnoses, no extreme restriction."""
+as evidence. You are not a medical service: no diagnoses, no extreme restriction.
+{_limits(NutritionAdvice)}"""
 
 WORKOUT_INSTRUCTIONS = f"""You are the Workout agent of a fitness app's weekly check-in.
 From completion, effort (RPE) and estimated-1RM trends, decide whether any exercise in the
 user's scheduled routines should change its working sets, target weight or target reps.
-Only refer to routine and exercise ids you were given. Small steps only: sets by
-{limits.MAX_SET_CHANGE}, weight by at most {int(limits.MAX_LOAD_CHANGE_SHARE * 100)}%, reps by
-{limits.MAX_REP_CHANGE}. Rising RPE without strength gains suggests easing off; low RPE with
-steady gains suggests progressing. Cite the trends you used as evidence. No injury advice."""
+In exercise_trends, recent_* is this week and prior_* the three weeks before; e1rm is the
+estimated one-rep max from working sets. Only refer to routine and exercise ids you were
+given. Small steps only: sets by {limits.MAX_SET_CHANGE}, weight by at most
+{int(limits.MAX_LOAD_CHANGE_SHARE * 100)}%, reps by {limits.MAX_REP_CHANGE}. Rising RPE without
+strength gains suggests easing off; low RPE with steady gains suggests progressing. Cite the trends you used
+as evidence. No injury advice.
+{_limits(WorkoutAdvice)}"""
 
-REVIEWER_INSTRUCTIONS = """You are the Reviewer of a fitness app's weekly check-in.
-You see the Nutrition and Workout proposals together. Look for conflicts (for example less
-food while training gets harder), for conclusions the data doesn't support, and for anything
+REVIEWER_INSTRUCTIONS = f"""You are the Reviewer of a fitness app's weekly check-in.
+You see the Nutrition and Workout proposals together. A lower calorie target together with
+any increase in training load (working sets, target weight or target reps) is a conflict:
+eating less while training harder undercuts recovery. Report it with severity "conflict" and
+hold one of the two back. Also look for conclusions the data doesn't support and for anything
 outside a fitness app's scope. You may hold a proposal back (keep_* = false), never add or
-enlarge one. Write a short note the user will read."""
+enlarge one. Write a short note the user will read.
+{_limits(Review)}"""
 
 
 class CoachState(TypedDict, total=False):
@@ -116,6 +163,7 @@ def nutrition_context(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     keys = (
         "target_calories",
         "avg_calories",
+        "food_log_days",
         "adherence_percent",
         "complete_days",
         "partial_days",

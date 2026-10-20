@@ -87,6 +87,7 @@ values, so a misconfiguration fails fast instead of running.
 | `COACH_MODEL_PROVIDER` | `openai` | Or `fake` (rule-based) for a demo without a key. |
 | `OPENAI_API_KEY` | from Secrets Manager | Required with `openai`. |
 | `OPENAI_MODEL` | `gpt-5.4-mini` | The default. |
+| `OPENAI_REASONING_EFFORT` | `low` | The default; empty for a model without reasoning. |
 | `LOG_JSON` | `true` | One JSON object per line, for CloudWatch. |
 | `LOG_LEVEL` | `INFO` | |
 | `LOG_DIR` | unset | Log files are for local development; a container's logs are collected from stdout. |

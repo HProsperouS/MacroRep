@@ -19,6 +19,7 @@ from functools import lru_cache
 from typing import Any, Generic, Literal, Protocol, TypeVar
 
 import openai
+from openai.types.shared import ReasoningEffort
 from pydantic import BaseModel
 
 from app.core.config import get_settings
@@ -80,9 +81,12 @@ class OpenAICoachModel:
     caller validates every answer against the full schema anyway.
     """
 
-    def __init__(self, client: openai.AsyncOpenAI, model: str) -> None:
+    def __init__(
+        self, client: openai.AsyncOpenAI, model: str, reasoning_effort: ReasoningEffort = None
+    ) -> None:
         self.client = client
         self.model = model
+        self.reasoning_effort = reasoning_effort
         self.name = f"openai/{model}"
 
     async def generate(self, task: AgentTask[T]) -> ModelReply:
@@ -101,6 +105,8 @@ class OpenAICoachModel:
                         "strict": False,
                     },
                 },
+                # Omitted, not sent as null, for a model without reasoning.
+                reasoning_effort=self.reasoning_effort or openai.omit,
             )
         # A timeout is a connection error too.
         except openai.APIConnectionError as error:
@@ -134,12 +140,14 @@ _RETRYABLE_STATUSES = frozenset({408, 409, 429})
 
 
 @lru_cache(maxsize=1)
-def _openai_model(api_key: str, model: str, timeout_seconds: float) -> OpenAICoachModel:
+def _openai_model(
+    api_key: str, model: str, timeout_seconds: float, reasoning_effort: ReasoningEffort
+) -> OpenAICoachModel:
     """One client per configuration, so its connection pool is reused across check-ins."""
 
     # LangGraph's retry policy does the retrying, with the step's own time limit.
     client = openai.AsyncOpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0)
-    return OpenAICoachModel(client, model)
+    return OpenAICoachModel(client, model, reasoning_effort)
 
 
 def get_coach_model() -> CoachModel:
@@ -148,7 +156,12 @@ def get_coach_model() -> CoachModel:
         return FakeCoachModel()
     key = settings.openai_api_key
     assert key is not None  # Settings refuses "openai" without a key
-    return _openai_model(key.get_secret_value(), settings.openai_model, settings.openai_timeout_seconds)
+    return _openai_model(
+        key.get_secret_value(),
+        settings.openai_model,
+        settings.openai_timeout_seconds,
+        settings.openai_reasoning_effort,
+    )
 
 
 # Kcal per kg/week of difference between the goal rate and the actual trend, for the fake's

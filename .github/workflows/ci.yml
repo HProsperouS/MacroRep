@@ -47,9 +47,9 @@ jobs:
       - name: Install
         run: uv sync --locked
       - name: Lint
-        run: uv run --locked ruff check app migrations tests
+        run: uv run --locked ruff check app migrations tests evals
       - name: Type check
-        run: uv run --locked mypy app
+        run: uv run --locked mypy app evals
       # The migrations build the schema the models describe, and the reversible ones
       # (down to c9d2e5f8a1b3, which refuses) go down and back up cleanly.
       - name: Migrations

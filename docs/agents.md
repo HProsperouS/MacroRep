@@ -112,7 +112,8 @@ output (a JSON object or text), which the caller validates.
 `COACH_MODEL_PROVIDER` picks one of two:
 
 - **`openai`** (`OpenAICoachModel`): OpenAI's Chat Completions API, model `OPENAI_MODEL`
-  (default `gpt-5.4-mini`), key `OPENAI_API_KEY` (the app refuses to start without one).
+  (default `gpt-5.4-mini`) with reasoning effort `OPENAI_REASONING_EFFORT` (default `low`),
+  key `OPENAI_API_KEY` (the app refuses to start without one).
   The instructions go as the system message, the context as JSON, and the output schema as
   a non-strict `json_schema` response format: strict mode accepts only part of JSON Schema,
   and every answer is validated against the full schema anyway. Timeouts, connection
@@ -136,6 +137,30 @@ output (a JSON object or text), which the caller validates.
 **Another provider** is one more class with the same `generate` method, like
 `OpenAICoachModel`, selected by a new `COACH_MODEL_PROVIDER` value. The graph, the
 validation and the retries stay as they are.
+
+## Evaluation
+
+`backend/evals/agent_eval.py` runs fixed weeks with a known sensible answer through the real
+model and writes [agent-evaluation.md](agent-evaluation.md): ten scenarios (a stalled cut,
+losing too fast, a stalled gain, on track, too few days logged, eating over target, easy
+lifts, grinding lifts, missed workouts, and a cut proposed with heavier lifting for the
+Reviewer alone), three runs each. Its checks read each agent's own answer, before the rules
+in `validate.py` correct it, so they measure the model's judgement. It makes paid calls, so
+it runs by hand, not in CI; `tests/test_agent_eval.py` runs it on the rule-based model.
+
+The first runs on `gpt-5.4-mini` found four problems, all fixed:
+
+| Problem | Cause | Fix |
+|---|---|---|
+| The calorie target moved the sensible way in 9 of 18 runs; once it was cut for someone losing too fast | Without `reasoning_effort` the model answers without reasoning and slips on the arithmetic and signs | `OPENAI_REASONING_EFFORT=low`. On five Nutrition scenarios × 3: 6 of 15 right before, 13 with reasoning alone, 15 with the instructions below too; about 0.3 s more per call |
+| The Nutrition agent dismissed a week's weight change as noise | It didn't know `weight_change_kg` is a smoothed trend | The instructions explain each figure and when to change the target |
+| 6 of 95 answers failed the schema (too many evidence items, a reason too long) | The schema's length limits aren't enforced while generating | Each agent's instructions state its schema's limits, generated from the schema |
+| The Reviewer flagged a cut proposed with heavier lifting in 0 to 3 of 3 runs, varying from one evaluation to the next | It noticed the recovery risk but called it a warning | Its instructions state the rule: a lower target with any load increase is a conflict to report and hold back (8 of 8 after) |
+
+After the fixes every check passed in all 30 runs of the final evaluation. Results vary
+between evaluations: in the one before it, a missed-workouts week once got a small bench
+increase. The scenarios are few and were written alongside the fixes, so this shows the
+agents handle these cases, not that they're right in general.
 
 ## Run metrics
 
