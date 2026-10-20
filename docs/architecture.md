@@ -31,7 +31,7 @@ flowchart LR
     end
 
     DB[(PostgreSQL<br/>app tables + checkpoints)]
-    M[Coach model<br/>rule-based for now]
+    M[Coach model<br/>OpenAI, or rule-based]
 
     Q -->|HTTPS JSON| MW
     REPO --> DB

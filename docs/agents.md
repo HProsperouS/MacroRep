@@ -109,9 +109,20 @@ Agents reach a language model through one interface (`model.py`): `generate(task
 the agent's role, instructions, context and output schema, and returns raw structured
 output (a JSON object or text), which the caller validates.
 
-**Only a rule-based model exists so far** (`FakeCoachModel`, `COACH_MODEL_PROVIDER=fake`).
-It answers in the shape a language model would, from simple rules, so the whole flow,
-validation and approval run without an API key:
+`COACH_MODEL_PROVIDER` picks one of two:
+
+- **`openai`** (`OpenAICoachModel`): OpenAI's Chat Completions API, model `OPENAI_MODEL`
+  (default `gpt-5.4-mini`), key `OPENAI_API_KEY` (the app refuses to start without one).
+  The instructions go as the system message, the context as JSON, and the output schema as
+  a non-strict `json_schema` response format: strict mode accepts only part of JSON Schema,
+  and every answer is validated against the full schema anyway. Timeouts, connection
+  errors, rate limits and 5xx become `ModelUnavailableError` and are retried by LangGraph
+  (the client itself doesn't retry; one call times out after `OPENAI_TIMEOUT_SECONDS`,
+  default 20, so a retry fits in the step's 60 s). A bad key or request fails the run.
+  A refusal or a cut-off answer counts as unusable output and is logged.
+- **`fake`** (`FakeCoachModel`, the default): answers in the shape a language model would,
+  from simple rules, so the whole flow, validation and approval run without an API key.
+  Tests, CI and the end-to-end tests always use it:
 
 - **Nutrition:** keeps the target when under 80% of days were logged (and says so) or when
   the weight trend is within 0.15 kg/week of the goal; otherwise corrects the target by
@@ -122,11 +133,9 @@ validation and approval run without an API key:
 - **Reviewer:** flags a cut alongside any load increase as a conflict and holds the
   training proposal; warns when more than two days have no food logged.
 
-**Adding a real provider** means one class with the same `generate` method that calls the
-provider's structured-output API (sending the task's instructions, its context as JSON,
-and the output schema), raises `ModelUnavailableError` for errors worth retrying, and is
-selected by a new `COACH_MODEL_PROVIDER` value. Nothing else changes: the graph, the
-validation, the retries and the tests stay as they are.
+**Another provider** is one more class with the same `generate` method, like
+`OpenAICoachModel`, selected by a new `COACH_MODEL_PROVIDER` value. The graph, the
+validation and the retries stay as they are.
 
 ## Differences from the plan
 
@@ -154,6 +163,9 @@ validation, the retries and the tests stay as they are.
 - **Resume:** an interrupted run resumes from its checkpoint without redoing finished steps.
 - **Insufficient data:** too little data gives no change rather than an invented one.
 - **Limits:** every value is clamped as in the table above.
+
+`backend/tests/test_coach_openai.py` covers the OpenAI provider against a stand-in client:
+what it sends, a whole check-in run on it, which errors are retried, and that it needs a key.
 
 `backend/tests/test_coach_api.py` covers the whole check-in through the API:
 

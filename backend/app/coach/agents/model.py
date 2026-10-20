@@ -4,20 +4,26 @@ An agent hands the model an ``AgentTask``: its role, its instructions, a compact
 JSON context, and the output schema. The model answers with raw structured output,
 which the caller validates against the schema; a model can't skip validation.
 
-Only ``FakeCoachModel`` exists for now: a deterministic stand-in with simple rules,
-so the whole flow runs and is testable without an API key. A real provider is one
-more class with the same ``generate`` method, picked by ``COACH_MODEL_PROVIDER``.
+``FakeCoachModel`` is a deterministic stand-in with simple rules, so the whole flow runs
+and is testable without an API key. ``OpenAICoachModel`` asks OpenAI for the same output.
+``COACH_MODEL_PROVIDER`` picks one.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Generic, Literal, Protocol, TypeVar
 
+import openai
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 AgentName = Literal["nutrition", "workout", "reviewer"]
@@ -53,11 +59,76 @@ class FakeCoachModel:
         return _fake_review(task.context)
 
 
+class OpenAICoachModel:
+    """Asks OpenAI's Chat Completions API for an answer in the task's output schema.
+
+    The schema is sent non-strict: strict mode accepts only a subset of JSON Schema, and the
+    caller validates every answer against the full schema anyway.
+    """
+
+    def __init__(self, client: openai.AsyncOpenAI, model: str) -> None:
+        self.client = client
+        self.model = model
+
+    async def generate(self, task: AgentTask[T]) -> str:
+        try:
+            completion = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": task.instructions},
+                    {"role": "user", "content": json.dumps(task.context, default=str)},
+                ],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": task.output.__name__,
+                        "schema": task.output.model_json_schema(),
+                        "strict": False,
+                    },
+                },
+            )
+        # A timeout is a connection error too.
+        except openai.APIConnectionError as error:
+            raise ModelUnavailableError(type(error).__name__) from error
+        except openai.APIStatusError as error:
+            # The statuses the SDK itself would retry. Anything else (a bad key, a bad request)
+            # won't get better by asking again, so it fails the run.
+            if error.status_code in _RETRYABLE_STATUSES or error.status_code >= 500:
+                raise ModelUnavailableError(f"HTTP {error.status_code}") from error
+            raise
+        choice = completion.choices[0]
+        if choice.finish_reason != "stop" or choice.message.refusal:
+            # Cut off or refused: it is rejected like any answer that doesn't fit the schema.
+            logger.warning(
+                "model answer incomplete",
+                extra={
+                    "agent": task.agent,
+                    "finish_reason": choice.finish_reason,
+                    "refused": bool(choice.message.refusal),
+                },
+            )
+        return choice.message.content or ""
+
+
+_RETRYABLE_STATUSES = frozenset({408, 409, 429})
+
+
+@lru_cache(maxsize=1)
+def _openai_model(api_key: str, model: str, timeout_seconds: float) -> OpenAICoachModel:
+    """One client per configuration, so its connection pool is reused across check-ins."""
+
+    # LangGraph's retry policy does the retrying, with the step's own time limit.
+    client = openai.AsyncOpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0)
+    return OpenAICoachModel(client, model)
+
+
 def get_coach_model() -> CoachModel:
-    provider = get_settings().coach_model_provider
-    if provider == "fake":
+    settings = get_settings()
+    if settings.coach_model_provider == "fake":
         return FakeCoachModel()
-    raise ValueError(f"Unknown COACH_MODEL_PROVIDER: {provider}")
+    key = settings.openai_api_key
+    assert key is not None  # Settings refuses "openai" without a key
+    return _openai_model(key.get_secret_value(), settings.openai_model, settings.openai_timeout_seconds)
 
 
 # Kcal per kg/week of difference between the goal rate and the actual trend, for the fake's

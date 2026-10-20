@@ -84,7 +84,9 @@ values, so a misconfiguration fails fast instead of running.
 | `SEED_DEMO_DATA` | `false` | Required in production. For a demo environment, see below. |
 | `DEBUG` | `false` | Required in production. |
 | `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW` | e.g. `5`, `5` | Per task. See the connection budget. |
-| `COACH_MODEL_PROVIDER` | `fake` | The only provider so far. A real model's API key would be one more secret. |
+| `COACH_MODEL_PROVIDER` | `openai` | Or `fake` (rule-based) for a demo without a key. |
+| `OPENAI_API_KEY` | from Secrets Manager | Required with `openai`. |
+| `OPENAI_MODEL` | `gpt-5.4-mini` | The default. |
 | `LOG_JSON` | `true` | One JSON object per line, for CloudWatch. |
 | `LOG_LEVEL` | `INFO` | |
 
@@ -216,7 +218,5 @@ Gaps that would matter for real users, tracked in [`follow-ups.md`](follow-ups.m
 
 - **No login rate limiting.** On AWS this needs a shared store or an AWS WAF rate-based
   rule on the CloudFront distribution, since in-memory limits don't span tasks.
-- **The coach's model is rule-based** (`COACH_MODEL_PROVIDER=fake`): real model calls need
-  a provider adapter and its API key in Secrets Manager.
 - **No infrastructure code or deploy pipeline.** CI is step 1 of releasing and builds the
   image, but pushes nothing; the other steps are manual.

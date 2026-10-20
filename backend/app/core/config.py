@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -75,8 +75,13 @@ class Settings(BaseSettings):
     database_pool_size: int = Field(default=10, alias="DATABASE_POOL_SIZE", ge=1, le=100)
     database_max_overflow: int = Field(default=20, alias="DATABASE_MAX_OVERFLOW", ge=0, le=200)
 
-    # Which language model the check-in agents use. Only the rule-based "fake" exists so far.
-    coach_model_provider: Literal["fake"] = Field(default="fake", alias="COACH_MODEL_PROVIDER")
+    # Which language model the check-in agents use: the rule-based "fake" (no API key) or OpenAI.
+    coach_model_provider: Literal["fake", "openai"] = Field(default="fake", alias="COACH_MODEL_PROVIDER")
+    openai_api_key: SecretStr | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-5.4-mini", alias="OPENAI_MODEL", min_length=1)
+    # One model call. Short enough that a call that times out can be tried again within the
+    # agent step's 60 s limit (see NODE_TIMEOUT_SECONDS).
+    openai_timeout_seconds: float = Field(default=20, alias="OPENAI_TIMEOUT_SECONDS", gt=0, le=25)
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_json: bool = Field(default=True, alias="LOG_JSON")
@@ -94,6 +99,19 @@ class Settings(BaseSettings):
         """
 
         return LOCAL_JWT_SECRET if value == "" else value
+
+    @field_validator("openai_api_key", mode="before")
+    @classmethod
+    def blank_key_is_unset(cls, value: object) -> object:
+        """`OPENAI_API_KEY=` as shipped in `.env.example` means no key; stray spaces don't count."""
+
+        return (value.strip() or None) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def require_key_for_openai(self) -> Settings:
+        if self.coach_model_provider == "openai" and self.openai_api_key is None:
+            raise ValueError("OPENAI_API_KEY must be set when COACH_MODEL_PROVIDER=openai")
+        return self
 
     @model_validator(mode="after")
     def reject_debug_in_production(self) -> Settings:

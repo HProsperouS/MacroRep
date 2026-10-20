@@ -59,12 +59,12 @@ checks each limit from both sides.
 
 ### Known simplifications vs. a production system
 
-- **The check-in agents run on a rule-based model for now.** The LangGraph flow
-  in `app/coach/agents/` (Nutrition and Workout agents, a Reviewer, then
-  deterministic validation) is real, but `COACH_MODEL_PROVIDER=fake` is the
-  only provider: `FakeCoachModel` answers each agent with simple rules in the
-  shape a language model would. Adding a real provider means one class with
-  the same `generate` method. Coach Chat is still a canned reply.
+- **The check-in agents use OpenAI or a rule-based stand-in.** The LangGraph
+  flow in `app/coach/agents/` (Nutrition and Workout agents, a Reviewer, then
+  deterministic validation) runs on OpenAI with `COACH_MODEL_PROVIDER=openai`
+  and `OPENAI_API_KEY` set in `.env`, or on `FakeCoachModel` (the default),
+  which answers each agent with simple rules and needs no key. Tests always use
+  the fake. Coach Chat is still a canned reply.
 - **No shared-record audit trail.** Unlike a multi-staff CRM, MacroRep
   records are single-owner personal data, so there's no admin/agent role
   hierarchy or soft-delete-with-named-actor trail — just plain

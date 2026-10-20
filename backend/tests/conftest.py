@@ -30,6 +30,8 @@ os.environ.update(
         "PREVIEW_AUTH_ENABLED": "true",
         "AUTO_CREATE_SCHEMA": "true",
         "SEED_DEMO_DATA": "true",
+        # Never a real model, whatever backend/.env says: no API calls, no cost, same answers.
+        "COACH_MODEL_PROVIDER": "fake",
     }
 )
 
