@@ -44,8 +44,9 @@ against a common-password list (NIST SP 800-63B), either a small built-in list
 - **Migrations don't run on SQLite:** `alembic upgrade head` against a SQLite
   database stops at `a1f4c9e2b7d3`, which drops a column without batch mode
   (`ALTER TABLE users DROP COLUMN cognito_subject`). The README's SQLite quick
-  start works only with `AUTO_CREATE_SCHEMA=true`. Every migration since has
-  been checked on Postgres only.
-- **Tests run on SQLite,** which ignores numeric column sizes. Input limits
-  are set to fit every column, but running the suite against Postgres in CI
-  would prove no oversized value can overflow one.
+  start works only with `AUTO_CREATE_SCHEMA=true`. CI checks the migrations on
+  Postgres only.
+- **Column sizes:** local test runs use SQLite, which ignores numeric column
+  sizes; CI runs the suite on Postgres, where a test saving a value too big for
+  its column fails. Input limits are set to fit every column, but not every
+  limit has a test that saves its maximum value.

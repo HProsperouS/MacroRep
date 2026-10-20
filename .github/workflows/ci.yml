@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A new push to a pull request replaces its older run; every commit on main keeps its own.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: macrorep_test
+          POSTGRES_USER: macrorep
+          POSTGRES_PASSWORD: ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U macrorep -d macrorep_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://macrorep:ci-only@localhost:5432/macrorep_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.13"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: uv run --locked ruff check app migrations tests
+      - name: Type check
+        run: uv run --locked mypy app
+      # The migrations build the schema the models describe, and the reversible ones
+      # (down to c9d2e5f8a1b3, which refuses) go down and back up cleanly.
+      - name: Migrations
+        run: |
+          uv run --locked alembic upgrade head
+          uv run --locked alembic check
+          uv run --locked alembic downgrade c9d2e5f8a1b3
+          uv run --locked alembic upgrade head
+      # Wipes the database the migrations used: each test starts from an empty schema.
+      - name: Tests (PostgreSQL)
+        run: uv run --locked pytest
+        env:
+          TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+      # The default local run, so what developers run day to day keeps working too.
+      - name: Tests (SQLite)
+        run: uv run --locked pytest
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: /api/v1
+
+  backend-image:
+    name: Backend image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build production image
+        run: docker build --target production -f backend/Dockerfile -t macrorep-backend:${{ github.sha }} .

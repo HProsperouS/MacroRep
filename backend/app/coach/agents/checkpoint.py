@@ -18,6 +18,8 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy.engine import make_url
 
+from app.core.database import libpq_conninfo
+
 # Kept small: every connection counts against the database's limit (plan.md §22).
 _POOL_MAX_SIZE = 2
 
@@ -37,9 +39,8 @@ async def checkpointer_lifespan(database_url: str) -> AsyncIterator[None]:
     if url.get_backend_name() != "postgresql":
         yield
         return
-    conninfo = url.set(drivername="postgresql").render_as_string(hide_password=False)
     async with AsyncConnectionPool(
-        conninfo,
+        libpq_conninfo(database_url),
         min_size=1,
         max_size=_POOL_MAX_SIZE,
         open=False,

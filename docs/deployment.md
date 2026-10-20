@@ -122,8 +122,10 @@ flowchart LR
     F --> G[Smoke test]
 ```
 
-1. **Build and test.** Backend: `uv run ruff check`, `uv run mypy`, `uv run pytest`.
-   Frontend: `npm run lint`, `npm test`, `npm run build` with `VITE_API_BASE_URL=/api/v1`.
+1. **Build and test.** A green CI run (`.github/workflows/ci.yml`) for the commit being
+   released: backend lint, type check, the migrations on PostgreSQL, and the tests on
+   PostgreSQL and SQLite; frontend lint, type check, tests and a build with
+   `VITE_API_BASE_URL=/api/v1`.
 2. **Push the backend image** (`docker build --target production -f backend/Dockerfile .`),
    tagged with the commit SHA. Never deploy `latest`.
 3. **Migrate.** Run the new image once as an ECS task with the command
@@ -216,4 +218,5 @@ Gaps that would matter for real users, tracked in [`follow-ups.md`](follow-ups.m
   rule on the CloudFront distribution, since in-memory limits don't span tasks.
 - **The coach's model is rule-based** (`COACH_MODEL_PROVIDER=fake`): real model calls need
   a provider adapter and its API key in Secrets Manager.
-- **No infrastructure code or CI/CD pipeline.** The steps above are manual.
+- **No infrastructure code or deploy pipeline.** CI is step 1 of releasing and builds the
+  image, but pushes nothing; the other steps are manual.

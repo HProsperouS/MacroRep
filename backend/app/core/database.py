@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from functools import lru_cache
 
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -27,6 +28,13 @@ def _engine_options(settings: Settings) -> dict[str, object]:
             max_overflow=settings.database_max_overflow,
         )
     return options
+
+
+def libpq_conninfo(database_url: str) -> str:
+    """A SQLAlchemy Postgres URL (``postgresql+psycopg://…``) in the form psycopg itself takes."""
+
+    url = make_url(database_url).set(drivername="postgresql")
+    return url.render_as_string(hide_password=False)
 
 
 @lru_cache(maxsize=1)
