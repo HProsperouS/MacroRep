@@ -51,6 +51,7 @@ Components are generated into `src/components/ui` — edit them freely.
 | `npm run typecheck` | Type-check without emitting |
 | `npm test` | Run the Vitest suite once (jsdom; needs Node 22+) |
 | `npm run test:watch` | Re-run tests on change |
+| `npm run test:coverage` | Run the suite with coverage (HTML report in `coverage/`); fails below 85% of lines or 75% of branches |
 | `npm run test:e2e` | Run the Playwright end-to-end tests (see below) |
 
 ## End-to-end tests

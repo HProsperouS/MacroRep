@@ -97,6 +97,7 @@ tables directly from the models on startup — never use this in production).
 uv run ruff check app migrations tests
 uv run mypy --config-file pyproject.toml app
 uv run pytest
+uv run pytest --cov            # with branch coverage; fails below 90%
 ```
 
 Tests use in-memory SQLite by default. To run them on PostgreSQL, as CI also does, point

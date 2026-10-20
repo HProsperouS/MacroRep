@@ -1,6 +1,9 @@
 import "@testing-library/jest-dom/vitest"
 import { cleanup } from "@testing-library/react"
-import { afterEach } from "vitest"
+import { afterEach, vi } from "vitest"
+
+// Toasts render nowhere in tests (no <Toaster />); tests assert on these calls instead.
+vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }))
 
 afterEach(() => {
   cleanup()

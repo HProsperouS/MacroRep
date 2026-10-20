@@ -44,6 +44,16 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     restoreMocks: true,
+    coverage: {
+      provider: "v8",
+      // Every source file counts, including ones no test loads.
+      include: ["src/**/*.{ts,tsx}"],
+      // Generated shadcn primitives, the entry point, test helpers and type-only files.
+      exclude: ["src/components/ui/**", "src/main.tsx", "src/test/**", "src/types/**", "src/**/*.d.ts", "src/**/*.test.{ts,tsx}"],
+      reporter: ["text-summary", "json-summary", "html"],
+      // A floor that catches a drop, not a target: lines were 88% and branches 78% when it was set.
+      thresholds: { lines: 85, branches: 75 },
+    },
   },
   resolve: {
     alias: {

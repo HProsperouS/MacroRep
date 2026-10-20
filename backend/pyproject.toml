@@ -27,6 +27,7 @@ dev = [
   "mypy>=1.16,<2",
   "pytest>=8.4,<9",
   "pytest-asyncio>=1.0,<2",
+  "pytest-cov>=6,<8",
   "ruff>=0.12,<1",
 ]
 
@@ -52,3 +53,16 @@ select = ["E", "F", "I", "B", "UP"]
 python_version = "3.11"
 plugins = ["pydantic.mypy"]
 strict = true
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+# SQLAlchemy's async session runs the code around each query in a greenlet, and the test
+# client runs the app in a thread; without these, lines after an `await` go uncounted.
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+# A floor that catches a drop, not a target: coverage was 96% when it was set.
+fail_under = 90
+show_missing = true
+skip_covered = true

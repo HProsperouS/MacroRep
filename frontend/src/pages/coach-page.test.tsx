@@ -1,6 +1,7 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
+import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { nutritionProposal } from "@/components/coach/proposal-fixtures"
@@ -48,7 +49,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
-  api.getCurrentCheckIn.mockReset()
+  for (const mock of Object.values(api)) mock.mockReset()
 })
 
 describe("CoachPage", () => {
@@ -98,6 +99,160 @@ describe("CoachPage", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }))
     await waitFor(() => expect(api.startCheckIn).toHaveBeenCalledOnce())
     expect(await screen.findByText(/This page updates by itself/)).toBeInTheDocument()
+  })
+})
+
+describe("CoachPage decisions", () => {
+  const training = nutritionProposal({ id: "p2", kind: "training", headline: "Add a bench set" })
+
+  it("applies a proposal before the server answers", async () => {
+    let answer!: () => void
+    api.getCurrentCheckIn.mockResolvedValueOnce(checkIn()).mockResolvedValue(checkIn({ proposals: [nutritionProposal({ status: "applied" })] }))
+    api.decideProposal.mockReturnValue(new Promise((resolve) => (answer = () => resolve(nutritionProposal({ status: "applied" })))))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Apply" }))
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument())
+    expect(api.decideProposal).toHaveBeenCalledWith("c1", "p1", { decision: "apply", changes: undefined })
+    answer()
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Change applied", { description: "Your daily targets are updated." }))
+  })
+
+  it("rejects a proposal", async () => {
+    api.getCurrentCheckIn.mockResolvedValue(checkIn())
+    api.decideProposal.mockResolvedValue(nutritionProposal({ status: "rejected" }))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Reject" }))
+    await waitFor(() => expect(api.decideProposal).toHaveBeenCalledWith("c1", "p1", { decision: "reject", changes: undefined }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Proposal rejected", { description: "Your plan stays as it is." }))
+  })
+
+  it("applies edited values", async () => {
+    api.getCurrentCheckIn.mockResolvedValue(checkIn())
+    api.decideProposal.mockResolvedValue(nutritionProposal({ status: "edited" }))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }))
+    const dialog = await screen.findByRole("dialog", { name: "Edit proposal" })
+    await user.clear(within(dialog).getByLabelText("Daily calories"))
+    await user.type(within(dialog).getByLabelText("Daily calories"), "2050")
+    await user.click(within(dialog).getByRole("button", { name: "Apply edited values" }))
+
+    await waitFor(() => expect(api.decideProposal).toHaveBeenCalledWith("c1", "p1", { decision: "apply", changes: [{ id: "calories", after: 2050 }] }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  })
+
+  it("puts a proposal back when the decision can't be saved", async () => {
+    api.getCurrentCheckIn.mockResolvedValue(checkIn())
+    api.decideProposal.mockRejectedValue(new Error("down"))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Apply" }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t save your decision", expect.anything()))
+    expect(await screen.findByRole("button", { name: "Apply" })).toBeEnabled()
+  })
+
+  it("applies every pending proposal in order", async () => {
+    api.getCurrentCheckIn.mockResolvedValue(checkIn({ proposals: [nutritionProposal(), training] }))
+    api.decideProposal.mockImplementation((_c, id: string) => Promise.resolve({ id, status: "applied" }))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Apply all" }))
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("All changes applied", { description: "Your daily targets and routines are updated." }))
+    expect(api.decideProposal.mock.calls.map((call) => call[1])).toEqual(["p1", "p2"])
+  })
+
+  it("says when applying everything stopped part way", async () => {
+    api.getCurrentCheckIn.mockResolvedValue(checkIn({ proposals: [nutritionProposal(), training] }))
+    api.decideProposal.mockResolvedValueOnce({ id: "p1", status: "applied" }).mockRejectedValueOnce(new Error("down"))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Apply all" }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Some changes weren’t applied", expect.anything()))
+  })
+
+  it("offers to start the first check-in", async () => {
+    api.getCurrentCheckIn.mockResolvedValue(null)
+    api.startCheckIn.mockResolvedValue(running)
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText("No check-in yet")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Start check-in" }))
+    expect(await screen.findByText(/This page updates by itself/)).toBeInTheDocument()
+  })
+
+  it("keeps one idempotency key across retries of a failed start", async () => {
+    api.getCurrentCheckIn.mockResolvedValue(null)
+    api.startCheckIn.mockRejectedValueOnce(new Error("timeout")).mockResolvedValue(running)
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Start check-in" }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t start a check-in", expect.anything()))
+    await user.click(screen.getByRole("button", { name: "Start check-in" }))
+
+    await screen.findByText(/This page updates by itself/)
+    const [first, second] = api.startCheckIn.mock.calls.map((call) => call[0])
+    expect(second).toBe(first)
+  })
+})
+
+describe("CoachChat", () => {
+  beforeEach(() => {
+    api.getCurrentCheckIn.mockResolvedValue(checkIn({ suggestedQuestions: ["Why more calories?"] }))
+  })
+
+  it("asks a suggested question and shows the answer", async () => {
+    api.askCoach.mockResolvedValue({ id: "m1", role: "coach", text: "Your weight dropped faster than planned." })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
+
+    const conversation = screen.getByRole("list", { name: "Conversation" })
+    expect(within(conversation).getByText("Why more calories?")).toBeInTheDocument()
+    expect(await within(conversation).findByText("Your weight dropped faster than planned.")).toBeInTheDocument()
+    expect(api.askCoach).toHaveBeenCalledWith("c1", "Why more calories?")
+  })
+
+  it("sends a typed question with Enter and clears the box", async () => {
+    api.askCoach.mockResolvedValue({ id: "m1", role: "coach", text: "Yes." })
+    const user = userEvent.setup()
+    renderPage()
+
+    const box = await screen.findByRole("textbox", { name: "Ask the coach" })
+    expect(screen.getByRole("button", { name: "Send question" })).toBeDisabled()
+    await user.type(box, "  Can I eat more on leg day?{Enter}")
+
+    expect(api.askCoach).toHaveBeenCalledWith("c1", "Can I eat more on leg day?")
+    expect(box).toHaveValue("")
+    expect(await screen.findByText("Yes.")).toBeInTheDocument()
+  })
+
+  it("retries a question that got no answer", async () => {
+    api.askCoach.mockRejectedValueOnce(new Error("down")).mockResolvedValue({ id: "m1", role: "coach", text: "Here you go." })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t get an answer.")
+    await user.click(screen.getByRole("button", { name: "Retry" }))
+
+    expect(await screen.findByText("Here you go.")).toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    // The question is shown once, not again for the retry.
+    expect(within(screen.getByRole("list", { name: "Conversation" })).getAllByText("Why more calories?")).toHaveLength(1)
   })
 })
 
