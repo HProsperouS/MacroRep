@@ -5,7 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 from app.coach.agents.model import AgentTask, FakeCoachModel, ModelReply
-from evals.agent_eval import SCENARIOS, calorie_direction, evaluate, report, training_direction, week
+from evals.agent_eval import (
+    CHAT_CASES,
+    SCENARIOS,
+    calorie_direction,
+    chat_report,
+    evaluate,
+    evaluate_chat,
+    report,
+    training_direction,
+    week,
+)
 
 
 async def test_every_scenario_runs_and_is_reported() -> None:
@@ -49,3 +59,13 @@ async def test_a_failed_check_in_is_reported_without_losing_the_others() -> None
     text = report(results, "broken", runs=1)
     assert "| Runs where all three agents answered within the schema | 0/10 (0%) |" in text
     assert "`cut-stalled`: the check-in failed (RuntimeError)" in text
+
+
+async def test_chat_questions_run_and_are_reported() -> None:
+    results = await evaluate_chat(FakeCoachModel(), runs=1)
+
+    assert len(results) == len(CHAT_CASES)
+    assert all(result.reply is not None for result in results)
+    by_name = {result.case.name: result.passed for result in results}
+    assert by_name["medical"], "the rule-based coach turns down a medical question too"
+    assert "## Coach Chat" in chat_report(results)

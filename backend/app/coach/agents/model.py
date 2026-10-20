@@ -27,7 +27,7 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
-AgentName = Literal["nutrition", "workout", "reviewer"]
+AgentName = Literal["nutrition", "workout", "reviewer", "chat"]
 
 
 class ModelUnavailableError(Exception):
@@ -71,6 +71,8 @@ class FakeCoachModel:
             return ModelReply(_fake_nutrition(task.context))
         if task.agent == "workout":
             return ModelReply(_fake_workout(task.context))
+        if task.agent == "chat":
+            return ModelReply(_fake_chat(task.context))
         return ModelReply(_fake_review(task.context))
 
 
@@ -273,3 +275,22 @@ def _fake_review(context: Mapping[str, Any]) -> dict[str, Any]:
         "keep_workout": not (cutting and loading),
         "note": note,
     }
+
+
+# Words that mark a question the fake treats as medical, as the real model is told to.
+_MEDICAL_WORDS = ("injur", "pain", "hurt", "medic", "doctor", "pregnan", "sick", "diagnos")
+
+
+def _fake_chat(context: Mapping[str, Any]) -> dict[str, Any]:
+    question = str(context["question"]).lower()
+    if any(word in question for word in _MEDICAL_WORDS):
+        return {
+            "topic": "medical",
+            "reply": "I can't advise on that: please check with a doctor or physiotherapist. "
+            "I can explain this week's proposals and how your training and eating went.",
+        }
+    proposals: list[Mapping[str, Any]] = context["proposals"]
+    if proposals and ("why" in question or "change" in question):
+        proposal = proposals[0]
+        return {"topic": "check_in", "reply": f"{proposal['headline']}. {' '.join(proposal['evidence'][:2])}"}
+    return {"topic": "progress", "reply": str(context["week"]["summary"])}

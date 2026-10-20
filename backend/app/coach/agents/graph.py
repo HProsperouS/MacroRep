@@ -65,7 +65,7 @@ def _length_limits(schema: type[BaseModel], owner: str = "") -> list[str]:
     return found
 
 
-def _limits(schema: type[BaseModel]) -> str:
+def output_limits(schema: type[BaseModel]) -> str:
     return f"Stay within these limits: {'; '.join(_length_limits(schema))}."
 
 
@@ -91,7 +91,7 @@ Propose at most a {limits.MAX_WEEKLY_CALORIE_CHANGE} kcal change, never below
 {limits.MIN_TARGET_CALORIES} kcal. Never treat an unlogged day as zero intake. If too few days
 were logged to judge, keep the target and say why in `uncertainty`. Cite the figures you used
 as evidence. You are not a medical service: no diagnoses, no extreme restriction.
-{_limits(NutritionAdvice)}"""
+{output_limits(NutritionAdvice)}"""
 
 WORKOUT_INSTRUCTIONS = f"""You are the Workout agent of a fitness app's weekly check-in.
 From completion, effort (RPE) and estimated-1RM trends, decide whether any exercise in the
@@ -100,9 +100,11 @@ In exercise_trends, recent_* is this week and prior_* the three weeks before; e1
 estimated one-rep max from working sets. Only refer to routine and exercise ids you were
 given. Small steps only: sets by {limits.MAX_SET_CHANGE}, weight by at most
 {int(limits.MAX_LOAD_CHANGE_SHARE * 100)}%, reps by {limits.MAX_REP_CHANGE}. Rising RPE without
-strength gains suggests easing off; low RPE with steady gains suggests progressing. Cite the trends you used
-as evidence. No injury advice.
-{_limits(WorkoutAdvice)}"""
+strength gains suggests easing off; low RPE with steady gains suggests progressing. When most planned
+workouts were missed (completion_percent under about 70), don't increase anything: the
+missed sessions, not the load, are what to fix. Cite the trends you used as evidence. No
+injury advice.
+{output_limits(WorkoutAdvice)}"""
 
 REVIEWER_INSTRUCTIONS = f"""You are the Reviewer of a fitness app's weekly check-in.
 You see the Nutrition and Workout proposals together. A lower calorie target together with
@@ -111,7 +113,7 @@ eating less while training harder undercuts recovery. Report it with severity "c
 hold one of the two back. Also look for conclusions the data doesn't support and for anything
 outside a fitness app's scope. You may hold a proposal back (keep_* = false), never add or
 enlarge one. Write a short note the user will read.
-{_limits(Review)}"""
+{output_limits(Review)}"""
 
 
 class CoachState(TypedDict, total=False):
@@ -122,7 +124,7 @@ class CoachState(TypedDict, total=False):
     draft: dict[str, Any]
 
 
-async def _ask(
+async def ask_agent(
     model: CoachModel,
     agent: AgentName,
     instructions: str,
@@ -194,7 +196,7 @@ def _current_value(snapshot: Mapping[str, Any], routine_id: str, exercise_id: st
 
 def build_graph(model: CoachModel, metrics: RunMetrics) -> StateGraph[CoachState]:
     async def nutrition(state: CoachState) -> CoachState:
-        advice = await _ask(
+        advice = await ask_agent(
             model,
             "nutrition",
             NUTRITION_INSTRUCTIONS,
@@ -205,7 +207,7 @@ def build_graph(model: CoachModel, metrics: RunMetrics) -> StateGraph[CoachState
         return {"nutrition": advice.model_dump() if advice else None}
 
     async def workout(state: CoachState) -> CoachState:
-        advice = await _ask(
+        advice = await ask_agent(
             model, "workout", WORKOUT_INSTRUCTIONS, workout_context(state["snapshot"]), WorkoutAdvice, metrics
         )
         return {"workout": advice.model_dump() if advice else None}
@@ -236,7 +238,7 @@ def build_graph(model: CoachModel, metrics: RunMetrics) -> StateGraph[CoachState
             "nutrition": state.get("nutrition"),
             "workout": workout_advice,
         }
-        review = await _ask(model, "reviewer", REVIEWER_INSTRUCTIONS, context, Review, metrics)
+        review = await ask_agent(model, "reviewer", REVIEWER_INSTRUCTIONS, context, Review, metrics)
         return {"review": review.model_dump() if review else None}
 
     def finalize(state: CoachState) -> CoachState:

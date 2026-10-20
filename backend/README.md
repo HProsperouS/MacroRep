@@ -64,7 +64,8 @@ checks each limit from both sides.
   deterministic validation) runs on OpenAI with `COACH_MODEL_PROVIDER=openai`
   and `OPENAI_API_KEY` set in `.env`, or on `FakeCoachModel` (the default),
   which answers each agent with simple rules and needs no key. Tests always use
-  the fake. Coach Chat is still a canned reply.
+  the fake. Coach Chat answers questions about a check-in from its data, and
+  changes nothing.
 - **No shared-record audit trail.** Unlike a multi-staff CRM, MacroRep
   records are single-owner personal data, so there's no admin/agent role
   hierarchy or soft-delete-with-named-actor trail — just plain

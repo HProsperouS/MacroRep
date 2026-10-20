@@ -1,6 +1,6 @@
 """What one check-in run cost: time, model calls, retries and tokens, per agent and in total.
 
-``_ask`` records every model call, including the ones LangGraph retries and the second try
+``ask_agent`` records every model call, including the ones LangGraph retries and the second try
 after an answer that doesn't fit the schema. ``summary`` is logged when the run ends, as
 ``check-in run finished`` (kept in the daily log files when ``LOG_DIR`` is set).
 """

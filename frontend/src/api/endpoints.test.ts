@@ -90,6 +90,7 @@ const cases: [string, () => Promise<unknown>, Sent][] = [
     () => coachApi.decideProposal("c1", "p1", body as never),
     { method: "post", url: "/coach/check-ins/c1/proposals/p1/decision", body },
   ],
+  ["messages", () => coachApi.listMessages("c1"), { method: "get", url: "/coach/check-ins/c1/messages" }],
   ["ask coach", () => coachApi.askCoach("c1", "Why?"), { method: "post", url: "/coach/check-ins/c1/messages", body: { text: "Why?" } }],
 ]
 

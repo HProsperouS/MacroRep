@@ -60,3 +60,11 @@ class Review(_AgentOutput):
     keep_nutrition: bool
     keep_workout: bool
     note: str = Field(min_length=1, max_length=400)
+
+
+class ChatReply(_AgentOutput):
+    """Coach Chat's answer. The topic says what kind of question it was, so out-of-scope and
+    medical questions can be counted; only the reply is shown."""
+
+    topic: Literal["check_in", "progress", "nutrition", "training", "out_of_scope", "medical"]
+    reply: str = Field(min_length=1, max_length=800)

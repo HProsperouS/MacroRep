@@ -74,6 +74,13 @@ async def decide_proposal(
     return await service.decide_proposal(check_in_id, proposal_id, payload, actor)
 
 
+@router.get("/check-ins/{check_in_id}/messages", response_model=list[CoachMessage])
+async def list_messages(check_in_id: str, actor: ActorDep, service: CoachServiceDep) -> list[CoachMessage]:
+    """The conversation about a check-in, oldest first."""
+
+    return await service.list_messages(check_in_id, actor)
+
+
 @router.post("/check-ins/{check_in_id}/messages", response_model=CoachMessage)
 async def ask_coach(
     check_in_id: str, payload: AskCoachInput, actor: ActorDep, service: CoachServiceDep

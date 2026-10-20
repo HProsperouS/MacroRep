@@ -1,12 +1,13 @@
 import { ArrowUp, Sparkles } from "lucide-react"
+import { isAxiosError } from "axios"
 import { useState, type FormEvent } from "react"
 
-import { apiErrorMessage, createRequestId } from "@/api/client"
+import { apiErrorMessage } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group"
 import { Spinner } from "@/components/ui/spinner"
-import { useAskCoach } from "@/hooks/use-coach"
+import { useAskCoach, useCoachMessages } from "@/hooks/use-coach"
 import { cn } from "@/lib/utils"
 import type { CoachMessage } from "@/types/coach"
 
@@ -18,22 +19,28 @@ type CoachChatProps = {
   className?: string
 }
 
-/** Constrained Q&A: answers use only the user's logged data and this check-in. */
+/** Constrained Q&A: answers use only the user's logged data and this check-in, and change nothing. */
 export function CoachChat({ checkInId, suggestions, className }: CoachChatProps) {
-  const [messages, setMessages] = useState<CoachMessage[]>([])
+  const history = useCoachMessages(checkInId)
+  // The question being answered, or the last one that got no answer (the server kept neither).
+  const [question, setQuestion] = useState<string | null>(null)
   const [draft, setDraft] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
   const ask = useAskCoach(checkInId)
 
   function send(text: string) {
-    const question = text.trim()
-    if (!question || ask.isPending) return
+    const trimmed = text.trim()
+    if (!trimmed || ask.isPending) return
     setFailed(null)
-    setMessages((prev) => [...prev, { id: createRequestId(), role: "user", text: question }])
+    setQuestion(trimmed)
     setDraft("")
-    ask.mutate(question, {
-      onSuccess: (reply) => setMessages((prev) => [...prev, reply]),
-      onError: (error) => setFailed(apiErrorMessage(error)),
+    ask.mutate(trimmed, {
+      onSuccess: () => setQuestion(null),
+      onError: (error) => {
+        setFailed(apiErrorMessage(error))
+        // Not ready to answer (409): asking again won't help, so there's nothing to retry.
+        if (isAxiosError(error) && error.response?.status === 409) setQuestion(null)
+      },
     })
   }
 
@@ -42,7 +49,7 @@ export function CoachChat({ checkInId, suggestions, className }: CoachChatProps)
     send(draft)
   }
 
-  const lastQuestion = [...messages].reverse().find((message) => message.role === "user")?.text
+  const messages: CoachMessage[] = [...(history.data ?? []), ...(question ? [{ id: "pending", role: "user" as const, text: question }] : [])]
 
   return (
     <Card className={className}>
@@ -55,7 +62,7 @@ export function CoachChat({ checkInId, suggestions, className }: CoachChatProps)
           <li className="flex gap-2">
             <Sparkles className="mt-1 size-4 shrink-0 text-primary" aria-hidden />
             <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm">
-              Want me to explain the calorie change, or adjust how the carbs are spread across training and rest days?
+              Ask me about this check-in: why a change was proposed, or how your week went. To change something, edit or reject it on its card.
             </p>
           </li>
           {messages.map((message) => (
@@ -79,18 +86,13 @@ export function CoachChat({ checkInId, suggestions, className }: CoachChatProps)
           ) : null}
         </ol>
 
+        {history.isError ? <p className="text-sm text-muted-foreground">Earlier messages couldn’t be loaded.</p> : null}
+
         {failed ? (
           <p className="flex flex-wrap items-center gap-2 text-sm text-destructive" role="alert">
-            Couldn’t get an answer. {failed}
-            {lastQuestion ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setMessages((prev) => prev.slice(0, -1))
-                  send(lastQuestion)
-                }}
-              >
+            {failed}
+            {question ? (
+              <Button variant="outline" size="sm" onClick={() => send(question)}>
                 Retry
               </Button>
             ) : null}

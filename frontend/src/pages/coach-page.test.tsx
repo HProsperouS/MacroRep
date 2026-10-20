@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { AxiosError } from "axios"
 import { MemoryRouter } from "react-router-dom"
 import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -10,7 +11,13 @@ import CoachPage from "@/pages/coach-page"
 import { renderWithQuery } from "@/test/render"
 import type { CheckIn } from "@/types/coach"
 
-const api = vi.hoisted(() => ({ getCurrentCheckIn: vi.fn(), startCheckIn: vi.fn(), decideProposal: vi.fn(), askCoach: vi.fn() }))
+const api = vi.hoisted(() => ({
+  getCurrentCheckIn: vi.fn(),
+  startCheckIn: vi.fn(),
+  decideProposal: vi.fn(),
+  askCoach: vi.fn(),
+  listMessages: vi.fn(),
+}))
 vi.mock("@/api/coach-api", () => ({ coachApi: api }))
 vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true }))
 
@@ -50,6 +57,7 @@ function renderPage() {
 
 beforeEach(() => {
   for (const mock of Object.values(api)) mock.mockReset()
+  api.listMessages.mockResolvedValue([])
 })
 
 describe("CoachPage", () => {
@@ -213,6 +221,19 @@ describe("CoachChat", () => {
     api.getCurrentCheckIn.mockResolvedValue(checkIn({ suggestedQuestions: ["Why more calories?"] }))
   })
 
+  it("shows the conversation so far", async () => {
+    api.listMessages.mockResolvedValue([
+      { id: "m1", role: "user", text: "Why fewer calories?" },
+      { id: "m2", role: "coach", text: "Your weight held steady for a week." },
+    ])
+    renderPage()
+
+    const conversation = await screen.findByRole("list", { name: "Conversation" })
+    expect(await within(conversation).findByText("Your weight held steady for a week.")).toBeInTheDocument()
+    expect(within(conversation).getByText("Why fewer calories?")).toBeInTheDocument()
+    expect(api.listMessages).toHaveBeenCalledWith("c1", expect.anything())
+  })
+
   it("asks a suggested question and shows the answer", async () => {
     api.askCoach.mockResolvedValue({ id: "m1", role: "coach", text: "Your weight dropped faster than planned." })
     const user = userEvent.setup()
@@ -246,13 +267,39 @@ describe("CoachChat", () => {
     renderPage()
 
     await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t get an answer.")
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong")
     await user.click(screen.getByRole("button", { name: "Retry" }))
 
     expect(await screen.findByText("Here you go.")).toBeInTheDocument()
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     // The question is shown once, not again for the retry.
     expect(within(screen.getByRole("list", { name: "Conversation" })).getAllByText("Why more calories?")).toHaveLength(1)
+  })
+
+  it("shows the server's reason, without a retry, when the check-in can't take questions", async () => {
+    api.askCoach.mockRejectedValue(
+      new AxiosError("409", "ERR_BAD_REQUEST", undefined, undefined, {
+        status: 409,
+        data: { detail: "Questions open once the check-in is ready." },
+      } as never),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Questions open once the check-in is ready.")
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument()
+    expect(within(screen.getByRole("list", { name: "Conversation" })).queryByText("Why more calories?")).not.toBeInTheDocument()
+  })
+
+  it("looks again for an answer the server saved after the browser gave up", async () => {
+    api.askCoach.mockRejectedValue(new AxiosError("timeout", "ECONNABORTED"))
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
+
+    await waitFor(() => expect(api.listMessages).toHaveBeenCalledTimes(2))
   })
 })
 

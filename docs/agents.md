@@ -148,7 +148,7 @@ Reviewer alone), three runs each. Its checks read each agent's own answer, befor
 in `validate.py` correct it, so they measure the model's judgement. It makes paid calls, so
 it runs by hand, not in CI; `tests/test_agent_eval.py` runs it on the rule-based model.
 
-The first runs on `gpt-5.4-mini` found four problems, all fixed:
+The runs on `gpt-5.4-mini` found five problems, all fixed:
 
 | Problem | Cause | Fix |
 |---|---|---|
@@ -156,11 +156,43 @@ The first runs on `gpt-5.4-mini` found four problems, all fixed:
 | The Nutrition agent dismissed a week's weight change as noise | It didn't know `weight_change_kg` is a smoothed trend | The instructions explain each figure and when to change the target |
 | 6 of 95 answers failed the schema (too many evidence items, a reason too long) | The schema's length limits aren't enforced while generating | Each agent's instructions state its schema's limits, generated from the schema |
 | The Reviewer flagged a cut proposed with heavier lifting in 0 to 3 of 3 runs, varying from one evaluation to the next | It noticed the recovery risk but called it a warning | Its instructions state the rule: a lower target with any load increase is a conflict to report and hold back (8 of 8 after) |
+| A week with only 1 of 3 workouts done got a small bench increase in one run of three, in two evaluations | Nothing told the Workout agent that missed sessions matter more than load | Its instructions say not to increase anything when most planned workouts were missed (16 of 16 checks after, and an easy fully-trained week still progressed 8 of 8) |
 
-After the fixes every check passed in all 30 runs of the final evaluation. Results vary
-between evaluations: in the one before it, a missed-workouts week once got a small bench
-increase. The scenarios are few and were written alongside the fixes, so this shows the
-agents handle these cases, not that they're right in general.
+After the fixes the checks pass in nearly every run; see the report for the latest numbers.
+Single runs still vary: in the latest evaluation, one of three grinding-bench weeks kept the
+bench load instead of lowering it, a defensible but weaker answer. The scenarios are few and
+were written alongside the fixes, so this shows the agents handle these cases, not that
+they're right in general.
+
+The report also covers Coach Chat (below): five questions, three runs each.
+
+## Coach Chat
+
+Question and answer only (plan.md §8.9), on the check-in page. `app/coach/agents/chat.py`
+asks the same model as the agents (`agent="chat"`), with instructions and a `ChatReply`
+schema (`topic`, `reply`). It sees the check-in's figures (as the agents do), its proposals
+with their evidence and the reviewer's note, and the last 10 messages; never names or
+emails. It is told to:
+
+- use only those, and say what's missing rather than invent a number;
+- explain the week and the proposals, and change nothing: a change is made by editing or
+  rejecting the proposal on its card;
+- turn down injuries, pain, illness, medication, pregnancy and disordered eating, pointing
+  to a professional (topic `medical`), and say what it can help with for anything off topic
+  (`out_of_scope`);
+- answer briefly, in the language of the question.
+
+`POST /coach/check-ins/{id}/messages` answers once the check-in is ready (409 while it is
+running or after it failed). The question and the answer are stored together only once
+there is an answer, so a failure (503, after one retry of a transient error, within 30 s)
+leaves nothing to repeat. `GET /coach/check-ins/{id}/messages` returns the conversation,
+which the page shows again after a reload. Each answer is logged as `coach chat answered`
+with its topic and run metrics. The rule-based model answers chat too: it turns down
+questions with medical words, quotes the first proposal for a "why", and otherwise gives
+the week's summary.
+
+Not built: intent routing and clarifying questions, and changing a proposal from the chat
+("request changes"); see plan.md P3.
 
 ## Run metrics
 
@@ -190,8 +222,8 @@ A run lost to a restart and swept as stale logs none. For example, one OpenAI ru
   until the user decides. Here the graph ends once proposals are stored, and the decision
   is ordinary database state through an idempotent API. Nothing waits in a checkpoint for
   days, and checkpoints are deleted when a run ends.
-- **No Supervisor/Router.** The weekly check-in always runs the same agents, so there is
-  nothing to route. Intent routing belongs with Coach Chat, which isn't built.
+- **No Supervisor/Router.** The weekly check-in always runs the same agents, and Coach Chat
+  only answers questions, so there is nothing to route yet.
 - **No "request changes" loop.** The user can edit values or reject, then start a new
   check-in; asking the agents to revise a proposal isn't built.
 - **No exercise substitution.** Training proposals change sets, weight and reps of the

@@ -44,6 +44,7 @@ from app.workout.targets import (
 )
 
 from .agents import limits
+from .agents.chat import CHAT_HISTORY, answer_question, chat_context, proposal_for_chat
 from .agents.checkpoint import get_checkpointer
 from .agents.graph import run_agents
 from .agents.metrics import RunMetrics, RunOutcome, elapsed_ms
@@ -105,6 +106,8 @@ STALE_RUN_AFTER = timedelta(minutes=10)
 FAILED_REASON = (
     "Something went wrong while preparing this check-in. Nothing was changed; start a new one to try again."
 )
+CHAT_NOT_READY = "Questions open once the check-in is ready."
+CHAT_UNAVAILABLE = "The coach couldn't answer just now. Please try again."
 INTERRUPTED_REASON = (
     "This check-in was interrupted before it finished. Nothing was changed; start a new one to try again."
 )
@@ -607,27 +610,47 @@ class CoachService:
         for routine in routines.values():
             routine.touch()
 
+    async def list_messages(self, check_in_id: str, actor: ActorContext) -> list[CoachMessage]:
+        await self._owned_check_in(check_in_id, actor)
+        return [
+            CoachMessage(id=message.id, role=message.role, text=message.text)
+            for message in await self.repository.list_messages(check_in_id)
+        ]
+
     async def ask_coach(self, check_in_id: str, text: str, actor: ActorContext) -> CoachMessage:
+        """Answer a question about the check-in. The question and the answer are stored
+        together, only once there is an answer, so asking again after a failure repeats nothing."""
+
+        check_in = await self._owned_check_in(check_in_id, actor)
+        if check_in.status in (CheckInStatus.RUNNING, CheckInStatus.FAILED):
+            raise HTTPException(status.HTTP_409_CONFLICT, CHAT_NOT_READY)
+
+        history = await self.repository.list_messages(check_in_id, latest=CHAT_HISTORY)
+        context = chat_context(
+            check_in.input_snapshot or {},
+            check_in.summary,
+            [proposal_for_chat(proposal) for proposal in await self.repository.list_proposals(check_in_id)],
+            [{"role": message.role.value, "text": message.text} for message in history],
+            text,
+        )
+        # Nothing is written before the answer; ending the read transaction now frees its
+        # connection for the seconds the model takes.
+        await self.session.commit()
+        answer = await answer_question(get_coach_model(), context, check_in_id)
+        if answer is None:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, CHAT_UNAVAILABLE)
+
+        for role, message_text in ((MessageRole.USER, text), (MessageRole.COACH, answer.reply)):
+            reply = await self.repository.add_message(
+                CoachMessageModel(
+                    check_in_id=check_in_id, owner_id=actor.actor_id, role=role, text=message_text
+                )
+            )
+        await self.session.commit()
+        return CoachMessage(id=reply.id, role=reply.role, text=reply.text)
+
+    async def _owned_check_in(self, check_in_id: str, actor: ActorContext) -> CheckInModel:
         check_in = await self.repository.get_owned(check_in_id, actor.actor_id)
         if check_in is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in not found")
-
-        await self.repository.add_message(
-            CoachMessageModel(
-                check_in_id=check_in_id, owner_id=actor.actor_id, role=MessageRole.USER, text=text
-            )
-        )
-        # Placeholder reply: Coach Chat is a stretch feature (plan.md §8.9), not built yet.
-        reply = await self.repository.add_message(
-            CoachMessageModel(
-                check_in_id=check_in_id,
-                owner_id=actor.actor_id,
-                role=MessageRole.COACH,
-                text=(
-                    "Thanks for the question — the full coaching pipeline isn't wired up yet, "
-                    "so I can't answer that in detail."
-                ),
-            )
-        )
-        await self.session.commit()
-        return CoachMessage(id=reply.id, role=reply.role, text=reply.text)
+        return check_in

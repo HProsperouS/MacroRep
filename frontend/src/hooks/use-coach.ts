@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react"
 import { coachApi } from "@/api/coach-api"
 import { createRequestId } from "@/api/client"
 import { coachKeys, foodKeys, progressKeys, workoutKeys } from "@/api/query-keys"
-import type { CheckIn, Proposal, ProposalDecisionInput } from "@/types/coach"
+import type { CheckIn, CoachMessage, Proposal, ProposalDecisionInput } from "@/types/coach"
 
 /** How often to look again while a check-in is being generated in the background. */
 export const CHECK_IN_POLL_MS = 2_000
@@ -88,8 +88,25 @@ export function useDecideProposal(checkInId: string) {
   })
 }
 
+export function useCoachMessages(checkInId: string) {
+  return useQuery({
+    queryKey: coachKeys.messages(checkInId),
+    queryFn: ({ signal }) => coachApi.listMessages(checkInId, signal),
+  })
+}
+
+/** The server keeps the question and the answer only once there is an answer, so both join the conversation then. */
 export function useAskCoach(checkInId: string) {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (text: string) => coachApi.askCoach(checkInId, text),
+    onSuccess: (reply, text) =>
+      queryClient.setQueryData<CoachMessage[]>(coachKeys.messages(checkInId), (old) => [
+        ...(old ?? []),
+        { id: createRequestId(), role: "user", text },
+        reply,
+      ]),
+    // The browser may have given up on an answer the server still saved.
+    onError: () => queryClient.invalidateQueries({ queryKey: coachKeys.messages(checkInId) }),
   })
 }

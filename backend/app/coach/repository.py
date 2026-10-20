@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db import get_owned as _get_owned
 from app.shared.persistence.mixins import utc_now
 
-from .models import CheckIn, CheckInStatus, CoachMessage, Proposal
+from .models import CheckIn, CheckInStatus, CoachMessage, MessageRole, Proposal
 
 
 class CoachRepository:
@@ -103,14 +103,21 @@ class CoachRepository:
         self.session.add_all(proposals)
         await self.session.flush()
 
-    async def list_messages(self, check_in_id: str) -> list[CoachMessage]:
-        return list(
-            await self.session.scalars(
-                select(CoachMessage)
-                .where(CoachMessage.check_in_id == check_in_id)
-                .order_by(CoachMessage.created_utc.asc())
+    async def list_messages(self, check_in_id: str, latest: int | None = None) -> list[CoachMessage]:
+        """The conversation oldest first, or only its ``latest`` messages."""
+
+        newest_first = await self.session.scalars(
+            select(CoachMessage)
+            .where(CoachMessage.check_in_id == check_in_id)
+            # A question and its answer are saved together; should their times tie, the answer
+            # sorts first here, so after the question once reversed. Spelled out, because
+            # PostgreSQL orders its enum by declaration and SQLite by name.
+            .order_by(
+                CoachMessage.created_utc.desc(), case((CoachMessage.role == MessageRole.COACH, 0), else_=1)
             )
+            .limit(latest)
         )
+        return list(reversed(list(newest_first)))
 
     async def add_message(self, message: CoachMessage) -> CoachMessage:
         self.session.add(message)

@@ -179,7 +179,7 @@ These exclusions protect the four-person team from excessive scope and keep the 
 
 ### P3: Stretch features
 
-- Constrained Coach Chat.
+- Constrained Coach Chat. *Done as question and answer only: it explains the check-in, turns down medical and off-topic questions, and changes nothing (see [agents.md](agents.md#coach-chat)).*
 - Supervisor/Router with intent routing and clarification questions (§9.3, §9.9), built with Coach Chat.
 - Asking the agents to revise a proposal ("request changes", §9.2).
 - Food-photo analysis with user correction.
@@ -827,6 +827,7 @@ A routine is a named, reusable workout (exercises, planned sets, rest times). Th
 GET    /api/v1/coach/check-ins/current
 POST   /api/v1/coach/check-ins
 POST   /api/v1/coach/check-ins/{check_in_id}/proposals/{proposal_id}/decision
+GET    /api/v1/coach/check-ins/{check_in_id}/messages
 POST   /api/v1/coach/check-ins/{check_in_id}/messages
 ```
 

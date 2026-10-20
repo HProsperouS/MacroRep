@@ -25,6 +25,7 @@ export const workoutKeys = {
 export const coachKeys = {
   all: ["coach"] as const,
   current: () => [...coachKeys.all, "current"] as const,
+  messages: (checkInId: string) => [...coachKeys.all, "messages", checkInId] as const,
 }
 
 export const progressKeys = {
