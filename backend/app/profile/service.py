@@ -58,8 +58,18 @@ class ProfileService:
             experience_level=ExperienceLevel.BEGINNER,
             equipment=[],
         )
-        await self.repository.add(profile)
-        await self._add_targets(profile, None, DEFAULT_TARGETS, TargetSource.INITIAL)
+        try:
+            # A savepoint, so losing the race below undoes only this insert.
+            async with self.session.begin_nested():
+                await self.repository.add(profile)
+                await self._add_targets(profile, None, DEFAULT_TARGETS, TargetSource.INITIAL)
+        except IntegrityError:
+            # A new user's first page load asks for several things at once, and another of
+            # those requests created the profile first: use that one.
+            existing = await self.repository.get(actor.actor_id)
+            if existing is None:
+                raise
+            return existing
         await self.session.commit()
         await self.session.refresh(profile)
         return profile

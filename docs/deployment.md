@@ -125,7 +125,7 @@ flowchart LR
 1. **Build and test.** A green CI run (`.github/workflows/ci.yml`) for the commit being
    released: backend lint, type check, the migrations on PostgreSQL, and the tests on
    PostgreSQL and SQLite; frontend lint, type check, tests and a build with
-   `VITE_API_BASE_URL=/api/v1`.
+   `VITE_API_BASE_URL=/api/v1`; and the end-to-end tests against both on PostgreSQL.
 2. **Push the backend image** (`docker build --target production -f backend/Dockerfile .`),
    tagged with the commit SHA. Never deploy `latest`.
 3. **Migrate.** Run the new image once as an ECS task with the command

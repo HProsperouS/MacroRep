@@ -111,4 +111,5 @@ TEST_DATABASE_URL=postgresql+psycopg://macrorep:local-development-only@localhost
 CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
 backend lint, type check, migrations (upgrade, model check, downgrade and upgrade again)
 and tests on both PostgreSQL 17 and SQLite; frontend lint, type check, tests and build;
-and a build of the production backend image.
+the end-to-end tests (`frontend/e2e`) against this backend on PostgreSQL; and a build of
+the production backend image.

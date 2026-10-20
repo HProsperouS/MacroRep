@@ -18,7 +18,7 @@ One responsive codebase — bottom tab bar on mobile, sidebar on desktop.
 | Lint | oxlint |
 | Charts | Recharts |
 | PWA | vite-plugin-pwa (installable; precaches the build only, never `/api`) |
-| Planned | Vitest + Testing Library, Playwright (installed, not set up yet) |
+| Tests | Vitest + Testing Library (unit and component), Playwright (end-to-end) |
 
 ## Getting started
 
@@ -51,6 +51,27 @@ Components are generated into `src/components/ui` — edit them freely.
 | `npm run typecheck` | Type-check without emitting |
 | `npm test` | Run the Vitest suite once (jsdom; needs Node 22+) |
 | `npm run test:watch` | Re-run tests on change |
+| `npm run test:e2e` | Run the Playwright end-to-end tests (see below) |
+
+## End-to-end tests
+
+`e2e/` drives the production build in Chromium against the real backend on PostgreSQL, one
+test per core journey: sign up and sign in, logging food, logging a workout, and a weekly
+check-in whose proposal is applied. Each test signs up its own user, so the database
+doesn't need to be empty. Any 5xx from the API fails the test, even if the page recovers.
+
+`npm run test:e2e` builds the app, serves it with `vite preview` on port 4173 (proxying
+`/api` as CloudFront would), and starts the backend on port 8001 after migrating the
+database. With the compose PostgreSQL running, create the database once:
+
+```bash
+docker compose exec postgres createdb -U macrorep macrorep_e2e
+npx playwright install chromium   # once
+npm run test:e2e
+```
+
+Set `E2E_DATABASE_URL` to use another database. A failed test keeps a trace in
+`test-results/` (`npx playwright show-trace <path>`).
 
 ## Environment variables
 
@@ -83,7 +104,9 @@ frontend/
 │   ├── App.tsx             # Routes
 │   ├── main.tsx            # Providers and entry point
 │   └── index.css           # Tailwind + design tokens
+├── e2e/                    # Playwright end-to-end tests
 ├── components.json         # shadcn config
+├── playwright.config.ts
 ├── vite.config.ts
 └── tsconfig*.json
 ```
