@@ -51,6 +51,7 @@ export default defineConfig({
         COACH_MODEL_PROVIDER: "fake",
         DEBUG: "false",
         LOG_JSON: "false",
+        LOG_DIR: "",
       },
     },
     {

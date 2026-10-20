@@ -89,6 +89,7 @@ values, so a misconfiguration fails fast instead of running.
 | `OPENAI_MODEL` | `gpt-5.4-mini` | The default. |
 | `LOG_JSON` | `true` | One JSON object per line, for CloudWatch. |
 | `LOG_LEVEL` | `INFO` | |
+| `LOG_DIR` | unset | Log files are for local development; a container's logs are collected from stdout. |
 
 For a **demo** environment that should come with the seeded demo account, the app has to
 run with `APP_ENV=local`, since production refuses `SEED_DEMO_DATA=true`. That also turns

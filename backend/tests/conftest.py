@@ -27,6 +27,8 @@ os.environ.update(
         "APP_ENV": "test",
         "DATABASE_URL": TEST_DATABASE_URL,
         "LOG_JSON": "false",
+        # No log files from test runs, whatever backend/.env says.
+        "LOG_DIR": "",
         "PREVIEW_AUTH_ENABLED": "true",
         "AUTO_CREATE_SCHEMA": "true",
         "SEED_DEMO_DATA": "true",

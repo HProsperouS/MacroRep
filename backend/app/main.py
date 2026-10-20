@@ -29,7 +29,7 @@ from app.workout.router import router as workout_router
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
-    configure_logging(level=settings.log_level, json_output=settings.log_json)
+    configure_logging(level=settings.log_level, json_output=settings.log_json, log_dir=settings.log_dir)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

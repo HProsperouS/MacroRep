@@ -7,7 +7,9 @@ import re
 import sys
 from collections.abc import Awaitable, Callable, MutableMapping
 from contextvars import ContextVar, Token
-from typing import Any, cast
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from typing import Any, TextIO, cast
 from uuid import uuid4
 
 import structlog
@@ -16,6 +18,9 @@ from structlog.typing import Processor
 _correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 _SAFE_CORRELATION_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _SENSITIVE_KEYS = frozenset({"authorization", "cookie", "password", "secret", "token", "access_token"})
+# Days of log files kept, today included.
+LOG_RETENTION_DAYS = 14
+_LOG_FILE = re.compile(r"^(?P<prefix>.+)-(?P<day>\d{4}-\d{2}-\d{2})\.log$")
 
 ASGIScope = MutableMapping[str, Any]
 ASGIReceive = Callable[[], Awaitable[dict[str, Any]]]
@@ -54,8 +59,71 @@ def redact_sensitive_fields(
     return cast(MutableMapping[str, Any], _redact_value(event_dict))
 
 
-def configure_logging(*, level: str = "INFO", json_output: bool = True) -> None:
-    """Configure stdlib and structlog with one UTC, correlation-aware pipeline."""
+class DailyFileHandler(logging.StreamHandler[TextIO]):
+    """Writes to ``<prefix>-<UTC date>.log`` in ``directory``: a new file each day, and files
+    older than ``LOG_RETENTION_DAYS`` are deleted. One process per directory, as in local
+    development; several processes writing the same files would interleave their lines.
+
+    The directory and files are created on the first record. A file that can't be written is
+    reported on stderr, as logging does, and never fails the code that logged."""
+
+    def __init__(self, directory: Path, prefix: str) -> None:
+        super().__init__()
+        self.directory = directory
+        self.prefix = prefix
+        self._day: date | None = None
+
+    def emit(self, record: logging.LogRecord) -> None:
+        day = datetime.fromtimestamp(record.created, UTC).date()
+        # Forward only: a record from just before midnight that arrives late joins the new file.
+        if self._day is None or day > self._day:
+            try:
+                self._open(day)
+            except OSError:
+                self.handleError(record)
+                return
+        super().emit(record)
+
+    def close(self) -> None:
+        self.acquire()
+        try:
+            if self._day is not None:
+                self.stream.close()
+                self._day = None
+        finally:
+            self.release()
+        super().close()
+
+    def _open(self, day: date) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        stream = (self.directory / f"{self.prefix}-{day.isoformat()}.log").open("a", encoding="utf-8")
+        if self._day is not None:
+            self.stream.close()
+        self.stream, self._day = stream, day
+        self._delete_before(day - timedelta(days=LOG_RETENTION_DAYS - 1))
+
+    def _delete_before(self, oldest: date) -> None:
+        for path in self.directory.glob(f"{self.prefix}-*.log"):
+            match = _LOG_FILE.match(path.name)
+            if match is None or match["prefix"] != self.prefix:
+                continue
+            try:
+                day = date.fromisoformat(match["day"])
+            except ValueError:
+                continue
+            if day < oldest:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    continue  # tried again on the next day's file
+
+
+def configure_logging(*, level: str = "INFO", json_output: bool = True, log_dir: Path | None = None) -> None:
+    """Configure stdlib and structlog with one UTC, correlation-aware pipeline.
+
+    With ``log_dir``, every record is also kept in daily JSON-lines files there: ``app-<date>.log``
+    for everything at ``level`` and above, ``error-<date>.log`` for errors only.
+    """
 
     numeric_level = getattr(logging, level.upper(), None)
     if not isinstance(numeric_level, int):
@@ -66,29 +134,37 @@ def configure_logging(*, level: str = "INFO", json_output: bool = True) -> None:
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
+        # Fields passed as `extra=` to a stdlib logger.
+        structlog.stdlib.ExtraAdder(),
         timestamper,
         redact_sensitive_fields,
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
-    renderer = (
-        structlog.processors.JSONRenderer()
-        if json_output
-        else structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
-    )
-    formatter = structlog.stdlib.ProcessorFormatter(
-        foreign_pre_chain=shared_processors,
-        processors=[
-            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-            renderer,
-        ],
-    )
+
+    def formatter(renderer: Processor) -> logging.Formatter:
+        return structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=shared_processors,
+            processors=[structlog.stdlib.ProcessorFormatter.remove_processors_meta, renderer],
+        )
+
+    json_formatter = formatter(structlog.processors.JSONRenderer())
+    console_renderer = structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(formatter)
+    handler.setFormatter(json_formatter if json_output else formatter(console_renderer))
     root = logging.getLogger()
+    for old in root.handlers:
+        old.close()
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(numeric_level)
+
+    if log_dir is not None:
+        for prefix, file_level in (("app", logging.NOTSET), ("error", logging.ERROR)):
+            file_handler = DailyFileHandler(log_dir, prefix)
+            file_handler.setLevel(file_level)
+            file_handler.setFormatter(json_formatter)
+            root.addHandler(file_handler)
 
     structlog.configure(
         processors=[
@@ -141,5 +217,12 @@ class CorrelationIdMiddleware:
 
         try:
             await self.app(scope, receive, send_with_correlation)
+        except Exception:
+            # Logged here, while the request's correlation id is still bound; the server's
+            # own report of it goes only to the console.
+            get_logger(__name__).exception(
+                "unhandled request error", method=scope.get("method"), path=scope.get("path")
+            )
+            raise
         finally:
             reset_correlation_id(token)

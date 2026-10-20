@@ -32,6 +32,8 @@ services:
       DATABASE_URL: postgresql+psycopg://macrorep:local-development-only@postgres:5432/macrorep
       CORS_ORIGINS: '["http://localhost:5173","http://127.0.0.1:5173"]'
       LOG_JSON: "false"
+      # Console only: this container shares backend/ with the host, whose server may write there.
+      LOG_DIR: ""
       PREVIEW_AUTH_ENABLED: "true"
       AUTO_CREATE_SCHEMA: "false"
       SEED_DEMO_DATA: "true"

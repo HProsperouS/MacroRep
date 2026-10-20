@@ -93,6 +93,15 @@ uv run uvicorn app.main:app --reload --port 8000
 Or set `AUTO_CREATE_SCHEMA=true` in `.env` to skip Alembic locally (creates
 tables directly from the models on startup — never use this in production).
 
+Logs go to the console and, with `LOG_DIR=logs` (as in `.env.example`), also to daily
+JSON-lines files in `backend/logs/`: `app-<date>.log` with everything and `error-<date>.log`
+with errors only, including tracebacks and each request's correlation id. Files are kept
+for 14 days. For example:
+
+```bash
+jq -r '[.timestamp, .event, .correlation_id] | @tsv' logs/error-$(date -u +%F).log
+```
+
 ```bash
 uv run ruff check app migrations tests
 uv run mypy --config-file pyproject.toml app

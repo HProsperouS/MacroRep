@@ -85,6 +85,9 @@ class Settings(BaseSettings):
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_json: bool = Field(default=True, alias="LOG_JSON")
+    # Also keep logs in daily files here (relative paths are under backend/). Unset: console only,
+    # as in a container, whose logs are collected from stdout.
+    log_dir: Path | None = Field(default=None, alias="LOG_DIR")
     correlation_id_header: str = Field(
         default="X-Correlation-ID", alias="CORRELATION_ID_HEADER", min_length=1
     )
@@ -106,6 +109,18 @@ class Settings(BaseSettings):
         """`OPENAI_API_KEY=` as shipped in `.env.example` means no key; stray spaces don't count."""
 
         return (value.strip() or None) if isinstance(value, str) else value
+
+    @field_validator("log_dir", mode="before")
+    @classmethod
+    def blank_log_dir_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("log_dir")
+    @classmethod
+    def log_dir_under_backend(cls, value: Path | None) -> Path | None:
+        """Relative to backend/, wherever the server was started from."""
+
+        return value if value is None or value.is_absolute() else REPOSITORY_ROOT / "backend" / value
 
     @model_validator(mode="after")
     def require_key_for_openai(self) -> Settings:
