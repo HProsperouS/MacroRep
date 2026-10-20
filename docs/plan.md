@@ -165,14 +165,14 @@ These exclusions protect the four-person team from excessive scope and keep the 
 - Deterministic calculations and validation.
 - User review, edit, approval, and rejection.
 - Audit record showing the proposal, evidence summary, and final decision.
-- A real language model behind the agents. *Waiting on an API key: until then the agents run on a rule-based model with the same interface (see [agents.md](agents.md#the-model)).*
+- A real language model behind the agents: OpenAI, with the rule-based model kept for tests and for running without a key (see [agents.md](agents.md#the-model)).
 
 ### P2: Important engineering quality
 
 - ~~Cloud deployment.~~ A deployment design document instead: the project is not deployed (see [deployment.md](deployment.md)).
 - Automated CI (continuous deployment isn't needed without a deployment).
 - Integration and end-to-end tests.
-- Load testing for selected endpoints.
+- ~~Load testing for selected endpoints.~~ Dropped (see the scope changes below).
 - Logging, health checks, and basic monitoring, including agent run metrics (duration, outcome, retries).
 - Evaluation of the agents' quality (§26), as far as a rule-based model allows: conflict detection, validation, structured-output handling.
 - Architecture documentation, ERD, API documentation, and setup guide.
@@ -199,13 +199,14 @@ Agreed once P1's agents, validation and approval were built, to keep the plan ma
 
 | Item | Was | Now | Why |
 |---|---|---|---|
-| Real language model | P1 | P1, waiting on an API key | Core to the product, so not moved; the model interface is in place. |
+| Real language model | P1 | P1, done (OpenAI) | Core to the product, so not moved. |
 | Supervisor/Router | P1 (§9.3) | P3 | The weekly check-in always runs the same agents; routing serves Coach Chat. |
 | "Request changes" loop | P1 (§9.2) | P3 | Users can already edit values or reject and start again; revising belongs with Coach Chat. |
 | Exercise substitution | P1 (§9.5) | Out of scope | Training proposals adjust a routine's targets only, which can be validated deterministically. |
 | Agent run metrics | P1 (implied) | P2 | Part of logging and monitoring. |
 | AI quality evaluation | §26 | P2 | Measured alongside the test report. |
 | Cloud deployment | P2 | Design document only | The project is not deployed. |
+| Load testing | P2 | Dropped | Without a deployment there is no real environment to measure, and a laptop run says little about it. |
 
 ## 7. Core User Journeys
 
@@ -898,12 +899,10 @@ POST   /api/v1/coach/check-ins/{check_in_id}/messages
 
 Targets should be revised after a baseline measurement:
 
-- Non-AI API p95 latency below 500 ms under the defined classroom load test.
 - No duplicate plan application when approval is retried.
 - Successful recovery of an interrupted check-in from its latest checkpoint.
 - Core pages usable at a common mobile viewport.
 - Bounded agent-run timeout with a clear failure state.
-- Defined concurrent-user test with documented hardware and dataset size.
 
 The final report must state the test environment and avoid unsupported production-scale claims.
 
@@ -1141,7 +1140,6 @@ Dates should be assigned after the team confirms the course deadline.
 
 - Staging deployment.
 - CI/CD deploy job.
-- Performance baseline and load test.
 - Security review.
 - Observability.
 - Architecture, API, and setup documentation.
@@ -1161,7 +1159,7 @@ Dates should be assigned after the team confirms the course deadline.
 | Rubric category | Planned evidence |
 |---|---|
 | Database Design | Normalized relational schema, ERD, constraints, indexes, query review, Alembic migrations, checkpoint isolation |
-| Scalability | Stateless containers, pagination, pooling, indexes, load test, checkpoint recovery, documented scaling path |
+| Scalability | Stateless containers, pagination, pooling, indexes, checkpoint recovery, documented scaling path |
 | Project Complexity | Nutrition and workout vertical slices, image input if completed, persistent multi-agent workflow, approval state machine |
 | Code Cleanliness | Modular-monolith boundaries, typing, linting, code review, documented conventions |
 | Backend API Design | Versioned REST endpoints, Pydantic schemas, consistent errors, authorization, idempotency, OpenAPI |
@@ -1228,7 +1226,6 @@ Dates should be assigned after the team confirms the course deadline.
 - Database migration instructions.
 - Cloud deployment and rollback instructions.
 - Testing strategy and test-results summary.
-- Performance-test method and results.
 - Security and responsible-AI limitations.
 - Team contribution summary.
 - Demo script with seeded demo account/data.
@@ -1271,7 +1268,7 @@ The team should resolve these during Milestone 0:
 7. ~~Product-defined nutrition and workout validation bounds.~~ Initial values in `backend/app/coach/agents/limits.py`: a check-in changes the calorie target by at most 300 kcal, within 1,000–6,000 kcal; a training change moves working sets by 1, target weight by at most 10% (in 2.5 kg steps) and target reps by 3; a calorie cut holds back training increases in the same check-in. Values beyond a bound are clamped to it, with a note to the user.
 8. Whether Coach Chat is included in the committed scope.
 9. Whether food-photo analysis is included in the committed scope.
-10. The final measurable performance and AI-evaluation targets.
+10. The final AI-evaluation targets.
 
 Until these are decided, the architecture should keep them configurable and avoid provider-specific assumptions in domain code.
 
