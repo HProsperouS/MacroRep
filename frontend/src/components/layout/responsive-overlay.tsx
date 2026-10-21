@@ -36,12 +36,14 @@ export function ResponsiveOverlay({ open, onOpenChange, layout, title, descripti
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("sm:max-w-md", className)}>
+      {/* The title and close button stay put; only the body scrolls when it's taller than the screen. */}
+      <DialogContent className={cn("flex flex-col overflow-hidden sm:max-w-md", className)}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className={cn(hideDescription && "sr-only")}>{description}</DialogDescription>
         </DialogHeader>
-        {children}
+        {/* Bleeds into the padding, so focus rings at the edges aren't cut off. */}
+        <div className="-mx-4 -mb-4 min-h-0 overflow-y-auto px-4 pb-4">{children}</div>
       </DialogContent>
     </Dialog>
   )

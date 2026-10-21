@@ -11,6 +11,9 @@ test("estimates a meal photo, then logs only what the user confirms", async ({ p
   await page.getByRole("navigation").getByRole("link", { name: "Food" }).click()
   await expect(page.getByText("0 / 2,200 kcal")).toBeVisible()
 
+  // A short window, so the review is taller than the screen: its dialog must scroll to its
+  // buttons, since the page behind is locked while it's open.
+  await page.setViewportSize({ width: 1280, height: 500 })
   const sent = page.waitForRequest((request) => request.url().endsWith("/food/photo-estimates"))
   await page.getByLabel("Meal photo").setInputFiles(PHOTO)
   const image = (await sent).postDataJSON().image as string
@@ -25,10 +28,19 @@ test("estimates a meal photo, then logs only what the user confirms", async ({ p
 
   const dialog = page.getByRole("dialog", { name: "Check the photo estimate" })
   await expect(dialog.getByRole("listitem", { name: "Chicken rice" })).toBeVisible()
+  // Run in the page (the e2e code has no DOM types): is something inside this dialog scrolling?
+  const scrolls = await page.evaluate<boolean>(`(() => {
+    const dialog = [...document.querySelectorAll('[role="dialog"]')].find((d) => d.textContent.includes("Check the photo estimate"))
+    return [dialog, ...dialog.querySelectorAll("*")].some((e) => e.scrollHeight > e.clientHeight && getComputedStyle(e).overflowY === "auto")
+  })()`)
+  expect(scrolls, "the dialog scrolls rather than running off the screen").toBe(true)
   await expect(page.getByText("0 / 2,200 kcal")).toBeVisible() // nothing logged yet
   await dialog.getByRole("button", { name: "Remove Cucumber slices" }).click()
   await dialog.getByRole("radio", { name: "Lunch" }).click()
-  await dialog.getByRole("button", { name: "Log 1 item to Lunch" }).click()
+  const log = dialog.getByRole("button", { name: "Log 1 item to Lunch" })
+  await log.scrollIntoViewIfNeeded()
+  await expect(dialog.getByRole("button", { name: "Close" }), "the title and close button stay put").toBeInViewport()
+  await log.click()
 
   await expect(page.getByText("600 / 2,200 kcal")).toBeVisible()
   await page.reload()

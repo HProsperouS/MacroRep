@@ -50,12 +50,15 @@ export function ManualEntry({ open, onOpenChange, layout, ...bodyProps }: Manual
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("max-h-[90dvh] overflow-y-auto sm:p-6", bodyProps.tab === "custom" ? "sm:max-w-5xl" : "sm:max-w-xl")}>
+      {/* As ResponsiveOverlay: the title stays put and the body scrolls. */}
+      <DialogContent className={cn("flex flex-col overflow-hidden sm:p-6", bodyProps.tab === "custom" ? "sm:max-w-5xl" : "sm:max-w-xl")}>
         <DialogHeader>
           <DialogTitle>{TITLE}</DialogTitle>
           <DialogDescription>{DESCRIPTION}</DialogDescription>
         </DialogHeader>
-        <ManualEntryBody {...bodyProps} />
+        <div className="-mx-4 -mb-4 min-h-0 overflow-y-auto px-4 pb-4 sm:-mx-6 sm:-mb-6 sm:px-6 sm:pb-6">
+          <ManualEntryBody {...bodyProps} />
+        </div>
       </DialogContent>
     </Dialog>
   )
