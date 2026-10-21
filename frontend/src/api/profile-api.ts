@@ -1,6 +1,6 @@
 import { apiClient } from "@/api/client"
 import type { DailyTargets, TargetVersion } from "@/types/food"
-import type { Profile, UpdateProfileInput } from "@/types/profile"
+import type { OnboardingInput, Profile, UpdateProfileInput } from "@/types/profile"
 
 export const profileApi = {
   async getProfile(signal?: AbortSignal) {
@@ -10,6 +10,12 @@ export const profileApi = {
 
   async updateProfile(input: UpdateProfileInput) {
     const { data } = await apiClient.put<Profile>("/profile", input)
+    return data
+  },
+
+  /** Saves the sign-up guide in one go; refused (409) once it's been finished. */
+  async completeOnboarding(input: OnboardingInput) {
+    const { data } = await apiClient.post<Profile>("/profile/onboarding", input)
     return data
   },
 

@@ -2,9 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
 
 import { profileApi } from "@/api/profile-api"
-import { foodKeys, profileKeys, progressKeys } from "@/api/query-keys"
+import { bodyKeys, foodKeys, profileKeys, progressKeys } from "@/api/query-keys"
 import type { DailyTargets } from "@/types/food"
-import type { UpdateProfileInput } from "@/types/profile"
+import type { OnboardingInput, UpdateProfileInput } from "@/types/profile"
 
 export function useProfile() {
   return useQuery({
@@ -21,6 +21,20 @@ export function useUpdateProfile() {
     onSuccess: (profile) => {
       queryClient.setQueryData(profileKeys.all, profile)
       // Goal rate feeds the progress page.
+      void queryClient.invalidateQueries({ queryKey: progressKeys.all })
+    },
+  })
+}
+
+export function useCompleteOnboarding() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: OnboardingInput) => profileApi.completeOnboarding(input),
+    onSuccess: (profile) => {
+      queryClient.setQueryData(profileKeys.all, profile)
+      // The guide also logged today's weight and set the targets.
+      void queryClient.invalidateQueries({ queryKey: foodKeys.all })
+      void queryClient.invalidateQueries({ queryKey: bodyKeys.all })
       void queryClient.invalidateQueries({ queryKey: progressKeys.all })
     },
   })

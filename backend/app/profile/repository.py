@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import NutritionTarget, Profile, TargetSource
@@ -21,6 +23,20 @@ class ProfileRepository:
         self.session.add(profile)
         await self.session.flush()
         return profile
+
+    async def mark_onboarded(self, user_id: str, when: datetime) -> bool:
+        """Record the sign-up guide as finished; False if it already was. Conditional, so of
+        two submissions at once only one goes on (the other waits on the row, then sees it set)."""
+
+        result = cast(
+            "CursorResult[Any]",
+            await self.session.execute(
+                update(Profile)
+                .where(Profile.user_id == user_id, Profile.onboarded_utc.is_(None))
+                .values(onboarded_utc=when)
+            ),
+        )
+        return bool(result.rowcount == 1)
 
     async def current_targets(self, owner_id: str) -> NutritionTarget | None:
         """The newest version of the user's targets, or None if they have none yet."""

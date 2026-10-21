@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.body.repository import WeighInRepository
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.identity.repository import UserRepository
@@ -14,6 +15,7 @@ from app.identity.repository import UserRepository
 from .repository import ProfileRepository
 from .schemas import (
     DailyTargets,
+    OnboardingInput,
     ProfileRead,
     TargetVersionRead,
     TimezoneInput,
@@ -26,7 +28,9 @@ router = APIRouter(prefix="/api/v1", tags=["profile"])
 
 
 def get_profile_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> ProfileService:
-    return ProfileService(session, ProfileRepository(session), UserRepository(session))
+    return ProfileService(
+        session, ProfileRepository(session), UserRepository(session), WeighInRepository(session)
+    )
 
 
 ProfileServiceDep = Annotated[ProfileService, Depends(get_profile_service)]
@@ -43,6 +47,19 @@ async def update_profile(
     payload: UpdateProfileInput, actor: ActorDep, service: ProfileServiceDep
 ) -> ProfileRead:
     return await service.update(payload, actor)
+
+
+@router.post(
+    "/profile/onboarding",
+    response_model=ProfileRead,
+    responses={409: {"description": "The sign-up guide was already finished."}},
+)
+async def complete_onboarding(
+    payload: OnboardingInput, actor: ActorDep, service: ProfileServiceDep
+) -> ProfileRead:
+    """Finish the sign-up guide: the profile, today's weight and the starting daily targets."""
+
+    return await service.complete_onboarding(payload, actor)
 
 
 @router.put("/profile/timezone", response_model=ProfileRead)

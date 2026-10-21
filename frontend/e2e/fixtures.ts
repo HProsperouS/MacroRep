@@ -60,8 +60,27 @@ export async function signUpInBrowser(page: Page, email = uniqueEmail()) {
   await page.getByLabel("Email").fill(email)
   await page.getByLabel("Password").fill(PASSWORD)
   await page.getByRole("button", { name: "Create account" }).click()
-  await expect(page.getByRole("heading", { level: 1, name: "Today" })).toBeVisible()
+  await finishGuideInBrowser(page)
   return email
+}
+
+/** Goes through the sign-up guide a new account is sent to, keeping the suggested targets. */
+async function finishGuideInBrowser(page: Page) {
+  const next = page.getByRole("button", { name: "Continue" })
+  await expect(page.getByRole("heading", { name: "About you" })).toBeVisible()
+  await page.getByLabel("Height").fill("175")
+  await page.getByLabel("Weight today").fill("80")
+  await next.click()
+  await page.getByRole("radio", { name: "Maintain" }).click()
+  await next.click()
+  await page.getByRole("radio", { name: "Beginner" }).click()
+  await page.getByLabel("Training days").fill("3")
+  await next.click()
+  await page.getByRole("button", { name: "Barbell" }).click()
+  await next.click()
+  await expect(page.getByLabel("Calories")).toHaveValue("2200")
+  await page.getByRole("button", { name: "Finish setup" }).click()
+  await expect(page.getByRole("heading", { level: 1, name: "Today" })).toBeVisible()
 }
 
 /**
@@ -77,5 +96,22 @@ export async function signUpThroughApi(request: APIRequestContext) {
   const headers = { Authorization: `Bearer ${accessToken}` }
   const timezone = await request.put("/api/v1/profile/timezone", { headers, data: { timezone: "UTC" } })
   expect(timezone.status()).toBe(200)
+  // Past the sign-up guide, keeping the starting targets and a maintain goal.
+  const targets = await (await request.get("/api/v1/nutrition/targets", { headers })).json()
+  const guide = await request.post("/api/v1/profile/onboarding", {
+    headers,
+    data: {
+      name: "E2E User",
+      heightCm: 175,
+      goal: "maintain",
+      weeklyRateKg: 0,
+      trainingDaysPerWeek: 3,
+      experienceLevel: "beginner",
+      equipment: ["barbell"],
+      weightKg: 80,
+      targets,
+    },
+  })
+  expect(guide.status()).toBe(200)
   return headers
 }

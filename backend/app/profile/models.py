@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, Date, ForeignKey, Index, Integer, Numeric, String
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -54,6 +54,8 @@ class Profile(TimestampMixin, Base):
     timezone: Mapped[str] = mapped_column(
         String(64), nullable=False, default=DEFAULT_TIMEZONE, server_default=DEFAULT_TIMEZONE
     )
+    # When the user finished the sign-up guide; until then the app shows only the guide.
+    onboarded_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class NutritionTarget(TimestampMixin, Base):

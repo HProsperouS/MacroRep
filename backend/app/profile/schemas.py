@@ -10,10 +10,12 @@ from app.shared.schema import CamelModel, validate_choice
 from app.shared.timezones import is_known_timezone
 from app.shared.validation import (
     MAX_ABS_WEEKLY_RATE_KG,
+    MAX_BODY_WEIGHT_KG,
     MAX_CALORIES,
     MAX_HEIGHT_CM,
     MAX_MACRO_G,
     MAX_NAME_LENGTH,
+    MIN_BODY_WEIGHT_KG,
     MIN_HEIGHT_CM,
     PlainText,
     ensure_plausible_calories,
@@ -68,6 +70,8 @@ class ProfileRead(CamelModel):
     experience_level: ExperienceLevel
     equipment: list[str]
     timezone: str
+    # False until the sign-up guide is finished (POST /profile/onboarding).
+    onboarded: bool
 
 
 class TimezoneInput(CamelModel):
@@ -95,3 +99,10 @@ class UpdateProfileInput(CamelModel):
     @classmethod
     def check_equipment(cls, value: list[str]) -> list[str]:
         return ensure_unique([validate_choice(item, EQUIPMENT, "equipment") for item in value], "equipment")
+
+
+class OnboardingInput(UpdateProfileInput):
+    """The sign-up guide: the profile, today's weight, and the starting daily targets."""
+
+    weight_kg: float = Field(ge=MIN_BODY_WEIGHT_KG, le=MAX_BODY_WEIGHT_KG)
+    targets: UpdateTargetsInput

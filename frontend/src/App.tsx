@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom"
 import { restoreSession } from "@/api/client"
 import { AppShell } from "@/components/layout/app-shell"
 import { Spinner } from "@/components/ui/spinner"
+import { useProfile } from "@/hooks/use-profile"
 import { getAccessToken } from "@/lib/auth"
 
 const HomePage = lazy(() => import("@/pages/home-page"))
@@ -16,6 +17,7 @@ const ProgressPage = lazy(() => import("@/pages/progress-page"))
 const ProfilePage = lazy(() => import("@/pages/profile-page"))
 const NotFoundPage = lazy(() => import("@/pages/not-found-page"))
 const AuthPage = lazy(() => import("@/pages/auth-page"))
+const OnboardingPage = lazy(() => import("@/pages/onboarding-page"))
 
 /**
  * The refresh cookie is httpOnly, so on a cold load the client cannot tell
@@ -39,14 +41,29 @@ function RequireAuth({ children }: { children: ReactNode }) {
     }
   }, [status])
 
-  if (status === "checking") {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-background">
-        <Spinner className="size-6 text-muted-foreground" />
-      </div>
-    )
-  }
+  if (status === "checking") return <FullPageSpinner />
   if (status === "anonymous") return <Navigate to="/login" replace />
+  return children
+}
+
+function FullPageSpinner() {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-background">
+      <Spinner className="size-6 text-muted-foreground" />
+    </div>
+  )
+}
+
+/**
+ * Sends a new account through the sign-up guide before the app. If the profile can't be
+ * loaded, the app opens anyway: its pages show their own errors, and nobody is locked out.
+ */
+function RequireOnboarded({ children }: { children: ReactNode }) {
+  const profile = useProfile()
+  // Only before the first answer: a refetch after a failure is pending again, and hiding the
+  // app then would unmount the pages whose own queries started that refetch.
+  if (profile.isPending && profile.errorUpdateCount === 0) return <FullPageSpinner />
+  if (profile.data?.onboarded === false) return <Navigate to="/welcome" replace />
   return children
 }
 
@@ -83,9 +100,19 @@ export default function App() {
           }
         />
         <Route
+          path="welcome"
           element={
             <RequireAuth>
-              <AppShell />
+              <OnboardingPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          element={
+            <RequireAuth>
+              <RequireOnboarded>
+                <AppShell />
+              </RequireOnboarded>
             </RequireAuth>
           }
         >

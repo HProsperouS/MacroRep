@@ -1,3 +1,4 @@
+import type { DailyTargets } from "@/types/food"
 import type { Equipment } from "@/types/workout"
 
 export const GOALS = ["lose", "maintain", "gain"] as const
@@ -31,6 +32,11 @@ export type Profile = {
   equipment: Equipment[]
   /** IANA timezone, e.g. "Asia/Singapore"; synced from the browser, decides the user's calendar days. */
   timezone: string
+  /** False until the sign-up guide is finished; until then the app shows only the guide. */
+  onboarded: boolean
 }
 
-export type UpdateProfileInput = Omit<Profile, "email" | "timezone">
+export type UpdateProfileInput = Omit<Profile, "email" | "timezone" | "onboarded">
+
+/** The sign-up guide: the profile, today's weight and the starting daily targets. */
+export type OnboardingInput = UpdateProfileInput & { weightKg: number; targets: DailyTargets }

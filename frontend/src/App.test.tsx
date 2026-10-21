@@ -18,6 +18,7 @@ vi.mock("@/api/profile-api", () => ({ profileApi }))
 // The pages have their own tests; here they only show which route was reached.
 vi.mock("@/pages/home-page", () => ({ default: () => <h1>Home page</h1> }))
 vi.mock("@/pages/food-page", () => ({ default: () => <h1>Food page</h1> }))
+vi.mock("@/pages/onboarding-page", () => ({ default: () => <h1>Sign-up guide</h1> }))
 
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -32,7 +33,7 @@ function renderAt(url: string) {
 beforeEach(() => {
   clearAccessToken()
   session.restoreSession.mockResolvedValue(false)
-  profileApi.getProfile.mockResolvedValue({ name: "Alex", timezone })
+  profileApi.getProfile.mockResolvedValue({ name: "Alex", timezone, onboarded: true })
 })
 
 describe("App", () => {
@@ -120,8 +121,9 @@ describe("App", () => {
     )
   })
 
-  it("creates an account and opens the app", async () => {
+  it("creates an account and starts the sign-up guide", async () => {
     authApi.register.mockResolvedValue({ accessToken: "new", tokenType: "bearer", expiresIn: 900 })
+    profileApi.getProfile.mockResolvedValue({ name: "Alex", timezone, onboarded: false })
     const user = userEvent.setup()
     renderAt("/login")
 
@@ -131,8 +133,26 @@ describe("App", () => {
     await user.type(screen.getByLabelText("Password"), "long-enough-pw")
     await user.click(screen.getByRole("button", { name: "Create account" }))
 
-    expect(await screen.findByText("Home page")).toBeInTheDocument()
+    expect(await screen.findByText("Sign-up guide")).toBeInTheDocument()
+    expect(screen.queryByText("Home page")).not.toBeInTheDocument()
     expect(authApi.register).toHaveBeenCalledWith({ name: "Alex", email: "alex@example.com", password: "long-enough-pw" })
+  })
+
+  it("keeps an account that hasn't finished the guide out of every page", async () => {
+    profileApi.getProfile.mockResolvedValue({ name: "Alex", timezone, onboarded: false })
+    setAccessToken("token")
+    renderAt("/food")
+
+    expect(await screen.findByText("Sign-up guide")).toBeInTheDocument()
+    expect(screen.queryByText("Food page")).not.toBeInTheDocument()
+  })
+
+  it("opens the app when the profile can't be loaded, rather than locking the user out", async () => {
+    profileApi.getProfile.mockRejectedValue(new Error("offline"))
+    setAccessToken("token")
+    renderAt("/food")
+
+    expect(await screen.findByText("Food page")).toBeInTheDocument()
   })
 
   it("signs out from the sidebar", async () => {
@@ -147,7 +167,11 @@ describe("App", () => {
   })
 
   it("moves the profile to this device's timezone, once", async () => {
-    profileApi.getProfile.mockResolvedValue({ name: "Alex", timezone: timezone === "Pacific/Chatham" ? "Asia/Singapore" : "Pacific/Chatham" })
+    profileApi.getProfile.mockResolvedValue({
+      name: "Alex",
+      timezone: timezone === "Pacific/Chatham" ? "Asia/Singapore" : "Pacific/Chatham",
+      onboarded: true,
+    })
     profileApi.setTimezone.mockRejectedValue(new Error("unknown zone"))
     setAccessToken("token")
     renderAt("/")

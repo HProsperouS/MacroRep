@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Check, TriangleAlert } from "lucide-react"
-import { useForm, useWatch, type Control } from "react-hook-form"
+import { useForm, useWatch, type Control, type UseFormRegisterReturn } from "react-hook-form"
 import { z } from "zod"
 
 import { TextField } from "@/components/ui/text-field"
@@ -8,22 +8,11 @@ import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { formatNumber, toNumber } from "@/lib/format"
-import { caloriesFromMacros, caloriesImplausiblyLow, caloriesMismatch, implausibleCaloriesMessage } from "@/lib/macros"
-import { requiredNumber } from "@/lib/zod-helpers"
+import { caloriesFromMacros, caloriesMismatch } from "@/lib/macros"
+import { checkTargetCalories, targetsFields } from "@/lib/profile-schemas"
 import type { DailyTargets } from "@/types/food"
 
-const targetsSchema = z
-  .object({
-    calories: requiredNumber("calories", 1000, 6000),
-    protein: requiredNumber("protein", 0, 500),
-    carbs: requiredNumber("carbs", 0, 1000),
-    fat: requiredNumber("fat", 0, 400),
-  })
-  .superRefine((v, ctx) => {
-    if (caloriesImplausiblyLow(v.calories, v)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: implausibleCaloriesMessage(v), path: ["calories"] })
-    }
-  })
+const targetsSchema = targetsFields.superRefine(checkTargetCalories)
 
 type TargetsInput = z.input<typeof targetsSchema>
 type TargetsValues = z.output<typeof targetsSchema>
@@ -53,21 +42,12 @@ export function TargetsForm({ targets, submitting, onSubmit }: TargetsFormProps)
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
       <FieldGroup>
-        <TextField
-          id="targets-calories"
-          label="Calories"
-          unit="kcal"
-          inputMode="numeric"
-          dotClassName="bg-calories"
-          error={errors.calories?.message}
+        <TargetsFields
+          idPrefix="targets"
+          fields={{ calories: register("calories"), protein: register("protein"), carbs: register("carbs"), fat: register("fat") }}
+          errors={{ calories: errors.calories?.message, protein: errors.protein?.message, carbs: errors.carbs?.message, fat: errors.fat?.message }}
           disabled={submitting}
-          {...register("calories")}
         />
-        <div className="grid grid-cols-3 gap-3">
-          <TextField id="targets-protein" label="Protein" unit="g" inputMode="numeric" dotClassName="bg-protein" error={errors.protein?.message} disabled={submitting} {...register("protein")} />
-          <TextField id="targets-carbs" label="Carbs" unit="g" inputMode="numeric" dotClassName="bg-carbs" error={errors.carbs?.message} disabled={submitting} {...register("carbs")} />
-          <TextField id="targets-fat" label="Fat" unit="g" inputMode="numeric" dotClassName="bg-fat" error={errors.fat?.message} disabled={submitting} {...register("fat")} />
-        </div>
         <MacroCheck control={control} />
       </FieldGroup>
       <div className="flex justify-end">
@@ -80,8 +60,36 @@ export function TargetsForm({ targets, submitting, onSubmit }: TargetsFormProps)
   )
 }
 
+type TargetField = "calories" | "protein" | "carbs" | "fat"
+
+type TargetsFieldsProps = {
+  idPrefix: string
+  fields: Record<TargetField, UseFormRegisterReturn>
+  errors: Partial<Record<TargetField, string>>
+  disabled: boolean
+}
+
+/** The four daily targets' inputs, for this form and the sign-up guide. */
+export function TargetsFields({ idPrefix, fields, errors, disabled }: TargetsFieldsProps) {
+  return (
+    <>
+      <TextField id={`${idPrefix}-calories`} label="Calories" unit="kcal" inputMode="numeric" dotClassName="bg-calories" error={errors.calories} disabled={disabled} {...fields.calories} />
+      <div className="grid grid-cols-3 gap-3">
+        <TextField id={`${idPrefix}-protein`} label="Protein" unit="g" inputMode="numeric" dotClassName="bg-protein" error={errors.protein} disabled={disabled} {...fields.protein} />
+        <TextField id={`${idPrefix}-carbs`} label="Carbs" unit="g" inputMode="numeric" dotClassName="bg-carbs" error={errors.carbs} disabled={disabled} {...fields.carbs} />
+        <TextField id={`${idPrefix}-fat`} label="Fat" unit="g" inputMode="numeric" dotClassName="bg-fat" error={errors.fat} disabled={disabled} {...fields.fat} />
+      </div>
+    </>
+  )
+}
+
 function MacroCheck({ control }: { control: Control<TargetsInput, unknown, TargetsValues> }) {
-  const [caloriesRaw, proteinRaw, carbsRaw, fatRaw] = useWatch({ control, name: ["calories", "protein", "carbs", "fat"] })
+  const [calories, protein, carbs, fat] = useWatch({ control, name: ["calories", "protein", "carbs", "fat"] })
+  return <MacroSummary calories={calories} protein={protein} carbs={carbs} fat={fat} />
+}
+
+/** Whether the macros, as typed, add up to the calories. */
+export function MacroSummary({ calories: caloriesRaw, protein: proteinRaw, carbs: carbsRaw, fat: fatRaw }: Record<"calories" | "protein" | "carbs" | "fat", unknown>) {
   const macros = { protein: toNumber(proteinRaw) ?? 0, carbs: toNumber(carbsRaw) ?? 0, fat: toNumber(fatRaw) ?? 0 }
   const computed = caloriesFromMacros(macros)
   const calories = toNumber(caloriesRaw)

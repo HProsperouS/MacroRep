@@ -3,29 +3,14 @@ import { TriangleAlert } from "lucide-react"
 import { Controller, useForm, useWatch, type Control, type UseFormRegisterReturn } from "react-hook-form"
 import { z } from "zod"
 
+import { EquipmentChoice, ExperienceChoice, GoalChoice } from "@/components/profile/profile-choices"
 import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
 import { FieldDescription, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { toNumber } from "@/lib/format"
-import { requiredNumber } from "@/lib/zod-helpers"
-import { EXPERIENCE_LEVEL_LABELS, EXPERIENCE_LEVELS, GOAL_LABELS, GOALS, type Profile, type UpdateProfileInput } from "@/types/profile"
-import { EQUIPMENT, EQUIPMENT_LABELS, type Equipment } from "@/types/workout"
-
-const profileSchema = z.object({
-  name: z.string().trim().min(1, "Enter your name").max(60, "Keep it under 60 characters"),
-  heightCm: requiredNumber("your height", 100, 250),
-  goal: z.enum(GOALS),
-  // No health limit by design (see RateField's caution); 99.99 is what the server can store.
-  weeklyRate: requiredNumber("a weekly rate", 0, 99.99),
-  trainingDaysPerWeek: z.preprocess(
-    (value) => Number(value),
-    z.number().int("Whole days only").min(1, "At least 1 day").max(7, "At most 7 days"),
-  ),
-  experienceLevel: z.enum(EXPERIENCE_LEVELS),
-  equipment: z.array(z.enum(EQUIPMENT)),
-})
+import { profileSchema, toUpdateProfileInput } from "@/lib/profile-schemas"
+import type { Goal, Profile, UpdateProfileInput } from "@/types/profile"
 
 type ProfileInput = z.input<typeof profileSchema>
 type ProfileValues = z.output<typeof profileSchema>
@@ -55,18 +40,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
     },
   })
 
-  const submit = handleSubmit((values) => {
-    const rate = values.goal === "maintain" ? 0 : values.goal === "lose" ? -values.weeklyRate : values.weeklyRate
-    onSubmit({
-      name: values.name,
-      heightCm: values.heightCm,
-      goal: values.goal,
-      weeklyRateKg: rate,
-      trainingDaysPerWeek: values.trainingDaysPerWeek,
-      experienceLevel: values.experienceLevel,
-      equipment: values.equipment,
-    })
-  })
+  const submit = handleSubmit((values) => onSubmit(toUpdateProfileInput(values)))
 
   return (
     <form onSubmit={submit} noValidate className="flex flex-col gap-5">
@@ -81,24 +55,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
           <Controller
             control={control}
             name="goal"
-            render={({ field }) => (
-              <ToggleGroup
-                type="single"
-                variant="outline"
-                spacing={0}
-                value={field.value}
-                onValueChange={(next) => (next ? field.onChange(next) : undefined)}
-                aria-label="Goal"
-                className="w-full"
-                disabled={submitting}
-              >
-                {GOALS.map((goal) => (
-                  <ToggleGroupItem key={goal} value={goal} className="h-10 flex-1">
-                    {GOAL_LABELS[goal]}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            )}
+            render={({ field }) => <GoalChoice value={field.value} onChange={field.onChange} disabled={submitting} />}
           />
           <FieldDescription>Your coach uses this to set calorie targets and training volume.</FieldDescription>
         </FieldSet>
@@ -122,24 +79,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
           <Controller
             control={control}
             name="experienceLevel"
-            render={({ field }) => (
-              <ToggleGroup
-                type="single"
-                variant="outline"
-                spacing={0}
-                value={field.value}
-                onValueChange={(next) => (next ? field.onChange(next) : undefined)}
-                aria-label="Training experience"
-                className="w-full"
-                disabled={submitting}
-              >
-                {EXPERIENCE_LEVELS.map((level) => (
-                  <ToggleGroupItem key={level} value={level} className="h-10 flex-1">
-                    {EXPERIENCE_LEVEL_LABELS[level]}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            )}
+            render={({ field }) => <ExperienceChoice value={field.value} onChange={field.onChange} disabled={submitting} />}
           />
         </FieldSet>
 
@@ -148,27 +88,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
           <Controller
             control={control}
             name="equipment"
-            render={({ field }) => (
-              <ToggleGroup
-                type="multiple"
-                variant="outline"
-                value={field.value}
-                onValueChange={(next: Equipment[]) => field.onChange(next)}
-                aria-label="Available equipment"
-                className="flex-wrap"
-                disabled={submitting}
-              >
-                {EQUIPMENT.map((item) => (
-                  <ToggleGroupItem
-                    key={item}
-                    value={item}
-                    className="h-10 data-[state=on]:border-primary/45 data-[state=on]:bg-primary/7"
-                  >
-                    {EQUIPMENT_LABELS[item]}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            )}
+            render={({ field }) => <EquipmentChoice value={field.value} onChange={field.onChange} disabled={submitting} />}
           />
           <FieldDescription>Used to steer which exercises your coach proposes.</FieldDescription>
         </FieldSet>
@@ -198,11 +118,18 @@ type RateFieldProps = {
 const USUAL_MAX_RATE_KG = { lose: 1, gain: 0.5 } as const
 
 /** Watches the goal only here, so switching goals doesn't re-render the whole form. */
-function RateField({ control, error, disabled, register }: RateFieldProps) {
+function RateField({ control, ...props }: RateFieldProps) {
   const [goal, rateRaw] = useWatch({ control, name: ["goal", "weeklyRate"] })
+  return <RateInput goal={goal} rateRaw={rateRaw} {...props} />
+}
+
+type RateInputProps = Omit<RateFieldProps, "control"> & { goal: Goal | undefined; rateRaw: unknown }
+
+/** The weekly rate for a goal, with a caution beyond the usual rates. */
+export function RateInput({ goal, rateRaw, error, disabled, register }: RateInputProps) {
   const maintain = goal === "maintain"
   const rate = toNumber(rateRaw)
-  const usualMax = maintain ? undefined : USUAL_MAX_RATE_KG[goal]
+  const usualMax = maintain || goal === undefined ? undefined : USUAL_MAX_RATE_KG[goal]
   const aboveUsual = usualMax !== undefined && rate !== undefined && rate > usualMax && !error
 
   return (

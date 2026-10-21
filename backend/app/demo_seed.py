@@ -20,6 +20,7 @@ from app.core.database import get_session_factory
 from app.food.models import Food
 from app.identity.models import User, UserStatus
 from app.profile.models import ExperienceLevel, Goal, NutritionTarget, Profile, TargetSource
+from app.shared.persistence.mixins import utc_now
 from app.shared.timezones import local_today, user_zone
 from app.workout.models import Exercise, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutScheduleDay
 
@@ -64,6 +65,7 @@ async def seed_demo_data() -> None:
                     training_days_per_week=3,
                     experience_level=ExperienceLevel.INTERMEDIATE,
                     equipment=["barbell", "dumbbell", "bodyweight"],
+                    onboarded_utc=utc_now(),
                 )
             )
             await session.flush()

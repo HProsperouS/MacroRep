@@ -9,13 +9,22 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.body.repository import WeighInRepository
 from app.identity.dependencies import ActorContext
 from app.identity.repository import UserRepository
+from app.shared.persistence.mixins import utc_now
 from app.shared.timezones import DEFAULT_TIMEZONE, local_today, user_zone
 
 from .models import ExperienceLevel, Goal, NutritionTarget, Profile, TargetSource
 from .repository import ProfileRepository
-from .schemas import DailyTargets, ProfileRead, TargetVersionRead, TimezoneInput, UpdateProfileInput
+from .schemas import (
+    DailyTargets,
+    OnboardingInput,
+    ProfileRead,
+    TargetVersionRead,
+    TimezoneInput,
+    UpdateProfileInput,
+)
 
 # A profile this young that sets its timezone is a new sign-up, not a user who travelled.
 _NEW_ACCOUNT = timedelta(days=1)
@@ -29,6 +38,37 @@ def _one_decimal(value: float) -> float:
     return float(Decimal(str(value)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
 
 
+def _stored_targets(targets: DailyTargets) -> DailyTargets:
+    """The targets as stored. Macros are kept to one decimal, so compare at that precision;
+    otherwise 150.25 (stored as 150.3) would never match and every resave would add a version."""
+
+    return DailyTargets(
+        calories=targets.calories,
+        protein=_one_decimal(targets.protein),
+        carbs=_one_decimal(targets.carbs),
+        fat=_one_decimal(targets.fat),
+    )
+
+
+def _untouched_defaults(history: list[NutritionTarget]) -> NutritionTarget | None:
+    """The starting targets, if they're still the only version: defaults nothing has changed."""
+
+    if len(history) == 1 and history[0].source == TargetSource.INITIAL:
+        return history[0]
+    return None
+
+
+def _apply(profile: Profile, payload: UpdateProfileInput) -> None:
+    profile.name = payload.name
+    profile.height_cm = payload.height_cm
+    profile.goal = payload.goal
+    profile.weekly_rate_kg = payload.weekly_rate_kg
+    profile.training_days_per_week = payload.training_days_per_week
+    profile.experience_level = payload.experience_level
+    profile.equipment = payload.equipment
+    profile.touch()
+
+
 def to_daily_targets(target: NutritionTarget) -> DailyTargets:
     return DailyTargets(
         calories=target.calories,
@@ -39,10 +79,17 @@ def to_daily_targets(target: NutritionTarget) -> DailyTargets:
 
 
 class ProfileService:
-    def __init__(self, session: AsyncSession, repository: ProfileRepository, users: UserRepository) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        repository: ProfileRepository,
+        users: UserRepository,
+        weigh_ins: WeighInRepository,
+    ) -> None:
         self.session = session
         self.repository = repository
         self.users = users
+        self.weigh_ins = weigh_ins
 
     async def _get_or_create(self, actor: ActorContext) -> Profile:
         profile = await self.repository.get(actor.actor_id)
@@ -88,6 +135,7 @@ class ProfileService:
             experience_level=profile.experience_level,
             equipment=list(profile.equipment),
             timezone=profile.timezone,
+            onboarded=profile.onboarded_utc is not None,
         )
 
     async def get(self, actor: ActorContext) -> ProfileRead:
@@ -96,17 +144,55 @@ class ProfileService:
 
     async def update(self, payload: UpdateProfileInput, actor: ActorContext) -> ProfileRead:
         profile = await self._get_or_create(actor)
-        profile.name = payload.name
-        profile.height_cm = payload.height_cm
-        profile.goal = payload.goal
-        profile.weekly_rate_kg = payload.weekly_rate_kg
-        profile.training_days_per_week = payload.training_days_per_week
-        profile.experience_level = payload.experience_level
-        profile.equipment = payload.equipment
-        profile.touch()
+        _apply(profile, payload)
         await self.session.commit()
         await self.session.refresh(profile)
         return await self._to_read(profile, actor)
+
+    async def complete_onboarding(self, payload: OnboardingInput, actor: ActorContext) -> ProfileRead:
+        """Save the sign-up guide in one go: the profile, a weigh-in for today, and the
+        starting targets. Only once: afterwards each is changed on its own page (409)."""
+
+        profile = await self._get_or_create(actor)
+        if not await self.repository.mark_onboarded(profile.user_id, utc_now()):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "Your profile is already set up. Change it on the Profile page."
+            )
+        _apply(profile, payload)
+        today = local_today(user_zone(profile.timezone))
+        try:
+            await self.weigh_ins.upsert(profile.user_id, today, payload.weight_kg)
+            await self._set_starting_targets(profile, _stored_targets(payload.targets))
+            await self.session.commit()
+        except IntegrityError:
+            # A weigh-in or targets change saved at the same moment; nothing here was kept.
+            await self.session.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "Your weight or targets were just changed elsewhere, please retry"
+            ) from None
+        await self.session.refresh(profile)
+        return await self._to_read(profile, actor)
+
+    async def _set_starting_targets(self, profile: Profile, targets: DailyTargets) -> None:
+        """The targets chosen in the guide replace the defaults a new profile starts with, rather
+        than following them as a change: the defaults were never the user's. Anything set since
+        (through the API) is kept, and the chosen targets follow it as a manual change."""
+
+        history = await self.repository.target_history(profile.user_id)
+        defaults = _untouched_defaults(history)
+        if defaults is not None:
+            # Keeping their date, so every day since sign-up is still judged against a target.
+            if to_daily_targets(defaults) != targets:
+                defaults.calories = targets.calories
+                defaults.protein_g = targets.protein
+                defaults.carbs_g = targets.carbs
+                defaults.fat_g = targets.fat
+                defaults.touch()
+            return
+        current = history[-1] if history else None
+        if current is not None and to_daily_targets(current) == targets:
+            return
+        await self._add_targets(profile, current, targets, TargetSource.MANUAL)
 
     async def set_timezone(self, payload: TimezoneInput, actor: ActorContext) -> ProfileRead:
         profile = await self._get_or_create(actor)
@@ -126,15 +212,15 @@ class ProfileService:
         new account that has changed nothing yet, date them by the user's own day instead,
         or a target set on sign-up day would look like it came a day after the starting one."""
 
-        history = await self.repository.target_history(profile.user_id)
-        if len(history) != 1 or history[0].source != TargetSource.INITIAL:
+        defaults = _untouched_defaults(await self.repository.target_history(profile.user_id))
+        if defaults is None:
             return
         created = (
             profile.created_utc if profile.created_utc.tzinfo else profile.created_utc.replace(tzinfo=UTC)
         )
         if datetime.now(UTC) - created > _NEW_ACCOUNT:
             return
-        history[0].effective_date = local_today(user_zone(profile.timezone))
+        defaults.effective_date = local_today(user_zone(profile.timezone))
 
     async def _add_targets(
         self, profile: Profile, previous: NutritionTarget | None, targets: DailyTargets, source: TargetSource
@@ -160,14 +246,7 @@ class ProfileService:
 
         profile = await self._get_or_create(actor)
         current = await self.repository.current_targets(profile.user_id)
-        # Macros are stored to one decimal, so compare at that precision; otherwise 150.25
-        # (stored as 150.3) would never match and every resave would add a version.
-        stored = DailyTargets(
-            calories=payload.calories,
-            protein=_one_decimal(payload.protein),
-            carbs=_one_decimal(payload.carbs),
-            fat=_one_decimal(payload.fat),
-        )
+        stored = _stored_targets(payload)
         if current is not None and to_daily_targets(current) == stored:
             return stored
         try:

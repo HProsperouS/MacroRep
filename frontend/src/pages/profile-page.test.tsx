@@ -26,6 +26,7 @@ const profile: Profile = {
   experienceLevel: "intermediate",
   equipment: ["barbell", "dumbbell"],
   timezone: "UTC",
+  onboarded: true,
 }
 
 function renderPage() {

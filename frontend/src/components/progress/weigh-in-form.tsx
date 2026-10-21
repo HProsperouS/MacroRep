@@ -7,16 +7,12 @@ import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { isLoggableDay, toDayKey } from "@/lib/dates"
-import { toNumber } from "@/lib/format"
+import { bodyWeightKg } from "@/lib/profile-schemas"
 import type { WeighInInput } from "@/types/progress"
 
 const weighInSchema = z.object({
   date: z.string().refine(isLoggableDay, "Pick today or an earlier day"),
-  weightKg: z.preprocess(
-    (value) => toNumber(value) ?? (value === "" || value == null ? undefined : Number.NaN),
-    // Same 20–400 kg range the server accepts.
-    z.number({ required_error: "Enter your weight", invalid_type_error: "Enter a number" }).min(20, "That looks too low").max(400, "That looks too high"),
-  ),
+  weightKg: bodyWeightKg,
 })
 
 type WeighInFormInput = z.input<typeof weighInSchema>

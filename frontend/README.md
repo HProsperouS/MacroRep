@@ -57,7 +57,7 @@ Components are generated into `src/components/ui` — edit them freely.
 ## End-to-end tests
 
 `e2e/` drives the production build in Chromium against the real backend on PostgreSQL, one
-test per core journey: sign up and sign in, logging food, logging a meal photo (a real
+test per core journey: sign up (through the sign-up guide) and sign in, logging food, logging a meal photo (a real
 photo scaled in the browser, estimated by the rule-based model, then confirmed), logging a
 workout, and a weekly check-in whose proposal is applied. Each test signs up its own user, so the database
 doesn't need to be empty. Any 5xx from the API fails the test, even if the page recovers.
