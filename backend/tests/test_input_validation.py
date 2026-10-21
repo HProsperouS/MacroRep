@@ -226,7 +226,13 @@ CASES: list[tuple[str, str, str, dict[str, Any], int]] = [
         {**CUSTOM_FOOD, "servingSize": 5_001},
         422,
     ),
-    ("custom food sodium above maximum", "POST", "/api/v1/foods", {**CUSTOM_FOOD, "sodiumMg": 50_001}, 422),
+    (
+        "custom food with nutrients the app doesn't use",
+        "POST",
+        "/api/v1/foods",
+        {**CUSTOM_FOOD, "sodiumMg": 500},
+        422,
+    ),
     ("custom food whitespace name", "POST", "/api/v1/foods", {**CUSTOM_FOOD, "name": "  "}, 422),
     (
         "custom food calories far below macros",
@@ -417,7 +423,7 @@ TEXT_FIELDS: dict[str, tuple[str, str, Any]] = {
     ),
     "profile name": ("PUT", "/api/v1/profile", lambda text: {**PROFILE, "name": text}),
     "quick add name": ("POST", "/api/v1/food-log/entries", lambda text: {**QUICK_ADD, "name": text}),
-    "custom food brand": ("POST", "/api/v1/foods", lambda text: {**CUSTOM_FOOD, "brand": text}),
+    "custom food name": ("POST", "/api/v1/foods", lambda text: {**CUSTOM_FOOD, "name": text}),
     "exercise name": (
         "POST",
         "/api/v1/exercises",

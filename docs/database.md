@@ -266,6 +266,7 @@ Applied in this order (`backend/migrations/versions`):
 | `e8b4f2a6c3d9` | Food entries from a meal photo |
 | `f9c5a3b7d1e4` | When the profile finished the sign-up guide (existing profiles count as done) |
 | `a2d6f8c4e1b7` | Profile birth date, sex and activity level, for estimating starting targets |
+| `b3e7a9d5c2f1` | Drops a food's brand, fibre, sugar and sodium, which nothing used |
 
 Run `uv run alembic upgrade head` from `backend/`. CI runs every migration on PostgreSQL,
 then downgrades and upgrades again.

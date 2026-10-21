@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { AxiosError } from "axios"
 import { toast } from "sonner"
@@ -92,6 +92,33 @@ describe("FoodPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Jump to today" }))
     expect(await screen.findByText("Chicken rice")).toBeInTheDocument()
+  })
+
+  it("jumps to a day chosen from the calendar", async () => {
+    const showPicker = vi.fn()
+    HTMLInputElement.prototype.showPicker = showPicker
+    const user = userEvent.setup()
+    renderWithQuery(<FoodPage />)
+    await screen.findByText("Chicken rice")
+
+    await user.click(screen.getByRole("button", { name: "Choose a day" }))
+    expect(showPicker).toHaveBeenCalledOnce()
+    const day = screen.getByLabelText("Day")
+    expect(day).toHaveAttribute("max", "2026-10-20")
+    fireEvent.change(day, { target: { value: "2026-10-15" } })
+
+    expect(await screen.findByText("Thursday, 15 October")).toBeInTheDocument()
+    await waitFor(() => expect(api.getFoodLog).toHaveBeenLastCalledWith("2026-10-15", expect.anything()))
+    delete (HTMLInputElement.prototype as Partial<HTMLInputElement>).showPicker // jsdom has none
+  })
+
+  it("ignores a future day typed into the calendar", async () => {
+    renderWithQuery(<FoodPage />)
+    await screen.findByText("Chicken rice")
+
+    fireEvent.change(screen.getByLabelText("Day"), { target: { value: "2026-10-25" } })
+
+    expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument()
   })
 
   it("searches, picks an amount and logs a saved food to the chosen meal", async () => {
@@ -252,8 +279,9 @@ describe("FoodPage", () => {
     await waitFor(() => expect(api.addEntry).toHaveBeenCalledWith(expect.objectContaining({ foodId: "f-bar", quantity: 1, quantityUnit: "serving" })))
   })
 
-  it("saves a custom food without logging it", async () => {
+  it("asks a custom food for only what the app uses, and logs it once saved", async () => {
     api.createCustomFood.mockImplementation((food) => Promise.resolve({ ...food, id: "f-rice", source: "custom" }))
+    api.addEntry.mockImplementation((input) => Promise.resolve({ ...input, id: "e-new" }))
     const user = userEvent.setup()
     renderWithQuery(<FoodPage />)
     await screen.findByText("Chicken rice")
@@ -261,18 +289,26 @@ describe("FoodPage", () => {
     await user.click(screen.getByRole("button", { name: "Quick add" }))
     const dialog = await screen.findByRole("dialog", { name: "Add food manually" })
     await user.click(within(dialog).getByRole("tab", { name: "Custom food" }))
+    expect(within(dialog).queryByLabelText(/Brand/)).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole("button", { name: /More nutrients/ })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole("button", { name: "Save only" })).not.toBeInTheDocument()
     await user.type(within(dialog).getByLabelText("Food name"), "Mum's fried rice")
     await user.type(within(dialog).getByRole("textbox", { name: "Calories" }), "500")
     await user.type(within(dialog).getByRole("textbox", { name: "Protein" }), "15")
     await user.type(within(dialog).getByRole("textbox", { name: "Carbs" }), "70")
     await user.type(within(dialog).getByRole("textbox", { name: "Fat" }), "18")
-    await user.click(within(dialog).getByRole("button", { name: /More nutrients/ }))
-    await user.type(within(dialog).getByLabelText("Fibre"), "3")
-    await user.click(within(dialog).getByRole("button", { name: "Save only" }))
+    await user.click(within(dialog).getByRole("button", { name: /Save & log to/ }))
 
-    await waitFor(() => expect(api.createCustomFood).toHaveBeenCalledWith(expect.objectContaining({ name: "Mum's fried rice", fibreG: 3 })))
-    expect(toast.success).toHaveBeenCalledWith("Saved Mum's fried rice", { description: "Find it in search under My food." })
-    expect(api.addEntry).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(api.createCustomFood).toHaveBeenCalledWith({
+        name: "Mum's fried rice",
+        servingSize: 1,
+        servingUnit: "piece",
+        servingWeightG: undefined,
+        nutrition: { calories: 500, protein: 15, carbs: 70, fat: 18 },
+      }),
+    )
+    await waitFor(() => expect(api.addEntry).toHaveBeenCalledWith(expect.objectContaining({ foodId: "f-rice", quantity: 1 })))
   })
 
   it("keeps the custom food form open when saving fails", async () => {
@@ -284,7 +320,7 @@ describe("FoodPage", () => {
     await user.click(screen.getByRole("button", { name: "Quick add" }))
     const dialog = await screen.findByRole("dialog", { name: "Add food manually" })
     await user.click(within(dialog).getByRole("tab", { name: "Custom food" }))
-    await user.click(within(dialog).getByRole("button", { name: "Save only" }))
+    await user.click(within(dialog).getByRole("button", { name: /Save & log to/ }))
     expect(await within(dialog).findByText("Give the food a name")).toBeInTheDocument()
 
     await user.type(within(dialog).getByLabelText("Food name"), "Kaya toast")
@@ -292,7 +328,7 @@ describe("FoodPage", () => {
     await user.type(within(dialog).getByRole("textbox", { name: "Protein" }), "6")
     await user.type(within(dialog).getByRole("textbox", { name: "Carbs" }), "40")
     await user.type(within(dialog).getByRole("textbox", { name: "Fat" }), "12")
-    await user.click(within(dialog).getByRole("button", { name: "Save only" }))
+    await user.click(within(dialog).getByRole("button", { name: /Save & log to/ }))
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t save that food", expect.anything()))
     expect(screen.getByRole("dialog", { name: "Add food manually" })).toBeInTheDocument()

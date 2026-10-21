@@ -70,7 +70,7 @@ export function FoodSearchPanel({
           autoFocus={autoFocus}
           autoComplete="off"
           aria-label="Search foods"
-          placeholder="Search foods, brands, dishes"
+          placeholder="Search foods and dishes"
           value={query}
           onChange={(event) => {
             setQuery(event.target.value)
@@ -224,7 +224,6 @@ function FoodList({ label, announce, foods, isStale, onSelect }: FoodListProps) 
                   {food.source === "custom" ? <Badge variant="secondary">My food</Badge> : null}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
-                  {food.brand ? `${food.brand} · ` : ""}
                   {servingLabel(food)}
                 </span>
               </span>

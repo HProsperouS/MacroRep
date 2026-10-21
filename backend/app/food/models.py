@@ -35,7 +35,6 @@ class Food(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
     owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    brand: Mapped[str | None] = mapped_column(String(255), nullable=True)
     serving_size: Mapped[float] = mapped_column(Numeric(8, 2), nullable=False)
     serving_unit: Mapped[str] = mapped_column(SAEnum(*SERVING_UNITS, name="serving_unit"), nullable=False)
     serving_weight_g: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
@@ -43,9 +42,6 @@ class Food(TimestampMixin, Base):
     protein: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
     carbs: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
     fat: Mapped[float] = mapped_column(Numeric(6, 1), nullable=False)
-    fibre_g: Mapped[float | None] = mapped_column(Numeric(6, 1), nullable=True)
-    sugar_g: Mapped[float | None] = mapped_column(Numeric(6, 1), nullable=True)
-    sodium_mg: Mapped[float | None] = mapped_column(Numeric(7, 1), nullable=True)
 
     @property
     def source(self) -> FoodSource:

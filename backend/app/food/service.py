@@ -84,16 +84,12 @@ def _to_food_read(food: Food) -> FoodRead:
     return FoodRead(
         id=food.id,
         name=food.name,
-        brand=food.brand,
         serving_size=float(food.serving_size),
         serving_unit=food.serving_unit,
         serving_weight_g=float(food.serving_weight_g) if food.serving_weight_g is not None else None,
         nutrition=Nutrition(
             calories=food.calories, protein=float(food.protein), carbs=float(food.carbs), fat=float(food.fat)
         ),
-        fibre_g=float(food.fibre_g) if food.fibre_g is not None else None,
-        sugar_g=float(food.sugar_g) if food.sugar_g is not None else None,
-        sodium_mg=float(food.sodium_mg) if food.sodium_mg is not None else None,
         source=food.source,
     )
 
@@ -147,7 +143,6 @@ class FoodService:
         food = Food(
             owner_id=actor.actor_id,
             name=payload.name,
-            brand=payload.brand,
             serving_size=payload.serving_size,
             serving_unit=payload.serving_unit,
             serving_weight_g=payload.serving_weight_g,
@@ -155,9 +150,6 @@ class FoodService:
             protein=payload.nutrition.protein,
             carbs=payload.nutrition.carbs,
             fat=payload.nutrition.fat,
-            fibre_g=payload.fibre_g,
-            sugar_g=payload.sugar_g,
-            sodium_mg=payload.sodium_mg,
         )
         await self.foods.add(food)
         await self.session.commit()

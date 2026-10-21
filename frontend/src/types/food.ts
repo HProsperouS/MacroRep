@@ -22,15 +22,11 @@ export type FoodSuggestions = { recent: Food[]; common: Food[] }
 export type Food = {
   id: string
   name: string
-  brand?: string
   servingSize: number
   servingUnit: ServingUnit
   /** Weight of one serving in grams, when known — enables logging by grams. */
   servingWeightG?: number
   nutrition: Nutrition
-  fibreG?: number
-  sugarG?: number
-  sodiumMg?: number
   source: Exclude<FoodSource, "quick-add" | "photo">
 }
 

@@ -13,6 +13,7 @@ import { ManualEntry, type ManualEntryTab, type OverlayLayout } from "@/componen
 import { MealSection, MealSectionSkeleton } from "@/components/food/meal-section"
 import { PhotoReview } from "@/components/food/photo-review"
 import type { QuickAddDraft, QuickAddResult } from "@/components/food/quick-add-form"
+import { DayPickerButton } from "@/components/layout/day-picker-button"
 import { PageHeader } from "@/components/layout/page-header"
 import { ResponsiveOverlay } from "@/components/layout/responsive-overlay"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -153,21 +154,17 @@ export default function FoodPage() {
     try {
       const created = await createCustomFood.mutateAsync(food)
       setManual((prev) => ({ ...prev, open: false }))
-      if (logTo) {
-        // Logged as one serving of the saved food, so its amount can be changed later.
-        logEntry({
-          meal: logTo,
-          name: created.name,
-          amountLabel: amountLabelFor(created, 1, "serving"),
-          source: "custom",
-          ...created.nutrition,
-          foodId: created.id,
-          quantity: 1,
-          quantityUnit: "serving",
-        })
-      } else {
-        toast.success(`Saved ${created.name}`, { description: "Find it in search under My food." })
-      }
+      // Logged as one serving of the saved food, so its amount can be changed later.
+      logEntry({
+        meal: logTo,
+        name: created.name,
+        amountLabel: amountLabelFor(created, 1, "serving"),
+        source: "custom",
+        ...created.nutrition,
+        foodId: created.id,
+        quantity: 1,
+        quantityUnit: "serving",
+      })
     } catch (error) {
       // The overlay stays open so the user's input isn't lost.
       toast.error("Couldn’t save that food", { description: apiErrorMessage(error) })
@@ -198,6 +195,7 @@ export default function FoodPage() {
             <Button variant="outline" size="icon-lg" className="size-10" aria-label="Previous day" onClick={() => setDate((d) => addDays(d, -1))}>
               <ChevronLeft />
             </Button>
+            <DayPickerButton value={date} max={new Date()} onChange={setDate} />
             <Button
               variant="outline"
               size="icon-lg"
@@ -237,7 +235,7 @@ export default function FoodPage() {
             <div className="flex flex-col gap-2">
               <Button variant="outline" className="h-11 justify-start font-normal text-muted-foreground" onClick={() => setSearchOpen(true)}>
                 <Search data-icon="inline-start" />
-                Search foods, brands, dishes
+                Search foods and dishes
               </Button>
               <div className="grid grid-cols-2 gap-2">
                 <Button variant="outline" className="h-11" onClick={scanPhoto}>

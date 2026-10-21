@@ -50,9 +50,6 @@ MAX_ABS_WEEKLY_RATE_KG = 99.99
 # Nutrition: per food-log entry, per serving of a food, and per daily target.
 MAX_CALORIES = 10_000
 MAX_MACRO_G = 1_000
-MAX_FIBRE_G = 500
-MAX_SUGAR_G = 1_000
-MAX_SODIUM_MG = 50_000
 MAX_SERVING_SIZE = 5_000
 # Daily targets, set by the user or by an applied check-in proposal.
 MIN_TARGET_CALORIES = 1_000

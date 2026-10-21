@@ -10,13 +10,10 @@ from pydantic import Field, field_validator, model_validator
 from app.shared.schema import CamelModel, validate_choice
 from app.shared.validation import (
     MAX_CALORIES,
-    MAX_FIBRE_G,
     MAX_LABEL_LENGTH,
     MAX_MACRO_G,
     MAX_NAME_LENGTH,
     MAX_SERVING_SIZE,
-    MAX_SODIUM_MG,
-    MAX_SUGAR_G,
     Identifier,
     LogDate,
     PlainText,
@@ -55,27 +52,19 @@ class NutritionInput(Nutrition):
 class FoodRead(CamelModel):
     id: str
     name: str
-    brand: str | None = None
     serving_size: float
     serving_unit: str
     serving_weight_g: float | None = None
     nutrition: Nutrition
-    fibre_g: float | None = None
-    sugar_g: float | None = None
-    sodium_mg: float | None = None
     source: FoodSource
 
 
 class CreateCustomFoodInput(CamelModel):
     name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
-    brand: PlainText | None = Field(default=None, max_length=MAX_NAME_LENGTH)
     serving_size: float = Field(gt=0, le=MAX_SERVING_SIZE)
     serving_unit: str
     serving_weight_g: float | None = Field(default=None, gt=0, le=MAX_SERVING_SIZE)
     nutrition: NutritionInput
-    fibre_g: float | None = Field(default=None, ge=0, le=MAX_FIBRE_G)
-    sugar_g: float | None = Field(default=None, ge=0, le=MAX_SUGAR_G)
-    sodium_mg: float | None = Field(default=None, ge=0, le=MAX_SODIUM_MG)
 
     @field_validator("serving_unit")
     @classmethod

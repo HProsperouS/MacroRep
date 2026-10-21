@@ -1,6 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Check, ChevronDown, TriangleAlert, UtensilsCrossed } from "lucide-react"
-import { useState } from "react"
+import { Check, TriangleAlert, UtensilsCrossed } from "lucide-react"
 import { Controller, useForm, useWatch, type Control, type FieldErrors, type UseFormRegister } from "react-hook-form"
 import { z } from "zod"
 
@@ -36,7 +35,6 @@ const optionalAmount = (max: number) =>
 
 const customFoodSchema = z.object({
   name: z.string().trim().min(1, "Give the food a name").max(60, "Keep it under 60 characters"),
-  brand: z.string().trim().max(60, "Keep it under 60 characters"),
   servingSize: requiredAmount(5_000, 0.01),
   servingUnit: z.enum(SERVING_UNITS),
   servingWeightG: optionalAmount(5_000),
@@ -44,9 +42,6 @@ const customFoodSchema = z.object({
   protein: requiredAmount(1_000),
   carbs: requiredAmount(1_000),
   fat: requiredAmount(1_000),
-  fibreG: optionalAmount(500),
-  sugarG: optionalAmount(1_000),
-  sodiumMg: optionalAmount(50_000),
   meal: z.enum(MEAL_TYPES),
 }).superRefine((v, ctx) => {
   const macros = { protein: v.protein, carbs: v.carbs, fat: v.fat }
@@ -59,9 +54,10 @@ type CustomFoodInput = z.input<typeof customFoodSchema>
 type CustomFoodValues = z.output<typeof customFoodSchema>
 type CustomFoodControl = Control<CustomFoodInput, unknown, CustomFoodValues>
 
+/** A new food, saved and logged to ``logTo`` as one serving. */
 export type CustomFoodSubmit = {
   food: Omit<Food, "id" | "source">
-  logTo: MealType | null
+  logTo: MealType
 }
 
 type CustomFoodFormProps = {
@@ -75,8 +71,6 @@ type CustomFoodFormProps = {
 const toInput = (value: number | undefined) => (value === undefined ? "" : String(value))
 
 export function CustomFoodForm({ defaultMeal, draft, targets, onSubmit }: CustomFoodFormProps) {
-  const [showMore, setShowMore] = useState(false)
-  const [submitMode, setSubmitMode] = useState<"save" | "log">("log")
   const {
     control,
     register,
@@ -86,7 +80,6 @@ export function CustomFoodForm({ defaultMeal, draft, targets, onSubmit }: Custom
     resolver: zodResolver(customFoodSchema),
     defaultValues: {
       name: draft?.name ?? "",
-      brand: "",
       servingSize: "1",
       servingUnit: "piece",
       servingWeightG: "",
@@ -94,39 +87,28 @@ export function CustomFoodForm({ defaultMeal, draft, targets, onSubmit }: Custom
       protein: toInput(draft?.protein),
       carbs: toInput(draft?.carbs),
       fat: toInput(draft?.fat),
-      fibreG: "",
-      sugarG: "",
-      sodiumMg: "",
       meal: defaultMeal,
     },
   })
 
-  const submitWith = (mode: "save" | "log") =>
-    handleSubmit(async (values) => {
-      setSubmitMode(mode)
-      await onSubmit({
-        food: {
-          name: values.name,
-          brand: values.brand || undefined,
-          servingSize: values.servingSize,
-          servingUnit: values.servingUnit,
-          servingWeightG: values.servingUnit === "g" ? values.servingSize : values.servingWeightG,
-          nutrition: { calories: values.calories, protein: values.protein, carbs: values.carbs, fat: values.fat },
-          fibreG: values.fibreG,
-          sugarG: values.sugarG,
-          sodiumMg: values.sodiumMg,
-        },
-        logTo: mode === "log" ? values.meal : null,
-      })
-    })
+  const submit = handleSubmit((values) =>
+    onSubmit({
+      food: {
+        name: values.name,
+        servingSize: values.servingSize,
+        servingUnit: values.servingUnit,
+        servingWeightG: values.servingUnit === "g" ? values.servingSize : values.servingWeightG,
+        nutrition: { calories: values.calories, protein: values.protein, carbs: values.carbs, fat: values.fat },
+      },
+      logTo: values.meal,
+    }),
+  )
 
   return (
-    <form onSubmit={submitWith("log")} noValidate className="grid gap-6 lg:grid-cols-12">
+    <form onSubmit={submit} noValidate className="grid gap-6 lg:grid-cols-12">
       <FieldGroup className="lg:col-span-7">
-        <TextField id="cf-name" label="Food name" placeholder="e.g. Mum’s fried rice" error={errors.name?.message} {...register("name")} />
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextField id="cf-brand" label="Brand or place" description="Optional" placeholder="e.g. Koufu" error={errors.brand?.message} {...register("brand")} />
+        <div className="grid gap-4 sm:grid-cols-[1fr_12rem]">
+          <TextField id="cf-name" label="Food name" placeholder="e.g. Mum’s fried rice" error={errors.name?.message} {...register("name")} />
           <Field>
             <FieldLabel htmlFor="cf-meal">Log to</FieldLabel>
             <Controller
@@ -169,31 +151,13 @@ export function CustomFoodForm({ defaultMeal, draft, targets, onSubmit }: Custom
           </div>
           <MacroConsistency control={control} />
         </FieldSet>
-
-        <Button type="button" variant="outline" className="h-10 justify-between" aria-expanded={showMore} aria-controls="cf-more" onClick={() => setShowMore((open) => !open)}>
-          <span>
-            More nutrients <span className="font-normal text-muted-foreground">· fibre, sugar, sodium</span>
-          </span>
-          <ChevronDown data-icon="inline-end" className={showMore ? "rotate-180" : undefined} />
-        </Button>
-        {showMore ? (
-          <div id="cf-more" className="grid grid-cols-3 gap-3">
-            <TextField id="cf-fibre" label="Fibre" unit="g" inputMode="decimal" placeholder="—" error={errors.fibreG?.message} {...register("fibreG")} />
-            <TextField id="cf-sugar" label="Sugar" unit="g" inputMode="decimal" placeholder="—" error={errors.sugarG?.message} {...register("sugarG")} />
-            <TextField id="cf-sodium" label="Sodium" unit="mg" inputMode="decimal" placeholder="—" error={errors.sodiumMg?.message} {...register("sodiumMg")} />
-          </div>
-        ) : null}
       </FieldGroup>
 
       <CustomFoodPreview control={control} targets={targets} />
 
       <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-end lg:col-span-12">
         <p className="mr-auto hidden text-sm text-muted-foreground sm:block">Saved foods appear in search as “My food”.</p>
-        <Button type="button" variant="outline" size="lg" className="h-11" disabled={isSubmitting} onClick={submitWith("save")}>
-          {isSubmitting && submitMode === "save" ? <Spinner data-icon="inline-start" /> : null}
-          Save only
-        </Button>
-        <SaveAndLogButton control={control} pending={isSubmitting && submitMode === "log"} disabled={isSubmitting} />
+        <SaveAndLogButton control={control} pending={isSubmitting} />
       </div>
     </form>
   )
@@ -269,10 +233,10 @@ function MacroConsistency({ control }: { control: CustomFoodControl }) {
   )
 }
 
-function SaveAndLogButton({ control, pending, disabled }: { control: CustomFoodControl; pending: boolean; disabled: boolean }) {
+function SaveAndLogButton({ control, pending }: { control: CustomFoodControl; pending: boolean }) {
   const meal = useWatch({ control, name: "meal" })
   return (
-    <Button type="submit" size="lg" className="h-11" disabled={disabled}>
+    <Button type="submit" size="lg" className="h-11" disabled={pending}>
       {pending ? <Spinner data-icon="inline-start" /> : <Check data-icon="inline-start" />}
       Save &amp; log to {MEAL_LABELS[meal]}
     </Button>
