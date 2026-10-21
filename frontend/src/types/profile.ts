@@ -19,6 +19,25 @@ export const EXPERIENCE_LEVEL_LABELS: Record<ExperienceLevel, string> = {
   advanced: "Advanced",
 }
 
+export const SEXES = ["male", "female"] as const
+export type Sex = (typeof SEXES)[number]
+
+export const SEX_LABELS: Record<Sex, string> = {
+  male: "Male",
+  female: "Female",
+}
+
+export const ACTIVITY_LEVELS = ["sedentary", "light", "moderate", "very"] as const
+export type ActivityLevel = (typeof ACTIVITY_LEVELS)[number]
+
+/** Daily activity, training included: it picks the factor resting energy is multiplied by. */
+export const ACTIVITY_LEVEL_LABELS: Record<ActivityLevel, string> = {
+  sedentary: "Mostly sitting, little exercise",
+  light: "Lightly active, exercise 1–3 days a week",
+  moderate: "Moderately active, exercise 3–5 days a week",
+  very: "Very active, hard exercise 6–7 days a week",
+}
+
 export type Profile = {
   name: string
   email: string
@@ -34,9 +53,26 @@ export type Profile = {
   timezone: string
   /** False until the sign-up guide is finished; until then the app shows only the guide. */
   onboarded: boolean
+  /** ISO date. These three are empty only before the sign-up guide. */
+  dateOfBirth: string | null
+  sex: Sex | null
+  activityLevel: ActivityLevel | null
 }
 
-export type UpdateProfileInput = Omit<Profile, "email" | "timezone" | "onboarded">
+type EstimateDetails = { dateOfBirth: string; sex: Sex; activityLevel: ActivityLevel }
+
+export type UpdateProfileInput = Omit<Profile, "email" | "timezone" | "onboarded" | keyof EstimateDetails> & EstimateDetails
+
+/** What estimating starting targets needs, before any of it is saved. */
+export type EstimateTargetsInput = EstimateDetails & Pick<Profile, "heightCm" | "goal" | "weeklyRateKg"> & { weightKg: number }
+
+/** Estimated targets, with the steps that led to them (kcal a day). */
+export type TargetEstimate = DailyTargets & {
+  resting: number
+  maintenance: number
+  /** For the weekly goal: negative when losing. */
+  adjustment: number
+}
 
 /** The sign-up guide: the profile, today's weight and the starting daily targets. */
 export type OnboardingInput = UpdateProfileInput & { weightKg: number; targets: DailyTargets }

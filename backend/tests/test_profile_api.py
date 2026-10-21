@@ -28,6 +28,9 @@ def test_update_profile_round_trips(client: TestClient, auth_headers: dict[str, 
         "weeklyRateKg": 0,
         "trainingDaysPerWeek": 4,
         "experienceLevel": "advanced",
+        "dateOfBirth": "1995-04-20",
+        "sex": "female",
+        "activityLevel": "moderate",
         "equipment": ["barbell", "kettlebell"],
     }
     response = client.put("/api/v1/profile", headers=auth_headers, json=payload)
@@ -48,6 +51,9 @@ def test_update_profile_rejects_invalid_equipment(client: TestClient, auth_heade
         "weeklyRateKg": 0,
         "trainingDaysPerWeek": 4,
         "experienceLevel": "advanced",
+        "dateOfBirth": "1995-04-20",
+        "sex": "female",
+        "activityLevel": "moderate",
         "equipment": ["trampoline"],
     }
     response = client.put("/api/v1/profile", headers=auth_headers, json=payload)

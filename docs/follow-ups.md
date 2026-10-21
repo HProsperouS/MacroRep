@@ -5,22 +5,6 @@ Remove an item once it's done.
 
 ## Decisions deferred
 
-### Calorie target range: app form vs. server
-
-The Profile page's targets form accepts **1,000–6,000 kcal** (protein ≤ 500 g,
-fat ≤ 400 g). The server accepts **0–10,000 kcal** (macros ≤ 1,000 g). The form
-is deliberately stricter for now.
-
-The coach can't push a target outside 1,000–6,000 kcal: its proposals are held
-to those bounds (`backend/app/coach/agents/limits.py`), and applying one outside
-them is refused (422). The proposal edit form still limits kcal edits to ±25% of
-the current value, which would be stuck at a 0 kcal target, but the form never
-lets a target go below 1,000.
-
-- **Open question:** raise only the form's upper limit to 10,000 (so a large
-  athlete can set 6,500) while keeping the 1,000 floor? The coach's 6,000 cap
-  would then need raising too.
-
 ### Password rules
 
 Passwords only need 8–128 characters, so `password`, `12345678`, the account's

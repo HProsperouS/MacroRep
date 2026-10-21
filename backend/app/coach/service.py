@@ -34,7 +34,9 @@ from app.profile.service import DEFAULT_TARGETS
 from app.progress.repository import ProgressRepository
 from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, CHECK_INS_PER_USER, count_attempt, user_limiter
 from app.shared.timezones import local_today, user_zone
-from app.shared.validation import ensure_plausible_calories
+
+# The same bounds as the targets the user sets, so a proposal can't set one they couldn't type in.
+from app.shared.validation import MAX_TARGET_CALORIES, MIN_TARGET_CALORIES, ensure_plausible_calories
 from app.workout.models import WorkoutPlanEntry, WorkoutPlanExercise
 from app.workout.repository import WorkoutPlanRepository
 from app.workout.targets import (
@@ -99,10 +101,6 @@ def _as_utc(moment: datetime) -> datetime:
 CHECK_IN_WINDOW_DAYS = 7
 MIN_FOOD_LOG_DAYS = 4
 MIN_WEIGH_INS = 2
-# Same bounds as the Profile page's targets form, so a coach proposal can't set a
-# target the user couldn't type in themselves. See docs/follow-ups.md.
-MIN_TARGET_CALORIES = 1_000
-MAX_TARGET_CALORIES = 6_000
 ROUTINE_GONE = (
     "The routine this change was for no longer has that exercise. Reject it and start a new check-in."
 )

@@ -10,6 +10,7 @@ from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, Numeric
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.analytics.energy import ActivityLevel, Sex
 from app.shared.persistence import Base, TimestampMixin
 from app.shared.timezones import DEFAULT_TIMEZONE
 
@@ -56,6 +57,13 @@ class Profile(TimestampMixin, Base):
     )
     # When the user finished the sign-up guide; until then the app shows only the guide.
     onboarded_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # For estimating starting targets (app.analytics.energy). Empty until the sign-up guide
+    # asks for them; saving a profile requires them.
+    date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
+    sex: Mapped[Sex | None] = mapped_column(SAEnum(Sex, name="profile_sex"), nullable=True)
+    activity_level: Mapped[ActivityLevel | None] = mapped_column(
+        SAEnum(ActivityLevel, name="activity_level"), nullable=True
+    )
 
 
 class NutritionTarget(TimestampMixin, Base):

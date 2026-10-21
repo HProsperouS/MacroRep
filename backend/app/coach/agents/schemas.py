@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.shared.validation import MAX_NAME_LENGTH
+
 
 class _AgentOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -90,7 +92,8 @@ class ChatReply(_AgentOutput):
 class PhotoItem(_AgentOutput):
     """One food or drink seen in a photo, with its estimated portion and nutrition."""
 
-    name: str = Field(min_length=1, max_length=80)
+    # As long as a food-log entry's name can be, so an item logs as it came.
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH)
     # How the portion looks, e.g. "1 cup" or "half a plate".
     portion: str = Field(min_length=1, max_length=60)
     grams: float = Field(gt=0, le=3_000)

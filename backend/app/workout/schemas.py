@@ -11,10 +11,12 @@ from app.shared.validation import (
     CLOCK_SKEW,
     MAX_EXERCISES_PER_WORKOUT,
     MAX_LABEL_LENGTH,
+    MAX_MUSCLES_PER_EXERCISE,
     MAX_NAME_LENGTH,
     MAX_REPS,
     MAX_SET_WEIGHT_KG,
     MAX_SETS_PER_EXERCISE,
+    MIN_EXERCISE_NAME_LENGTH,
     Identifier,
     PlainText,
     ensure_unique,
@@ -44,9 +46,9 @@ class ExerciseRead(CamelModel):
 
 
 class CreateExerciseInput(CamelModel):
-    name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
+    name: PlainText = Field(min_length=MIN_EXERCISE_NAME_LENGTH, max_length=MAX_NAME_LENGTH)
     equipment: str
-    muscles: list[str] = Field(min_length=1, max_length=len(MUSCLE_GROUPS))
+    muscles: list[str] = Field(min_length=1, max_length=MAX_MUSCLES_PER_EXERCISE)
 
     @field_validator("equipment")
     @classmethod

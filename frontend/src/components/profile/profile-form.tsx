@@ -3,11 +3,12 @@ import { TriangleAlert } from "lucide-react"
 import { Controller, useForm, useWatch, type Control, type UseFormRegisterReturn } from "react-hook-form"
 import { z } from "zod"
 
-import { EquipmentChoice, ExperienceChoice, GoalChoice } from "@/components/profile/profile-choices"
+import { ActivityChoice, EquipmentChoice, ExperienceChoice, GoalChoice, SexChoice } from "@/components/profile/profile-choices"
 import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
-import { FieldDescription, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
+import { FieldDescription, FieldError, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
+import { toDayKey } from "@/lib/dates"
 import { toNumber } from "@/lib/format"
 import { profileSchema, toUpdateProfileInput } from "@/lib/profile-schemas"
 import type { Goal, Profile, UpdateProfileInput } from "@/types/profile"
@@ -37,6 +38,9 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
       trainingDaysPerWeek: String(profile.trainingDaysPerWeek),
       experienceLevel: profile.experienceLevel,
       equipment: profile.equipment,
+      dateOfBirth: profile.dateOfBirth ?? "",
+      sex: profile.sex ?? undefined,
+      activityLevel: profile.activityLevel ?? undefined,
     },
   })
 
@@ -48,6 +52,15 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField id="profile-name" label="Name" autoComplete="name" error={errors.name?.message} disabled={submitting} {...register("name")} />
           <TextField id="profile-email" label="Email" value={profile.email} readOnly disabled description="Managed by your sign-in provider" />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField id="profile-birth" label="Date of birth" type="date" max={toDayKey(new Date())} error={errors.dateOfBirth?.message} disabled={submitting} {...register("dateOfBirth")} />
+          <FieldSet className="gap-2">
+            <FieldLegend variant="label">Sex</FieldLegend>
+            <Controller control={control} name="sex" render={({ field }) => <SexChoice value={field.value} onChange={field.onChange} disabled={submitting} />} />
+            <FieldError errors={[errors.sex]} />
+          </FieldSet>
         </div>
 
         <FieldSet className="gap-2">
@@ -66,7 +79,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
           <TextField
             id="profile-days"
             label="Training days"
-            unit="/ week"
+            unit="days / week"
             inputMode="numeric"
             error={errors.trainingDaysPerWeek?.message}
             disabled={submitting}
@@ -81,6 +94,17 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
             name="experienceLevel"
             render={({ field }) => <ExperienceChoice value={field.value} onChange={field.onChange} disabled={submitting} />}
           />
+        </FieldSet>
+
+        <FieldSet className="gap-2">
+          <FieldLegend variant="label">Daily activity, training included</FieldLegend>
+          <Controller
+            control={control}
+            name="activityLevel"
+            render={({ field }) => <ActivityChoice id="profile-activity" value={field.value} onChange={field.onChange} disabled={submitting} />}
+          />
+          <FieldError errors={[errors.activityLevel]} />
+          <FieldDescription>With your age, sex, height and weight, it estimates how much you burn a day.</FieldDescription>
         </FieldSet>
 
         <FieldSet className="gap-2">

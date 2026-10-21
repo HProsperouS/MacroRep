@@ -35,7 +35,7 @@ describe("EditProposalForm", () => {
   it.each([
     ["is blank", "", "Enter a number"],
     ["isn't a number", "lots", "Enter a number"],
-    ["is zero", "0", "Must be at least 1"],
+    ["is below the lowest target the server applies", "0", "Must be at least 1,000"],
     ["moves more than 25% from the current value", "2600", "Stay within 25% of 2,000"],
     ["drops more than 25% below the current value", "1400", "Stay within 25% of 2,000"],
   ])("refuses a value that %s", async (_label, value, message) => {

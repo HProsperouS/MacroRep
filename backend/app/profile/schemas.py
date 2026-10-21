@@ -6,17 +6,22 @@ from datetime import date, datetime
 
 from pydantic import Field, field_validator, model_validator
 
+from app.analytics.energy import ActivityLevel, Sex
 from app.shared.schema import CamelModel, validate_choice
 from app.shared.timezones import is_known_timezone
 from app.shared.validation import (
     MAX_ABS_WEEKLY_RATE_KG,
     MAX_BODY_WEIGHT_KG,
-    MAX_CALORIES,
     MAX_HEIGHT_CM,
-    MAX_MACRO_G,
     MAX_NAME_LENGTH,
+    MAX_TARGET_CALORIES,
+    MAX_TARGET_CARBS_G,
+    MAX_TARGET_FAT_G,
+    MAX_TARGET_PROTEIN_G,
     MIN_BODY_WEIGHT_KG,
     MIN_HEIGHT_CM,
+    MIN_TARGET_CALORIES,
+    BirthDate,
     PlainText,
     ensure_plausible_calories,
     ensure_unique,
@@ -49,10 +54,10 @@ class UpdateTargetsInput(DailyTargets):
     already-stored target unreadable.
     """
 
-    calories: int = Field(ge=0, le=MAX_CALORIES)
-    protein: float = Field(ge=0, le=MAX_MACRO_G)
-    carbs: float = Field(ge=0, le=MAX_MACRO_G)
-    fat: float = Field(ge=0, le=MAX_MACRO_G)
+    calories: int = Field(ge=MIN_TARGET_CALORIES, le=MAX_TARGET_CALORIES)
+    protein: float = Field(ge=0, le=MAX_TARGET_PROTEIN_G)
+    carbs: float = Field(ge=0, le=MAX_TARGET_CARBS_G)
+    fat: float = Field(ge=0, le=MAX_TARGET_FAT_G)
 
     @model_validator(mode="after")
     def check_calories_match_macros(self) -> UpdateTargetsInput:
@@ -72,6 +77,10 @@ class ProfileRead(CamelModel):
     timezone: str
     # False until the sign-up guide is finished (POST /profile/onboarding).
     onboarded: bool
+    # Empty only before the sign-up guide.
+    date_of_birth: date | None
+    sex: Sex | None
+    activity_level: ActivityLevel | None
 
 
 class TimezoneInput(CamelModel):
@@ -91,14 +100,39 @@ class UpdateProfileInput(CamelModel):
     goal: Goal
     # No health limit by design (the app cautions instead); only the column's capacity.
     weekly_rate_kg: float = Field(ge=-MAX_ABS_WEEKLY_RATE_KG, le=MAX_ABS_WEEKLY_RATE_KG)
-    training_days_per_week: int = Field(ge=0, le=7)
+    # As the Profile form and the sign-up guide allow: the coach plans training around it.
+    training_days_per_week: int = Field(ge=1, le=7)
     experience_level: ExperienceLevel
+    date_of_birth: BirthDate
+    sex: Sex
+    activity_level: ActivityLevel
     equipment: list[str] = Field(default_factory=list, max_length=len(EQUIPMENT))
 
     @field_validator("equipment")
     @classmethod
     def check_equipment(cls, value: list[str]) -> list[str]:
         return ensure_unique([validate_choice(item, EQUIPMENT, "equipment") for item in value], "equipment")
+
+
+class EstimateTargetsInput(CamelModel):
+    """What the estimate needs, as entered in the sign-up guide before anything is saved."""
+
+    height_cm: float = Field(ge=MIN_HEIGHT_CM, le=MAX_HEIGHT_CM)
+    weight_kg: float = Field(ge=MIN_BODY_WEIGHT_KG, le=MAX_BODY_WEIGHT_KG)
+    date_of_birth: BirthDate
+    sex: Sex
+    activity_level: ActivityLevel
+    goal: Goal
+    weekly_rate_kg: float = Field(ge=-MAX_ABS_WEEKLY_RATE_KG, le=MAX_ABS_WEEKLY_RATE_KG)
+
+
+class TargetEstimateRead(DailyTargets):
+    """Estimated targets, with the steps that led to them (kcal/day)."""
+
+    resting: int
+    maintenance: int
+    # For the weekly goal: negative when losing.
+    adjustment: int
 
 
 class OnboardingInput(UpdateProfileInput):

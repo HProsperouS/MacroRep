@@ -15,8 +15,10 @@ from app.identity.repository import UserRepository
 from .repository import ProfileRepository
 from .schemas import (
     DailyTargets,
+    EstimateTargetsInput,
     OnboardingInput,
     ProfileRead,
+    TargetEstimateRead,
     TargetVersionRead,
     TimezoneInput,
     UpdateProfileInput,
@@ -79,6 +81,26 @@ async def update_targets(
     payload: UpdateTargetsInput, actor: ActorDep, service: ProfileServiceDep
 ) -> DailyTargets:
     return await service.update_targets(payload, actor)
+
+
+@router.post("/nutrition/targets/estimate", response_model=TargetEstimateRead)
+async def estimate_targets(
+    payload: EstimateTargetsInput, actor: ActorDep, service: ProfileServiceDep
+) -> TargetEstimateRead:
+    """Estimate starting targets from details not saved yet (the sign-up guide). Saves nothing."""
+
+    return await service.estimate_targets(payload, actor)
+
+
+@router.get(
+    "/nutrition/targets/estimate",
+    response_model=TargetEstimateRead,
+    responses={409: {"description": "The profile or a weigh-in the estimate needs is missing."}},
+)
+async def estimate_targets_from_profile(actor: ActorDep, service: ProfileServiceDep) -> TargetEstimateRead:
+    """Estimate targets from the saved profile and the latest weigh-in. Saves nothing."""
+
+    return await service.estimate_targets_from_profile(actor)
 
 
 @router.get("/nutrition/targets/history", response_model=list[TargetVersionRead])

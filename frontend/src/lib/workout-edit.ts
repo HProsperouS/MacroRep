@@ -7,7 +7,7 @@ export type EditableSet = { kind: SetKind; weight: string; reps: string; rpe: st
 export type EditableExercise = { exerciseId: string; name: string; sets: EditableSet[] }
 export type EditableWorkout = { name: string; exercises: EditableExercise[] }
 
-const MAX_NAME_LENGTH = 255
+const MAX_NAME_LENGTH = 60
 const MAX_WEIGHT_KG = 1000
 const MAX_REPS = 100
 

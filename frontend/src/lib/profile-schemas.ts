@@ -3,8 +3,21 @@ import { z } from "zod"
 import { toNumber } from "@/lib/format"
 import { caloriesImplausiblyLow, implausibleCaloriesMessage } from "@/lib/macros"
 import { requiredNumber } from "@/lib/zod-helpers"
-import { EXPERIENCE_LEVELS, GOALS, type Goal, type UpdateProfileInput } from "@/types/profile"
+import { ACTIVITY_LEVELS, EXPERIENCE_LEVELS, GOALS, SEXES, type Goal, type UpdateProfileInput } from "@/types/profile"
 import { EQUIPMENT } from "@/types/workout"
+
+// Ages the target estimate's formula is meant for, as the server allows.
+const MIN_AGE = 13
+const MAX_AGE = 100
+
+/** Whole years from a yyyy-MM-dd birth date to today, or undefined for anything else. */
+export function ageFrom(birthDate: string, today = new Date()) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate)
+  if (!match) return undefined
+  const [year, month, day] = match.slice(1).map(Number)
+  const birthdayPassed = today.getMonth() + 1 > month || (today.getMonth() + 1 === month && today.getDate() >= day)
+  return today.getFullYear() - year - (birthdayPassed ? 0 : 1)
+}
 
 /** The Profile page's form and the sign-up guide share these rules. */
 export const profileSchema = z.object({
@@ -23,6 +36,15 @@ export const profileSchema = z.object({
   ),
   experienceLevel: z.enum(EXPERIENCE_LEVELS),
   equipment: z.array(z.enum(EQUIPMENT)),
+  dateOfBirth: z
+    .string()
+    .min(1, "Enter your date of birth")
+    .refine((value) => {
+      const age = ageFrom(value)
+      return age !== undefined && age >= MIN_AGE && age <= MAX_AGE
+    }, `You need to be ${MIN_AGE}–${MAX_AGE} years old`),
+  sex: z.enum(SEXES, { required_error: "Choose one" }),
+  activityLevel: z.enum(ACTIVITY_LEVELS, { required_error: "Choose how active you are" }),
 })
 
 /** The weekly rate as stored: negative when losing, zero when maintaining. */
@@ -40,6 +62,9 @@ export function toUpdateProfileInput(values: z.output<typeof profileSchema>): Up
     trainingDaysPerWeek: values.trainingDaysPerWeek,
     experienceLevel: values.experienceLevel,
     equipment: values.equipment,
+    dateOfBirth: values.dateOfBirth,
+    sex: values.sex,
+    activityLevel: values.activityLevel,
   }
 }
 

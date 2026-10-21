@@ -1,5 +1,6 @@
 import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { AxiosError } from "axios"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -9,7 +10,13 @@ import ProfilePage from "@/pages/profile-page"
 import { renderWithQuery } from "@/test/render"
 import type { Profile } from "@/types/profile"
 
-const profileApi = vi.hoisted(() => ({ getProfile: vi.fn(), updateProfile: vi.fn(), getTargetHistory: vi.fn(), updateTargets: vi.fn() }))
+const profileApi = vi.hoisted(() => ({
+  getProfile: vi.fn(),
+  updateProfile: vi.fn(),
+  getTargetHistory: vi.fn(),
+  updateTargets: vi.fn(),
+  estimateTargetsFromProfile: vi.fn(),
+}))
 const foodApi = vi.hoisted(() => ({ getTargets: vi.fn() }))
 const authApi = vi.hoisted(() => ({ logout: vi.fn() }))
 vi.mock("@/api/profile-api", () => ({ profileApi }))
@@ -27,6 +34,9 @@ const profile: Profile = {
   equipment: ["barbell", "dumbbell"],
   timezone: "UTC",
   onboarded: true,
+  dateOfBirth: "1995-04-20",
+  sex: "male",
+  activityLevel: "moderate",
 }
 
 function renderPage() {
@@ -70,6 +80,9 @@ describe("ProfilePage", () => {
         trainingDaysPerWeek: 4,
         experienceLevel: "advanced",
         equipment: ["barbell", "dumbbell", "cable"],
+        dateOfBirth: "1995-04-20",
+        sex: "male",
+        activityLevel: "moderate",
       }),
     )
     expect(toast.success).toHaveBeenCalledWith("Profile saved")
@@ -138,6 +151,35 @@ describe("ProfilePage", () => {
 
     await waitFor(() => expect(profileApi.updateTargets).toHaveBeenCalledWith({ calories: 2500, protein: 150, carbs: 250, fat: 70 }))
     expect(toast.success).toHaveBeenCalledWith("Targets saved", expect.anything())
+  })
+
+  it("fills the targets from an estimate, saved only when the user saves", async () => {
+    profileApi.estimateTargetsFromProfile.mockResolvedValue({ calories: 2350, protein: 144, carbs: 278, fat: 65, resting: 1700, maintenance: 2635, adjustment: -275 })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Estimate from my profile" }))
+
+    expect(await screen.findByText(/Estimated from your profile and latest weight/)).toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: "Calories" })).toHaveValue("2350")
+    expect(profileApi.updateTargets).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Save targets" }))
+    await waitFor(() => expect(profileApi.updateTargets).toHaveBeenCalledWith({ calories: 2350, protein: 144, carbs: 278, fat: 65 }))
+  })
+
+  it("says why targets couldn't be estimated, and leaves them as they were", async () => {
+    profileApi.estimateTargetsFromProfile.mockRejectedValue(
+      new AxiosError("409", "ERR_BAD_REQUEST", undefined, undefined, { status: 409, data: { detail: "Log your weight first: the estimate starts from it." } } as never),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Estimate from my profile" }))
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Couldn’t estimate your targets", { description: "Log your weight first: the estimate starts from it." }),
+    )
+    expect(screen.getByRole("textbox", { name: "Calories" })).toHaveValue("2200")
   })
 
   it("refuses calories far below the macros", async () => {

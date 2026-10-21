@@ -20,13 +20,15 @@ from typing import Annotated
 
 from pydantic import AfterValidator, StringConstraints
 
+from app.analytics.energy import age_on
 from app.analytics.nutrition import calories_implausibly_low, macro_calories
 
-# Text
-MAX_NAME_LENGTH = 255
+# Text. The frontend's forms allow the same (frontend/src/lib/profile-schemas.ts and the forms).
+MAX_NAME_LENGTH = 60
+MIN_EXERCISE_NAME_LENGTH = 2
 MAX_LABEL_LENGTH = 64
 MAX_SEARCH_LENGTH = 100
-MAX_CHAT_LENGTH = 2_000
+MAX_CHAT_LENGTH = 500
 
 # Dates. One day of future tolerance: a user ahead of UTC is already on
 # "tomorrow" by the server's clock.
@@ -36,8 +38,11 @@ FUTURE_TOLERANCE = timedelta(days=1)
 # Body
 MIN_BODY_WEIGHT_KG = 20
 MAX_BODY_WEIGHT_KG = 400
-MIN_HEIGHT_CM = 50
-MAX_HEIGHT_CM = 272
+MIN_HEIGHT_CM = 100
+MAX_HEIGHT_CM = 250
+# Ages the target estimate's formula is meant for.
+MIN_AGE = 13
+MAX_AGE = 100
 # Not a health limit (the weekly rate has none): the most the profile column
 # can store. Anything larger would overflow the database.
 MAX_ABS_WEEKLY_RATE_KG = 99.99
@@ -49,6 +54,12 @@ MAX_FIBRE_G = 500
 MAX_SUGAR_G = 1_000
 MAX_SODIUM_MG = 50_000
 MAX_SERVING_SIZE = 5_000
+# Daily targets, set by the user or by an applied check-in proposal.
+MIN_TARGET_CALORIES = 1_000
+MAX_TARGET_CALORIES = 6_000
+MAX_TARGET_PROTEIN_G = 500
+MAX_TARGET_CARBS_G = 1_000
+MAX_TARGET_FAT_G = 400
 
 # Training
 MAX_SET_WEIGHT_KG = 1_000
@@ -56,6 +67,7 @@ MAX_REPS = 100
 MAX_EXERCISES_PER_WORKOUT = 50
 MAX_ROUTINES_PER_USER = 50
 MAX_SETS_PER_EXERCISE = 50
+MAX_MUSCLES_PER_EXERCISE = 4
 # Tolerated difference between the client's clock and the server's when
 # checking that a workout didn't happen in the future.
 CLOCK_SKEW = timedelta(minutes=10)
@@ -119,6 +131,18 @@ def _check_log_date(value: date) -> date:
 
 # The day a weigh-in or meal is logged against.
 LogDate = Annotated[date, AfterValidator(_check_log_date)]
+
+
+def _check_birth_date(value: date) -> date:
+    # A day's leeway either way: the user's "today" may be the server's tomorrow or yesterday.
+    youngest = age_on(value, date.today() + FUTURE_TOLERANCE)
+    oldest = age_on(value, date.today() - FUTURE_TOLERANCE)
+    if youngest < MIN_AGE or oldest > MAX_AGE:
+        raise ValueError(f"must make you {MIN_AGE}-{MAX_AGE} years old")
+    return value
+
+
+BirthDate = Annotated[date, AfterValidator(_check_birth_date)]
 
 
 def ensure_plausible_calories(calories: float, protein: float, carbs: float, fat: float) -> None:

@@ -53,6 +53,9 @@ erDiagram
         json equipment
         string timezone "IANA name"
         timestamp onboarded_utc "null until the sign-up guide is done"
+        date date_of_birth "null until the sign-up guide"
+        enum sex "male / female"
+        enum activity_level "sedentary / light / moderate / very"
     }
     nutrition_targets {
         string id PK
@@ -262,6 +265,7 @@ Applied in this order (`backend/migrations/versions`):
 | `d7a3e5c1f8b2` | Proposal revisions from Coach Chat; message kinds |
 | `e8b4f2a6c3d9` | Food entries from a meal photo |
 | `f9c5a3b7d1e4` | When the profile finished the sign-up guide (existing profiles count as done) |
+| `a2d6f8c4e1b7` | Profile birth date, sex and activity level, for estimating starting targets |
 
 Run `uv run alembic upgrade head` from `backend/`. Migrations are checked against
 PostgreSQL; on SQLite the chain stops at `a1f4c9e2b7d3` (see

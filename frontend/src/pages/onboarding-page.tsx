@@ -10,20 +10,22 @@ import { z } from "zod"
 import { apiErrorMessage } from "@/api/client"
 import { profileKeys } from "@/api/query-keys"
 import { QueryError } from "@/components/layout/query-error"
-import { EquipmentChoice, ExperienceChoice, GoalChoice } from "@/components/profile/profile-choices"
+import { ActivityChoice, EquipmentChoice, ExperienceChoice, GoalChoice, SexChoice } from "@/components/profile/profile-choices"
 import { RateInput } from "@/components/profile/profile-form"
 import { MacroSummary, TargetsFields } from "@/components/profile/targets-form"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
-import { FieldDescription, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
+import { FieldDescription, FieldError, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/text-field"
 import { useNutritionTargets } from "@/hooks/use-food-log"
-import { useCompleteOnboarding, useProfile, useSyncTimezone } from "@/hooks/use-profile"
-import { bodyWeightKg, checkTargetCalories, profileSchema, targetsFields, toUpdateProfileInput } from "@/lib/profile-schemas"
+import { useCompleteOnboarding, useEstimateTargets, useProfile, useSyncTimezone } from "@/hooks/use-profile"
+import { toDayKey } from "@/lib/dates"
+import { formatNumber, toNumber } from "@/lib/format"
+import { bodyWeightKg, checkTargetCalories, profileSchema, signedRate, targetsFields, toUpdateProfileInput } from "@/lib/profile-schemas"
 import type { DailyTargets } from "@/types/food"
-import { EXPERIENCE_LEVELS, GOALS, type Profile } from "@/types/profile"
+import { EXPERIENCE_LEVELS, GOALS, type EstimateTargetsInput, type Profile, type TargetEstimate } from "@/types/profile"
 
 const onboardingSchema = profileSchema
   .extend({
@@ -39,13 +41,21 @@ type OnboardingFormInput = z.input<typeof onboardingSchema>
 type OnboardingValues = z.output<typeof onboardingSchema>
 
 const STEPS: { title: string; description: string; fields: FieldPath<OnboardingFormInput>[] }[] = [
-  { title: "About you", description: "Your weight starts the trend your coach follows.", fields: ["name", "heightCm", "weightKg"] },
+  {
+    title: "About you",
+    description: "These estimate how much you burn a day, and your weight starts the trend your coach follows.",
+    fields: ["name", "dateOfBirth", "sex", "heightCm", "weightKg"],
+  },
   { title: "Your goal", description: "Your coach sets calorie targets towards it.", fields: ["goal", "weeklyRate"] },
-  { title: "Training", description: "Your coach sets training volume to suit it.", fields: ["experienceLevel", "trainingDaysPerWeek"] },
+  {
+    title: "Training",
+    description: "Your coach sets training volume to suit it, and your activity estimates what you burn.",
+    fields: ["experienceLevel", "trainingDaysPerWeek", "activityLevel"],
+  },
   { title: "Equipment", description: "Choose everything you have access to.", fields: ["equipment"] },
   {
     title: "Daily targets",
-    description: "A starting point: keep these or change them. Each weekly check-in adjusts them from what you log.",
+    description: "Keep these or change them. Each weekly check-in then adjusts them from what you log.",
     fields: ["calories", "protein", "carbs", "fat"],
   },
 ]
@@ -81,6 +91,7 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const complete = useCompleteOnboarding()
+  const estimateTargets = useEstimateTargets()
   const [step, setStep] = useState(0)
   const heading = useRef<HTMLHeadingElement>(null)
   const {
@@ -88,6 +99,7 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
     register,
     trigger,
     setValue,
+    getValues,
     clearErrors,
     handleSubmit,
     formState: { errors },
@@ -95,6 +107,7 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
     resolver: zodResolver(onboardingSchema),
     defaultValues: {
       name: profile.name,
+      dateOfBirth: "",
       heightCm: "",
       weightKg: "",
       weeklyRate: "0.5",
@@ -154,8 +167,43 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
     )
   })
 
+  // The estimate behind the targets step, and the details it was made from: going back and
+  // changing none of them keeps whatever the user then typed into the targets.
+  const [estimate, setEstimate] = useState<TargetEstimate | null>(null)
+  const estimatedFrom = useRef<string | null>(null)
+
+  async function fillEstimate() {
+    const values = getValues()
+    const goal = values.goal as OnboardingValues["goal"]
+    const input: EstimateTargetsInput = {
+      heightCm: toNumber(values.heightCm) ?? 0,
+      weightKg: toNumber(values.weightKg) ?? 0,
+      dateOfBirth: values.dateOfBirth,
+      sex: values.sex as OnboardingValues["sex"],
+      activityLevel: values.activityLevel as OnboardingValues["activityLevel"],
+      goal,
+      weeklyRateKg: signedRate(goal, toNumber(values.weeklyRate) ?? 0),
+    }
+    const key = JSON.stringify(input)
+    if (key === estimatedFrom.current) return
+    try {
+      const result = await estimateTargets.mutateAsync(input)
+      for (const field of ["calories", "protein", "carbs", "fat"] as const) setValue(field, String(result[field]))
+      setEstimate(result)
+      estimatedFrom.current = key
+    } catch {
+      // Back to the general starting targets, as the step then says, and nothing remembered:
+      // the next time through tries again.
+      if (targets) for (const field of ["calories", "protein", "carbs", "fat"] as const) setValue(field, String(targets[field]))
+      setEstimate(null)
+      estimatedFrom.current = null
+    }
+  }
+
   async function next() {
-    if (await trigger(current.fields)) setStep(step + 1)
+    if (!(await trigger(current.fields))) return
+    if (step + 1 === STEPS.length - 1) await fillEstimate()
+    setStep(step + 1)
   }
 
   return (
@@ -186,6 +234,12 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
             {step === 0 ? (
               <>
                 <TextField id="onboarding-name" label="Name" autoComplete="name" error={errors.name?.message} {...register("name")} />
+                <div className="grid grid-cols-2 gap-4">
+                  <TextField id="onboarding-birth" label="Date of birth" type="date" max={toDayKey(new Date())} error={errors.dateOfBirth?.message} {...register("dateOfBirth")} />
+                  <Choice legend="Sex" error={errors.sex?.message}>
+                    <Controller control={control} name="sex" render={({ field }) => <SexChoice value={field.value} onChange={field.onChange} />} />
+                  </Choice>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <TextField id="onboarding-height" label="Height" unit="cm" inputMode="decimal" error={errors.heightCm?.message} {...register("heightCm")} />
                   <TextField id="onboarding-weight" label="Weight today" unit="kg" inputMode="decimal" error={errors.weightKg?.message} {...register("weightKg")} />
@@ -228,7 +282,14 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
                     render={({ field }) => <ExperienceChoice value={field.value} onChange={field.onChange} />}
                   />
                 </Choice>
-                <TextField id="onboarding-days" label="Training days" unit="/ week" inputMode="numeric" error={errors.trainingDaysPerWeek?.message} {...register("trainingDaysPerWeek")} />
+                <TextField id="onboarding-days" label="Training days" unit="days / week" inputMode="numeric" error={errors.trainingDaysPerWeek?.message} {...register("trainingDaysPerWeek")} />
+                <Choice legend="Daily activity, training included" error={errors.activityLevel?.message}>
+                  <Controller
+                    control={control}
+                    name="activityLevel"
+                    render={({ field }) => <ActivityChoice id="onboarding-activity" value={field.value} onChange={field.onChange} />}
+                  />
+                </Choice>
               </>
             ) : null}
 
@@ -251,6 +312,7 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
                   disabled={submitting}
                 />
                 <GuideMacros control={control} />
+                <EstimateNote estimate={estimate} />
               </>
             ) : null}
           </FieldGroup>
@@ -263,8 +325,8 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
             ) : (
               <span />
             )}
-            <Button type="submit" className="h-10" disabled={submitting || (last && !armed)}>
-              {submitting ? <Spinner data-icon="inline-start" /> : null}
+            <Button type="submit" className="h-10" disabled={submitting || estimateTargets.isPending || (last && !armed)}>
+              {submitting || estimateTargets.isPending ? <Spinner data-icon="inline-start" /> : null}
               {last ? "Finish setup" : "Continue"}
             </Button>
           </div>
@@ -289,18 +351,24 @@ function GuideMacros({ control }: { control: GuideControl }) {
   return <MacroSummary calories={calories} protein={protein} carbs={carbs} fat={fat} />
 }
 
+/** How the targets were reached, or that they're the general ones when no estimate came back. */
+function EstimateNote({ estimate }: { estimate: TargetEstimate | null }) {
+  if (!estimate) return <p className="text-sm text-muted-foreground">These are general starting targets: yours couldn’t be estimated just now.</p>
+  const { resting, maintenance, adjustment } = estimate
+  const forGoal = adjustment === 0 ? "" : `, ${adjustment > 0 ? "+" : "−"}${formatNumber(Math.abs(adjustment))} kcal a day for your goal`
+  return (
+    <p className="text-sm text-muted-foreground">
+      Estimated for you: {formatNumber(resting)} kcal a day at rest, {formatNumber(maintenance)} kcal to maintain with your activity{forGoal}.
+    </p>
+  )
+}
+
 function Choice({ legend, description, error, children }: { legend: string; description?: string; error?: string; children: ReactNode }) {
   return (
     <FieldSet className="gap-2">
       <FieldLegend variant="label">{legend}</FieldLegend>
       {children}
-      {error ? (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      ) : description ? (
-        <FieldDescription>{description}</FieldDescription>
-      ) : null}
+      {error ? <FieldError>{error}</FieldError> : description ? <FieldDescription>{description}</FieldDescription> : null}
     </FieldSet>
   )
 }

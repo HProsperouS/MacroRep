@@ -79,6 +79,7 @@ describe("set validation", () => {
     expect(parseRpe("")).toBeNull()
     expect(parseRpe("8.5")).toBe(8.5)
     expect(parseRpe("11")).toBeUndefined()
+    expect(parseRpe("7.3")).toBeUndefined() // the server takes half steps only
     expect(parseRpe("abc")).toBeUndefined()
     expect(isSetCompletable({ weight: "60", reps: "8", rpe: "11" })).toBe(false)
   })

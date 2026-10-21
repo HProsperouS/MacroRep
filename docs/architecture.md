@@ -47,7 +47,7 @@ never API responses.
 
 | Page | Route | Purpose |
 |---|---|---|
-| Sign-up guide | `/welcome` | A new account's first stop: profile, today's weight, goal, training, equipment and starting targets, saved together. The app's pages wait until it's done |
+| Sign-up guide | `/welcome` | A new account's first stop: profile, today's weight, goal, training, activity, equipment and starting targets (estimated from those details), saved together. The app's pages wait until it's done |
 | Home | `/` | Today's calories and macros, today's workout, weight trend, check-in banner |
 | Food | `/food` | Daily food log by meal; search, quick add, custom foods |
 | Workout | `/workout` | Start a routine or an empty workout; live logging with rest timer and pause |

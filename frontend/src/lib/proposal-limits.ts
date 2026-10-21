@@ -7,7 +7,7 @@ import type { ProposalChange } from "@/types/coach"
  * refuse is caught here first.
  */
 const LIMITS: Record<ProposalChange["unit"], { share?: number; by?: number; min: number; max: number; whole?: boolean }> = {
-  kcal: { share: 0.25, min: 1, max: 10_000 },
+  kcal: { share: 0.25, min: 1_000, max: 6_000 },
   g: { share: 0.25, min: 1, max: 1_000 },
   kg: { share: 0.1, min: 0, max: 1_000 },
   sets: { by: 1, min: 1, max: 10, whole: true },
@@ -21,7 +21,7 @@ export function editedValueError(change: ProposalChange, raw: string): string | 
   if (trimmed === "" || !Number.isFinite(value)) return "Enter a number"
   const limit = LIMITS[change.unit]
   if (limit.whole && !Number.isInteger(value)) return "Enter a whole number"
-  if (value < limit.min) return limit.min > 0 ? `Must be at least ${limit.min}` : "Can’t be negative"
+  if (value < limit.min) return limit.min > 0 ? `Must be at least ${limit.min.toLocaleString("en-SG")}` : "Can’t be negative"
   if (value > limit.max) return `Must be ${limit.max.toLocaleString("en-SG")} or less`
   const room = limit.by ?? change.before * (limit.share ?? 0)
   if (Math.abs(value - change.before) > room + 1e-9) {

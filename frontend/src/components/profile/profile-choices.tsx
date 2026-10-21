@@ -1,5 +1,19 @@
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { EXPERIENCE_LEVEL_LABELS, EXPERIENCE_LEVELS, GOAL_LABELS, GOALS, type ExperienceLevel, type Goal } from "@/types/profile"
+import {
+  ACTIVITY_LEVEL_LABELS,
+  ACTIVITY_LEVELS,
+  EXPERIENCE_LEVEL_LABELS,
+  EXPERIENCE_LEVELS,
+  GOAL_LABELS,
+  GOALS,
+  SEX_LABELS,
+  SEXES,
+  type ActivityLevel,
+  type ExperienceLevel,
+  type Goal,
+  type Sex,
+} from "@/types/profile"
 import { EQUIPMENT, EQUIPMENT_LABELS, type Equipment } from "@/types/workout"
 
 type ChoiceProps<T> = {
@@ -37,6 +51,30 @@ export function GoalChoice(props: ChoiceProps<Goal>) {
 
 export function ExperienceChoice(props: ChoiceProps<ExperienceLevel>) {
   return <SingleChoice options={EXPERIENCE_LEVELS} labels={EXPERIENCE_LEVEL_LABELS} label="Training experience" {...props} />
+}
+
+export function SexChoice(props: ChoiceProps<Sex>) {
+  return <SingleChoice options={SEXES} labels={SEX_LABELS} label="Sex" {...props} />
+}
+
+/** Four long options: a list rather than buttons side by side. */
+export function ActivityChoice({ id, value, onChange, disabled }: ChoiceProps<ActivityLevel> & { id: string }) {
+  return (
+    <Select value={value ?? ""} onValueChange={(next) => onChange(next as ActivityLevel)} disabled={disabled}>
+      <SelectTrigger id={id} className="h-10 w-full" aria-label="Activity level">
+        <SelectValue placeholder="Choose your activity level" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {ACTIVITY_LEVELS.map((level) => (
+            <SelectItem key={level} value={level}>
+              {ACTIVITY_LEVEL_LABELS[level]}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  )
 }
 
 export function EquipmentChoice({ value, onChange, disabled }: { value: Equipment[]; onChange: (value: Equipment[]) => void; disabled?: boolean }) {

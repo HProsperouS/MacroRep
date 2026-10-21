@@ -57,6 +57,31 @@ describe("RoutineEditor", () => {
     expect(screen.getByRole("button", { name: "Move Bench Press down" })).toBeEnabled()
   })
 
+  it.each([
+    ["Estimated time", "700", "1–600"],
+    ["Estimated time", "1.5", "Whole number"],
+    ["Rest between sets", "lots", "Enter a number"],
+  ])("won't save %s of %s, which the server would refuse", async (label, value, message) => {
+    const { user, onSave } = renderEditor(routine("r1", "Push"))
+    const field = screen.getByLabelText(label)
+    await user.clear(field)
+    await user.type(field, value)
+
+    expect(screen.getByText(message)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save routine" })).toBeDisabled()
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it("won't save a target the server would refuse", async () => {
+    const { user } = renderEditor(routine("r1", "Push"))
+    const [, reps] = screen.getAllByPlaceholderText("Target").filter((input) => input.id.endsWith("-reps"))
+    await user.clear(reps)
+    await user.type(reps, "150")
+
+    expect(screen.getByText("1–100")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save routine" })).toBeDisabled()
+  })
+
   it("needs a name to save", async () => {
     const { user, onSave } = renderEditor(routine("r1", "Push"))
     await user.clear(screen.getByLabelText("Name"))

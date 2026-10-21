@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.energy import ActivityLevel, Sex
 from app.auth.security import hash_password
 from app.coach.agents.graph import run_agents
 from app.coach.agents.model import FakeCoachModel
@@ -66,6 +67,9 @@ async def seed_demo_data() -> None:
                     experience_level=ExperienceLevel.INTERMEDIATE,
                     equipment=["barbell", "dumbbell", "bodyweight"],
                     onboarded_utc=utc_now(),
+                    date_of_birth=date(1998, 6, 15),
+                    sex=Sex.MALE,
+                    activity_level=ActivityLevel.MODERATE,
                 )
             )
             await session.flush()

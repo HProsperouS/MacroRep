@@ -102,11 +102,12 @@ export function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
   return valid ? { weightKg, reps } : null
 }
 
-/** RPE is optional: blank parses to `null` (not provided, not invalid); out-of-range parses to `undefined` (invalid). */
+/** RPE is optional: blank parses to `null` (not provided, not invalid); anything but 1–10 in
+ *  half steps (as the server accepts) parses to `undefined` (invalid). */
 export function parseRpe(rpe: string): number | null | undefined {
   if (rpe.trim() === "") return null
   const value = Number(rpe)
-  return Number.isFinite(value) && value >= 1 && value <= 10 ? value : undefined
+  return Number.isFinite(value) && value >= 1 && value <= 10 && Number.isInteger(value * 2) ? value : undefined
 }
 
 /** The single definition of "can this set be marked done" — an out-of-range RPE must

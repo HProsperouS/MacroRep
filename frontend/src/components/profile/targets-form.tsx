@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Check, TriangleAlert } from "lucide-react"
+import { Calculator, Check, TriangleAlert } from "lucide-react"
+import { useState } from "react"
 import { useForm, useWatch, type Control, type UseFormRegisterReturn } from "react-hook-form"
 import { z } from "zod"
 
@@ -21,12 +22,17 @@ type TargetsFormProps = {
   targets: DailyTargets
   submitting: boolean
   onSubmit: (targets: DailyTargets) => void
+  /** Estimates targets from the user's details; resolves null if it couldn't. Fills the form only. */
+  onEstimate?: () => Promise<DailyTargets | null>
 }
 
-export function TargetsForm({ targets, submitting, onSubmit }: TargetsFormProps) {
+export function TargetsForm({ targets, submitting, onSubmit, onEstimate }: TargetsFormProps) {
+  const [estimating, setEstimating] = useState(false)
+  const [estimated, setEstimated] = useState(false)
   const {
     control,
     register,
+    setValue,
     handleSubmit,
     formState: { errors, isDirty },
   } = useForm<TargetsInput, unknown, TargetsValues>({
@@ -39,6 +45,18 @@ export function TargetsForm({ targets, submitting, onSubmit }: TargetsFormProps)
     },
   })
 
+  async function estimate(run: () => Promise<DailyTargets | null>) {
+    setEstimating(true)
+    try {
+      const result = await run()
+      if (!result) return
+      for (const field of ["calories", "protein", "carbs", "fat"] as const) setValue(field, String(result[field]), { shouldDirty: true, shouldValidate: true })
+      setEstimated(true)
+    } finally {
+      setEstimating(false)
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
       <FieldGroup>
@@ -49,8 +67,15 @@ export function TargetsForm({ targets, submitting, onSubmit }: TargetsFormProps)
           disabled={submitting}
         />
         <MacroCheck control={control} />
+        {estimated ? <p className="text-sm text-muted-foreground">Estimated from your profile and latest weight. Save to use them.</p> : null}
       </FieldGroup>
-      <div className="flex justify-end">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        {onEstimate ? (
+          <Button type="button" variant="outline" className="h-10" disabled={submitting || estimating} onClick={() => void estimate(onEstimate)}>
+            {estimating ? <Spinner data-icon="inline-start" /> : <Calculator data-icon="inline-start" />}
+            Estimate from my profile
+          </Button>
+        ) : null}
         <Button type="submit" className="h-10 w-full sm:w-auto" disabled={submitting || !isDirty}>
           {submitting ? <Spinner data-icon="inline-start" /> : null}
           Save targets

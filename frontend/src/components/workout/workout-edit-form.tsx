@@ -50,7 +50,7 @@ export function WorkoutEditForm({ initial, saving, onSave, onCancel }: WorkoutEd
         <Input
           id="edit-workout-name"
           value={workout.name}
-          maxLength={255}
+          maxLength={60}
           disabled={saving}
           aria-invalid={!isWorkoutNameValid(workout.name) || undefined}
           onChange={(event) => setWorkout((current) => ({ ...current, name: event.target.value }))}

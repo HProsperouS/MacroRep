@@ -9,18 +9,27 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.energy import ActivityLevel, Sex, age_on, estimate_targets
 from app.body.repository import WeighInRepository
 from app.identity.dependencies import ActorContext
 from app.identity.repository import UserRepository
 from app.shared.persistence.mixins import utc_now
 from app.shared.timezones import DEFAULT_TIMEZONE, local_today, user_zone
+from app.shared.validation import (
+    MAX_TARGET_CALORIES,
+    MAX_TARGET_CARBS_G,
+    MAX_TARGET_PROTEIN_G,
+    MIN_TARGET_CALORIES,
+)
 
 from .models import ExperienceLevel, Goal, NutritionTarget, Profile, TargetSource
 from .repository import ProfileRepository
 from .schemas import (
     DailyTargets,
+    EstimateTargetsInput,
     OnboardingInput,
     ProfileRead,
+    TargetEstimateRead,
     TargetVersionRead,
     TimezoneInput,
     UpdateProfileInput,
@@ -50,6 +59,31 @@ def _stored_targets(targets: DailyTargets) -> DailyTargets:
     )
 
 
+def _estimate(
+    weight_kg: float,
+    height_cm: float,
+    age: int,
+    sex: Sex,
+    activity: ActivityLevel,
+    goal: Goal,
+    weekly_rate_kg: float,
+) -> TargetEstimateRead:
+    estimate = estimate_targets(
+        weight_kg=weight_kg,
+        height_cm=height_cm,
+        age=age,
+        sex=sex,
+        activity=activity,
+        goal=goal.value,
+        weekly_rate_kg=weekly_rate_kg,
+        min_calories=MIN_TARGET_CALORIES,
+        max_calories=MAX_TARGET_CALORIES,
+        max_protein_g=MAX_TARGET_PROTEIN_G,
+        max_carbs_g=MAX_TARGET_CARBS_G,
+    )
+    return TargetEstimateRead(**estimate._asdict())
+
+
 def _untouched_defaults(history: list[NutritionTarget]) -> NutritionTarget | None:
     """The starting targets, if they're still the only version: defaults nothing has changed."""
 
@@ -66,6 +100,9 @@ def _apply(profile: Profile, payload: UpdateProfileInput) -> None:
     profile.training_days_per_week = payload.training_days_per_week
     profile.experience_level = payload.experience_level
     profile.equipment = payload.equipment
+    profile.date_of_birth = payload.date_of_birth
+    profile.sex = payload.sex
+    profile.activity_level = payload.activity_level
     profile.touch()
 
 
@@ -136,6 +173,9 @@ class ProfileService:
             equipment=list(profile.equipment),
             timezone=profile.timezone,
             onboarded=profile.onboarded_utc is not None,
+            date_of_birth=profile.date_of_birth,
+            sex=profile.sex,
+            activity_level=profile.activity_level,
         )
 
     async def get(self, actor: ActorContext) -> ProfileRead:
@@ -234,6 +274,55 @@ class ProfileService:
             fat=targets.fat,
             effective_date=local_today(user_zone(profile.timezone)),
             source=source,
+        )
+
+    async def estimate_targets(
+        self, payload: EstimateTargetsInput, actor: ActorContext
+    ) -> TargetEstimateRead:
+        """Starting targets from details not saved yet (the sign-up guide's). Only reads: a
+        profile that doesn't exist yet isn't created for this."""
+
+        profile = await self.repository.get(actor.actor_id)
+        today = local_today(user_zone(profile.timezone if profile else None))
+        return _estimate(
+            payload.weight_kg,
+            payload.height_cm,
+            age_on(payload.date_of_birth, today),
+            payload.sex,
+            payload.activity_level,
+            payload.goal,
+            payload.weekly_rate_kg,
+        )
+
+    async def estimate_targets_from_profile(self, actor: ActorContext) -> TargetEstimateRead:
+        """Starting targets from the saved profile and the latest weigh-in, to set again on
+        the Profile page. Nothing is saved: the user decides."""
+
+        profile = await self.repository.get(actor.actor_id)
+        if (
+            profile is None
+            or profile.date_of_birth is None
+            or profile.sex is None
+            or profile.activity_level is None
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Add your date of birth, sex and activity level to your profile first.",
+            )
+        today = local_today(user_zone(profile.timezone))
+        latest = await self.weigh_ins.latest(profile.user_id, today)
+        if latest is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "Log your weight first: the estimate starts from it."
+            )
+        return _estimate(
+            float(latest.weight_kg),
+            float(profile.height_cm),
+            age_on(profile.date_of_birth, today),
+            profile.sex,
+            profile.activity_level,
+            profile.goal,
+            float(profile.weekly_rate_kg),
         )
 
     async def get_targets(self, actor: ActorContext) -> DailyTargets:

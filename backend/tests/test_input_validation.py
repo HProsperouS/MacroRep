@@ -26,6 +26,9 @@ PROFILE = {
     "weeklyRateKg": -0.5,
     "trainingDaysPerWeek": 3,
     "experienceLevel": "beginner",
+    "dateOfBirth": "1995-04-20",
+    "sex": "female",
+    "activityLevel": "moderate",
     "equipment": [],
 }
 QUICK_ADD = {
@@ -124,28 +127,65 @@ CASES: list[tuple[str, str, str, dict[str, Any], int]] = [
         {"date": (TODAY + timedelta(days=2)).isoformat(), "weightKg": 80},
         422,
     ),
-    # Profile: height 50-272 cm; weekly rate has no health limit, only the column's ±99.99.
-    ("height at minimum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 50}, 200),
-    ("height below minimum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 49.9}, 422),
-    ("height at maximum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 272}, 200),
-    ("height above maximum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 272.1}, 422),
+    # Profile: height 100-250 cm, as the forms allow; weekly rate has no health limit, only
+    # the column's ±99.99; names up to 60 characters.
+    ("height at minimum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 100}, 200),
+    ("height below minimum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 99.9}, 422),
+    ("height at maximum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 250}, 200),
+    ("height above maximum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 250.1}, 422),
+    ("name at maximum", "PUT", "/api/v1/profile", {**PROFILE, "name": "x" * 60}, 200),
+    ("name above maximum", "PUT", "/api/v1/profile", {**PROFILE, "name": "x" * 61}, 422),
+    # Training days 1-7, as the forms allow.
+    ("training days at minimum", "PUT", "/api/v1/profile", {**PROFILE, "trainingDaysPerWeek": 1}, 200),
+    ("no training days", "PUT", "/api/v1/profile", {**PROFILE, "trainingDaysPerWeek": 0}, 422),
+    ("training days at maximum", "PUT", "/api/v1/profile", {**PROFILE, "trainingDaysPerWeek": 7}, 200),
+    ("training days above maximum", "PUT", "/api/v1/profile", {**PROFILE, "trainingDaysPerWeek": 8}, 422),
     ("fast weekly rate is allowed", "PUT", "/api/v1/profile", {**PROFILE, "weeklyRateKg": -5}, 200),
     ("rate at storage limit", "PUT", "/api/v1/profile", {**PROFILE, "weeklyRateKg": -99.99}, 200),
     ("rate beyond storage limit", "PUT", "/api/v1/profile", {**PROFILE, "weeklyRateKg": -100}, 422),
     ("whitespace-only name", "PUT", "/api/v1/profile", {**PROFILE, "name": "   "}, 422),
     ("repeated equipment", "PUT", "/api/v1/profile", {**PROFILE, "equipment": ["barbell", "barbell"]}, 422),
-    # Targets: 0-10,000 kcal, macros 0-1,000 g, calories consistent with macros.
+    # Targets: 1,000-6,000 kcal; protein up to 500 g, carbs 1,000 g, fat 400 g, as the forms
+    # allow; calories consistent with macros.
+    (
+        "calories at minimum",
+        "PUT",
+        "/api/v1/nutrition/targets",
+        {**TARGETS, "calories": 1_000, "protein": 50, "carbs": 100, "fat": 30},
+        200,
+    ),
+    ("calories below minimum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": 999}, 422),
     (
         "zero targets",
         "PUT",
         "/api/v1/nutrition/targets",
         {"calories": 0, "protein": 0, "carbs": 0, "fat": 0},
+        422,
+    ),
+    ("calories at maximum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": 6_000}, 200),
+    ("calories above maximum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": 6_001}, 422),
+    (
+        "protein at maximum",
+        "PUT",
+        "/api/v1/nutrition/targets",
+        {**TARGETS, "calories": 3_000, "protein": 500},
         200,
     ),
-    ("negative calories", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": -1}, 422),
-    ("calories at maximum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": 10_000}, 200),
-    ("calories above maximum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": 10_001}, 422),
-    ("protein above maximum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "protein": 1_001}, 422),
+    ("protein above maximum", "PUT", "/api/v1/nutrition/targets", {**TARGETS, "protein": 501}, 422),
+    (
+        "fat above maximum",
+        "PUT",
+        "/api/v1/nutrition/targets",
+        {**TARGETS, "calories": 5_000, "fat": 401},
+        422,
+    ),
+    (
+        "carbs above maximum",
+        "PUT",
+        "/api/v1/nutrition/targets",
+        {**TARGETS, "calories": 6_000, "carbs": 1_001},
+        422,
+    ),
     (
         "calories far below macros",
         "PUT",
@@ -252,6 +292,39 @@ CASES: list[tuple[str, str, str, dict[str, Any], int]] = [
         "POST",
         "/api/v1/exercises",
         {"name": "Mystery", "equipment": "barbell", "muscles": ["chest", "chest"]},
+        422,
+    ),
+    # Exercise names 2-60 characters and up to 4 muscle groups, as the form allows.
+    (
+        "exercise name too short",
+        "POST",
+        "/api/v1/exercises",
+        {"name": "X", "equipment": "barbell", "muscles": ["chest"]},
+        422,
+    ),
+    (
+        "exercise name too long",
+        "POST",
+        "/api/v1/exercises",
+        {"name": "x" * 61, "equipment": "barbell", "muscles": ["chest"]},
+        422,
+    ),
+    (
+        "exercise with four muscles",
+        "POST",
+        "/api/v1/exercises",
+        {"name": "Complex", "equipment": "barbell", "muscles": ["chest", "back", "shoulders", "core"]},
+        201,
+    ),
+    (
+        "exercise with five muscles",
+        "POST",
+        "/api/v1/exercises",
+        {
+            "name": "Complex",
+            "equipment": "barbell",
+            "muscles": ["chest", "back", "shoulders", "core", "glutes"],
+        },
         422,
     ),
 ]

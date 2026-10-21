@@ -64,10 +64,15 @@ export async function signUpInBrowser(page: Page, email = uniqueEmail()) {
   return email
 }
 
-/** Goes through the sign-up guide a new account is sent to, keeping the suggested targets. */
+/**
+ * Goes through the sign-up guide a new account is sent to. Its targets are estimated from the
+ * details; the tests then set 2,200 kcal, so their expected totals don't depend on the formula.
+ */
 async function finishGuideInBrowser(page: Page) {
   const next = page.getByRole("button", { name: "Continue" })
   await expect(page.getByRole("heading", { name: "About you" })).toBeVisible()
+  await page.getByLabel("Date of birth").fill("1995-04-20")
+  await page.getByRole("radio", { name: "Male", exact: true }).click()
   await page.getByLabel("Height").fill("175")
   await page.getByLabel("Weight today").fill("80")
   await next.click()
@@ -75,10 +80,20 @@ async function finishGuideInBrowser(page: Page) {
   await next.click()
   await page.getByRole("radio", { name: "Beginner" }).click()
   await page.getByLabel("Training days").fill("3")
+  await page.getByRole("combobox", { name: "Activity level" }).click()
+  await page.getByRole("option", { name: "Moderately active, exercise 3–5 days a week" }).click()
   await next.click()
   await page.getByRole("button", { name: "Barbell" }).click()
   await next.click()
-  await expect(page.getByLabel("Calories")).toHaveValue("2200")
+  await expect(page.getByText(/^Estimated for you:/)).toBeVisible()
+  for (const [label, value] of [
+    ["Calories", "2200"],
+    ["Protein", "150"],
+    ["Carbs", "230"],
+    ["Fat", "70"],
+  ]) {
+    await page.getByLabel(label, { exact: true }).fill(value)
+  }
   await page.getByRole("button", { name: "Finish setup" }).click()
   await expect(page.getByRole("heading", { level: 1, name: "Today" })).toBeVisible()
 }
@@ -108,6 +123,9 @@ export async function signUpThroughApi(request: APIRequestContext) {
       trainingDaysPerWeek: 3,
       experienceLevel: "beginner",
       equipment: ["barbell"],
+      dateOfBirth: "1995-04-20",
+      sex: "male",
+      activityLevel: "moderate",
       weightKg: 80,
       targets,
     },

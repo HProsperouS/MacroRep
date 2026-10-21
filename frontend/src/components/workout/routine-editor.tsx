@@ -12,8 +12,25 @@ import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
-import { toNumber } from "@/lib/format"
+import { formatNumber, toNumber } from "@/lib/format"
 import { WEEKDAY_LABELS, type Exercise, type PlannedWorkout, type SaveRoutineInput, type SetKind } from "@/types/workout"
+
+/** What the server accepts for a routine; blank fields take a default (time, rest) or mean no target. */
+const LIMITS = {
+  minutes: { min: 1, max: 600, whole: true },
+  rest: { min: 0, max: 600, whole: true },
+  weight: { min: 0, max: 1_000, whole: false },
+  reps: { min: 1, max: 100, whole: true },
+} as const
+
+function rangeError(raw: string, { min, max, whole }: { min: number; max: number; whole: boolean }) {
+  if (raw.trim() === "") return undefined
+  const value = toNumber(raw)
+  if (value === undefined) return "Enter a number"
+  if (whole && !Number.isInteger(value)) return "Whole number"
+  if (value < min || value > max) return `${formatNumber(min)}–${formatNumber(max)}`
+  return undefined
+}
 
 type EditorSet = { id: string; kind: SetKind; targetWeightKg: string; targetReps: string }
 
@@ -150,19 +167,28 @@ export function RoutineEditor({ routine, scheduledDays = [], submitting, deletin
 
   // A name is required: it is how the routine is picked in the week schedule.
   const nameMissing = name.trim() === ""
-  const canSave = !nameMissing && exercises.length > 0 && exercises.every((exercise) => exercise.sets.length > 0) && !submitting
+  const minutesError = rangeError(estimatedMinutes, LIMITS.minutes)
+  const outOfRange =
+    minutesError !== undefined ||
+    exercises.some(
+      (exercise) =>
+        rangeError(exercise.restSeconds, LIMITS.rest) !== undefined ||
+        exercise.sets.some((set) => rangeError(set.targetWeightKg, LIMITS.weight) !== undefined || rangeError(set.targetReps, LIMITS.reps) !== undefined),
+    )
+  const canSave = !nameMissing && !outOfRange && exercises.length > 0 && exercises.every((exercise) => exercise.sets.length > 0) && !submitting
 
   return (
     <div className="flex flex-col gap-4">
       <FieldGroup className="grid gap-4 sm:grid-cols-3">
-        <TextField id="routine-name" label="Name" value={name} maxLength={255} error={nameMissing ? "Give the routine a name" : undefined} onChange={(event) => setName(event.target.value)} />
-        <TextField id="routine-week-label" label="Week label" value={weekLabel} onChange={(event) => setWeekLabel(event.target.value)} />
+        <TextField id="routine-name" label="Name" value={name} maxLength={60} error={nameMissing ? "Give the routine a name" : undefined} onChange={(event) => setName(event.target.value)} />
+        <TextField id="routine-week-label" label="Week label" value={weekLabel} maxLength={64} onChange={(event) => setWeekLabel(event.target.value)} />
         <TextField
           id="routine-minutes"
           label="Estimated time"
           unit="min"
           inputMode="numeric"
           value={estimatedMinutes}
+          error={minutesError}
           onChange={(event) => setEstimatedMinutes(event.target.value)}
         />
       </FieldGroup>
@@ -229,6 +255,7 @@ export function RoutineEditor({ routine, scheduledDays = [], submitting, deletin
                   unit="sec"
                   inputMode="numeric"
                   value={exercise.restSeconds}
+                  error={rangeError(exercise.restSeconds, LIMITS.rest)}
                   onChange={(event) => updateExercise(exercise.instanceId, { restSeconds: event.target.value })}
                 />
 
@@ -257,6 +284,7 @@ export function RoutineEditor({ routine, scheduledDays = [], submitting, deletin
                         inputMode="decimal"
                         placeholder="Target"
                         value={set.targetWeightKg}
+                        error={rangeError(set.targetWeightKg, LIMITS.weight)}
                         onChange={(event) => updateSet(exercise.instanceId, set.id, { targetWeightKg: event.target.value })}
                       />
                       <TextField
@@ -266,6 +294,7 @@ export function RoutineEditor({ routine, scheduledDays = [], submitting, deletin
                         inputMode="numeric"
                         placeholder="Target"
                         value={set.targetReps}
+                        error={rangeError(set.targetReps, LIMITS.reps)}
                         onChange={(event) => updateSet(exercise.instanceId, set.id, { targetReps: event.target.value })}
                       />
                       <Button

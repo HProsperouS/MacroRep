@@ -125,6 +125,32 @@ expenditure (kcal/day) = average intake − (trend change (kg) × 7700) ÷ days
 7700 kcal per kg is the common rule of thumb (≈ 3500 kcal/lb). Losing 0.5 kg
 in a week while eating 2000 kcal/day gives an estimate of 2550 kcal/day.
 
+## Starting targets — `analytics/energy.py`
+
+Before there is a week of logs to learn from, the sign-up guide (and the
+Profile page's "Estimate from my profile") estimates starting targets from the
+user's details. Weekly check-ins then adjust them from what is actually eaten
+and weighed.
+
+```
+resting (kcal/day)  = 10 × weight (kg) + 6.25 × height (cm) − 5 × age + s
+                      s = +5 for men, −161 for women      (Mifflin-St Jeor)
+maintenance         = resting × activity factor
+                      1.2 mostly sitting · 1.375 lightly · 1.55 moderately · 1.725 very active
+adjustment          = weekly rate (kg) × 7700 ÷ 7         (0 when maintaining)
+calories            = maintenance + adjustment, to the nearest 50 kcal, within 1,000–6,000
+protein (g)         = 2.0 g/kg when losing, 1.8 g/kg otherwise (at most 500 g)
+fat (g)             = 25% of calories ÷ 9
+carbs (g)           = what's left ÷ 4
+```
+
+Mifflin-St Jeor is the resting-energy equation most often recommended for
+adults; the activity factor includes training, so it is asked as one question
+about the whole day. Protein is capped so the macros never add up to more than
+the calories. A man of 30, 180 cm and 80 kg, moderately active and losing
+0.5 kg a week: 1,780 resting, 2,759 to maintain, −550 for the goal, so
+2,200 kcal with 160 g protein, 61 g fat and 253 g carbs.
+
 ## Training — `analytics/training.py`
 
 Only **working sets** count toward volume, estimated 1RM, and personal

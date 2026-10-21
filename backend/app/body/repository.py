@@ -36,6 +36,19 @@ class WeighInRepository:
             ),
         )
 
+    async def latest(self, owner_id: str, up_to: date_) -> WeighIn | None:
+        """The most recent weigh-in on or before ``up_to``."""
+
+        return cast(
+            "WeighIn | None",
+            await self.session.scalar(
+                select(WeighIn)
+                .where(WeighIn.owner_id == owner_id, WeighIn.log_date <= up_to)
+                .order_by(WeighIn.log_date.desc())
+                .limit(1)
+            ),
+        )
+
     async def delete(self, weigh_in: WeighIn) -> None:
         await self.session.delete(weigh_in)
 

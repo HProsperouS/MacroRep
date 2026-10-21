@@ -104,7 +104,7 @@ const enteredValuesSchema = z
   .object({
     meal: z.enum(MEAL_TYPES),
     day: z.string().refine(isLoggableDay, DAY_ERROR),
-    name: z.string().trim().min(1, "Enter a name").max(255, "Keep it under 255 characters"),
+    name: z.string().trim().min(1, "Enter a name").max(60, "Keep it under 60 characters"),
     calories: numberField(10_000, { integer: true }),
     protein: numberField(1_000),
     carbs: numberField(1_000),

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react"
 import { profileApi } from "@/api/profile-api"
 import { bodyKeys, foodKeys, profileKeys, progressKeys } from "@/api/query-keys"
 import type { DailyTargets } from "@/types/food"
-import type { OnboardingInput, UpdateProfileInput } from "@/types/profile"
+import type { EstimateTargetsInput, OnboardingInput, UpdateProfileInput } from "@/types/profile"
 
 export function useProfile() {
   return useQuery({
@@ -38,6 +38,16 @@ export function useCompleteOnboarding() {
       void queryClient.invalidateQueries({ queryKey: progressKeys.all })
     },
   })
+}
+
+/** Estimates targets from details not saved yet. A mutation: it's asked for on a step, not cached. */
+export function useEstimateTargets() {
+  return useMutation({ mutationFn: (input: EstimateTargetsInput) => profileApi.estimateTargets(input) })
+}
+
+/** Estimates targets from the saved profile and latest weigh-in, for the Profile page. */
+export function useEstimateTargetsFromProfile() {
+  return useMutation({ mutationFn: () => profileApi.estimateTargetsFromProfile() })
 }
 
 function browserTimezone() {

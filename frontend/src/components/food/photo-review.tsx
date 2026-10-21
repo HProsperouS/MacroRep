@@ -35,7 +35,7 @@ function draftFrom(item: PhotoItem, key: number): Draft {
 const round1 = (value: number) => Math.round(value * 10) / 10
 
 // What a food log entry accepts (the edit form's limits), and the estimate's own gram limit.
-const MAX_NAME = 255
+const MAX_NAME = 60
 const MAX_GRAMS = 3_000
 const MAX_CALORIES = 10_000
 const MAX_MACRO_G = 1_000

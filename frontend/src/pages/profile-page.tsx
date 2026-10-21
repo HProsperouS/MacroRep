@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton"
 import { useLogout } from "@/hooks/use-auth"
 import { useNutritionTargets } from "@/hooks/use-food-log"
-import { useProfile, useUpdateProfile, useUpdateTargets } from "@/hooks/use-profile"
+import { useEstimateTargetsFromProfile, useProfile, useUpdateProfile, useUpdateTargets } from "@/hooks/use-profile"
 
 export default function ProfilePage() {
   const navigate = useNavigate()
@@ -22,6 +22,7 @@ export default function ProfilePage() {
   const targets = useNutritionTargets()
   const updateProfile = useUpdateProfile()
   const updateTargets = useUpdateTargets()
+  const estimateTargets = useEstimateTargetsFromProfile()
 
   return (
     <>
@@ -72,6 +73,12 @@ export default function ProfilePage() {
                   updateTargets.mutate(input, {
                     onSuccess: () => toast.success("Targets saved", { description: "Food and Home now use the new numbers." }),
                     onError: (error) => toast.error("Couldn’t save your targets", { description: apiErrorMessage(error) }),
+                  })
+                }
+                onEstimate={() =>
+                  estimateTargets.mutateAsync().catch((error: unknown) => {
+                    toast.error("Couldn’t estimate your targets", { description: apiErrorMessage(error) })
+                    return null
                   })
                 }
               />

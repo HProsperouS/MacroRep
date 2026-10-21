@@ -289,7 +289,7 @@ def test_a_target_far_below_the_macros_is_refused(client: TestClient) -> None:
     assert "too low" in response.json()["detail"]
 
 
-@pytest.mark.parametrize(("text", "expected"), [("x" * 2_000, 200), ("x" * 2_001, 422), ("   ", 422)])
+@pytest.mark.parametrize(("text", "expected"), [("x" * 500, 200), ("x" * 501, 422), ("   ", 422)])
 def test_coach_messages_are_bounded(
     client: TestClient, auth_headers: dict[str, str], text: str, expected: int
 ) -> None:
