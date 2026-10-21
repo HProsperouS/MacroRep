@@ -35,27 +35,31 @@ export function SidebarNav({ className }: { className?: string }) {
           </NavLink>
         ))}
       </nav>
-      <NavLink
-        to="/profile"
-        className={({ isActive }) =>
-          cn(
-            "mt-auto flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-            isActive && "bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:text-primary",
-          )
-        }
-      >
-        <CircleUser className="size-5" aria-hidden />
-        Profile
-      </NavLink>
-      <button
-        type="button"
-        disabled={logout.isPending}
-        onClick={() => logout.mutate(undefined, { onSettled: () => navigate("/login", { replace: true }) })}
-        className="flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-50"
-      >
-        <LogOut className="size-5" aria-hidden />
-        Sign out
-      </button>
+      {/* The account, apart from the pages: at the bottom, on one row. */}
+      <div className="mt-auto flex items-center gap-1">
+        <NavLink
+          to="/profile"
+          className={({ isActive }) =>
+            cn(
+              "flex h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-3 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              isActive && "bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:text-primary",
+            )
+          }
+        >
+          <CircleUser className="size-5" aria-hidden />
+          Profile
+        </NavLink>
+        <button
+          type="button"
+          aria-label="Sign out"
+          title="Sign out"
+          disabled={logout.isPending}
+          onClick={() => logout.mutate(undefined, { onSettled: () => navigate("/login", { replace: true }) })}
+          className="flex size-11 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-50"
+        >
+          <LogOut className="size-5" aria-hidden />
+        </button>
+      </div>
     </aside>
   )
 }
