@@ -12,7 +12,9 @@ from evals.agent_eval import (
     chat_report,
     evaluate,
     evaluate_chat,
+    evaluate_revisions,
     report,
+    revision_report,
     training_direction,
     week,
 )
@@ -69,3 +71,11 @@ async def test_chat_questions_run_and_are_reported() -> None:
     by_name = {result.case.name: result.passed for result in results}
     assert by_name["medical"], "the rule-based coach turns down a medical question too"
     assert "## Coach Chat" in chat_report(results)
+
+
+async def test_revisions_run_and_are_reported() -> None:
+    results = await evaluate_revisions(FakeCoachModel(), runs=1)
+
+    assert len(results) == 3
+    assert all(result.passed for result in results), "the rule-based agent's fixed steps happen to fit"
+    assert "### Revisions" in revision_report(results)

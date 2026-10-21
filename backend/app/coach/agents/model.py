@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -67,6 +68,8 @@ class FakeCoachModel:
     name = "fake"
 
     async def generate(self, task: AgentTask[T]) -> ModelReply:
+        if "user_request" in task.context and task.agent in ("nutrition", "workout"):
+            return ModelReply(_fake_revision(task.context))
         if task.agent == "nutrition":
             return ModelReply(_fake_nutrition(task.context))
         if task.agent == "workout":
@@ -277,20 +280,90 @@ def _fake_review(context: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-# Words that mark a question the fake treats as medical, as the real model is told to.
+# Words the fake reads a chat message by, as the real model is told to: medical topics, and
+# what a change to the calories or to a lift looks like.
 _MEDICAL_WORDS = ("injur", "pain", "hurt", "medic", "doctor", "pregnan", "sick", "diagnos")
+_CALORIE_WORDS = {"calorie", "calories", "kcal", "eat", "eating"}
+_UP_WORDS = {"more", "raise", "increase", "higher", "heavier", "add"}
+_DOWN_WORDS = {"less", "lower", "decrease", "reduce", "fewer", "lighter", "cut"}
+_KEEP_WORDS = {"keep", "same"}
+
+
+def _words(text: str) -> set[str]:
+    """Whole words, so "great" isn't read as "eat"."""
+
+    return set(re.findall(r"[a-z']+", text.lower()))
+
+
+def _direction(text: str) -> str | None:
+    words = _words(text)
+    for direction, wanted in (("keep", _KEEP_WORDS), ("up", _UP_WORDS), ("down", _DOWN_WORDS)):
+        if words & wanted:
+            return direction
+    return None
 
 
 def _fake_chat(context: Mapping[str, Any]) -> dict[str, Any]:
     question = str(context["question"]).lower()
-    if any(word in question for word in _MEDICAL_WORDS):
+    if any(word.startswith(_MEDICAL_WORDS) for word in _words(question)):
         return {
-            "topic": "medical",
+            "intent": "medical",
             "reply": "I can't advise on that: please check with a doctor or physiotherapist. "
             "I can explain this week's proposals and how your training and eating went.",
         }
+    exercises = [e["name"] for r in context["week"]["routines"] for e in r["exercises"]]
+    lift = next((name for name in exercises if name.lower() in question), None)
+    if _words(question) & _CALORIE_WORDS or lift:
+        intent = "adjust_workout" if lift else "adjust_nutrition"
+        if _direction(question) is None:
+            ask = (
+                f"Should {lift} go up, down or stay the same?"
+                if lift
+                else "More or fewer calories, and by about how much?"
+            )
+            return {"intent": intent, "reply": ask}
+        return {"intent": intent, "reply": "I'll revise the proposal.", "request": context["question"]}
     proposals: list[Mapping[str, Any]] = context["proposals"]
     if proposals and ("why" in question or "change" in question):
         proposal = proposals[0]
-        return {"topic": "check_in", "reply": f"{proposal['headline']}. {' '.join(proposal['evidence'][:2])}"}
-    return {"topic": "progress", "reply": str(context["week"]["summary"])}
+        return {"intent": "explain", "reply": f"{proposal['headline']}. {' '.join(proposal['evidence'][:2])}"}
+    return {"intent": "explain", "reply": str(context["week"]["summary"])}
+
+
+def _fake_revision(context: Mapping[str, Any]) -> dict[str, Any]:
+    """The fake's answer to a revision request: a fixed step in the direction asked."""
+
+    request = str(context["user_request"])
+    direction = _direction(request)
+    evidence = [f"You asked: {request}"]
+    if "target_calories" in context:
+        if direction in (None, "keep"):
+            return {"action": "keep", "headline": "Keep the calorie target as it is", "evidence": evidence}
+        target = int(context["target_calories"]) + (100 if direction == "up" else -100)
+        return {
+            "action": "change",
+            "new_calorie_target": target,
+            "headline": "Revised target",
+            "evidence": evidence,
+        }
+    for routine in context["routines"]:
+        for exercise in routine["exercises"]:
+            if exercise["name"].lower() in request.lower() and exercise["target_weight_kg"] is not None:
+                if direction in (None, "keep"):
+                    break
+                weight = exercise["target_weight_kg"]
+                new_weight = weight + 2.5 if direction == "up" else weight * 0.95
+                adjustment = {
+                    "routine_id": routine["routine_id"],
+                    "exercise_id": exercise["exercise_id"],
+                    "field": "target_weight_kg",
+                    "new_value": new_weight,
+                    "reason": f"You asked: {request}"[:200],
+                }
+                return {
+                    "action": "change",
+                    "adjustments": [adjustment],
+                    "headline": "Revised load",
+                    "evidence": evidence,
+                }
+    return {"action": "keep", "headline": "Keep training as it is", "evidence": evidence}

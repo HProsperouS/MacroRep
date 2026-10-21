@@ -148,7 +148,7 @@ Reviewer alone), three runs each. Its checks read each agent's own answer, befor
 in `validate.py` correct it, so they measure the model's judgement. It makes paid calls, so
 it runs by hand, not in CI; `tests/test_agent_eval.py` runs it on the rule-based model.
 
-The runs on `gpt-5.4-mini` found five problems, all fixed:
+The runs on `gpt-5.4-mini` found seven problems, all fixed:
 
 | Problem | Cause | Fix |
 |---|---|---|
@@ -157,6 +157,8 @@ The runs on `gpt-5.4-mini` found five problems, all fixed:
 | 6 of 95 answers failed the schema (too many evidence items, a reason too long) | The schema's length limits aren't enforced while generating | Each agent's instructions state its schema's limits, generated from the schema |
 | The Reviewer flagged a cut proposed with heavier lifting in 0 to 3 of 3 runs, varying from one evaluation to the next | It noticed the recovery risk but called it a warning | Its instructions state the rule: a lower target with any load increase is a conflict to report and hold back (8 of 8 after) |
 | A week with only 1 of 3 workouts done got a small bench increase in one run of three, in two evaluations | Nothing told the Workout agent that missed sessions matter more than load | Its instructions say not to increase anything when most planned workouts were missed (16 of 16 checks after, and an easy fully-trained week still progressed 8 of 8) |
+| Coach Chat took "can you change my calories?" as a request to keep the current proposal (2 of 3 runs), and once answered with an empty `request` the schema refused | It read the existing proposal as what the user wanted, and sent `""` for "no request" | Its instructions say a change without a direction is unclear and the proposal is never the request; an empty request counts as none (3 of 3 after) |
+| Asked for a cut of about 100 kcal instead of 200, the Nutrition agent cut 300 | It applied its own rule for closing the gap and treated that as a limit | Revisions are told the request comes first whenever it fits the limits (3 of 3 after) |
 
 After the fixes the checks pass in nearly every run; see the report for the latest numbers.
 Single runs still vary: in the latest evaluation, one of three grinding-bench weeks kept the
@@ -164,35 +166,55 @@ bench load instead of lowering it, a defensible but weaker answer. The scenarios
 were written alongside the fixes, so this shows the agents handle these cases, not that
 they're right in general.
 
-The report also covers Coach Chat (below): five questions, three runs each.
+The report also covers Coach Chat (below): eight messages, and three revision requests run
+through the agent, the limits and the Reviewer, three runs each.
 
 ## Coach Chat
 
-Question and answer only (plan.md §8.9), on the check-in page. `app/coach/agents/chat.py`
-asks the same model as the agents (`agent="chat"`), with instructions and a `ChatReply`
-schema (`topic`, `reply`). It sees the check-in's figures (as the agents do), its proposals
-with their evidence and the reviewer's note, and the last 10 messages; never names or
-emails. It is told to:
+On the check-in page (plan.md §8.9, §9.2, §9.9). Each message is one turn of
+`app/coach/agents/chat.py`, on the same model as the agents (`agent="chat"`), with a
+`ChatReply` schema: `intent`, `reply`, and for a clear change, `request`. The model sees the
+check-in's figures (as the agents do), its proposals with their evidence and the reviewer's
+note, and the last 10 messages; never names or emails.
 
-- use only those, and say what's missing rather than invent a number;
-- explain the week and the proposals, and change nothing: a change is made by editing or
-  rejecting the proposal on its card;
-- turn down injuries, pain, illness, medication, pregnancy and disordered eating, pointing
-  to a professional (topic `medical`), and say what it can help with for anything off topic
-  (`out_of_scope`);
-- answer briefly, in the language of the question.
+| Intent | What happens |
+|---|---|
+| `explain` | Answered from the figures only; what they don't show is said to be missing, never invented. |
+| `adjust_nutrition`, `adjust_workout` | A clear request is revised (below). An unclear one ("change my calories") gets one question about the most important missing detail; the next message is read together with it. After two questions in a row the coach stops asking and gives examples of what to say. |
+| `start_check_in` | Points to the button, once another week is logged. |
+| `medical` | Injuries, pain, illness, medication, pregnancy, disordered eating: turned down, pointing to a professional. |
+| `out_of_scope` | Anything else: says what it can help with. |
+
+**Revising a proposal** (`revise.py`) goes through the same path as a check-in: the
+Nutrition or Workout agent is asked again with the request and the current proposal (told
+to follow the request exactly when it fits the limits), then the limits in `validate.py`,
+the rule that a cut can't come with heavier training, and the Reviewer, which can hold the
+revision back. What comes out is a pending proposal for the user to apply:
+
+- a pending proposal of that kind is replaced on its card; the version it replaces is kept
+  in the proposal's `revisions`, with the request and when. A training revision returns
+  every adjustment the proposal should have, so changes the request didn't mention stay;
+- asked to keep things as they are, the agent proposes no change and a pending proposal is
+  withdrawn (rejected), so Apply can't still make the change the user declined;
+- a rejected one, or none (the agent kept things as they were), gets a new pending proposal,
+  and the check-in needs review again;
+- an applied one is left alone: the user is pointed to the Profile or Workout plan page;
+- a calorie cut asked for while a training change adds load is refused until that change is
+  rejected; a load increase asked for alongside a cut is dropped by the conflict rule;
+- only the latest check-in is revised; on an earlier one the coach answers questions only;
+- before writing, the pending proposal is read again with the check-in locked: one decided,
+  or added by another message, while the model worked is left as it is.
 
 `POST /coach/check-ins/{id}/messages` answers once the check-in is ready (409 while it is
-running or after it failed), up to 30 questions per user an hour (then 429). The question and the answer are stored together only once
-there is an answer, so a failure (503, after one retry of a transient error, within 25 s)
-leaves nothing to repeat. `GET /coach/check-ins/{id}/messages` returns the conversation,
-which the page shows again after a reload. Each answer is logged as `coach chat answered`
-with its topic and run metrics. The rule-based model answers chat too: it turns down
-questions with medical words, quotes the first proposal for a "why", and otherwise gives
-the week's summary.
-
-Not built: intent routing and clarifying questions, and changing a proposal from the chat
-("request changes"); see plan.md P3.
+running or after it failed), up to 30 messages per user an hour (then 429). Working out the
+request may take 25 s and a revision 25 s (each with one retry of a transient error); the
+browser waits 60 s, and after an error reloads both the conversation and the cards. The message and the reply are stored together only once there is a
+reply, so a failure (503) leaves nothing to repeat. Each coach message has a `kind`
+(`answer`, `clarification` or `revision`); after a revision the page reloads the cards.
+`GET /coach/check-ins/{id}/messages` returns the conversation. Turns are logged as `coach
+chat answered` (with the intent) and revisions as `coach chat revised`, each with run
+metrics. The rule-based model handles chat too, from keywords: medical words, calorie words
+or an exercise name with a direction, and a fixed 100 kcal or 2.5 kg step.
 
 ## Run metrics
 
@@ -222,10 +244,12 @@ A run lost to a restart and swept as stale logs none. For example, one OpenAI ru
   until the user decides. Here the graph ends once proposals are stored, and the decision
   is ordinary database state through an idempotent API. Nothing waits in a checkpoint for
   days, and checkpoints are deleted when a run ends.
-- **No Supervisor/Router.** The weekly check-in always runs the same agents, and Coach Chat
-  only answers questions, so there is nothing to route yet.
-- **No "request changes" loop.** The user can edit values or reject, then start a new
-  check-in; asking the agents to revise a proposal isn't built.
+- **No separate Supervisor/Router.** The weekly check-in always runs the same agents. In Coach
+  Chat, the chat model itself sorts each message into an intent, and asks for what's
+  missing, instead of a separate router node; plan.md §9.9's fields map to `intent`,
+  `request` (the normalized request) and a clarifying `reply`.
+- **"Request changes" goes through the chat.** A proposal is revised by asking for the
+  change in Coach Chat, not from a button on the card.
 - **No exercise substitution.** Training proposals change sets, weight and reps of the
   routine's own exercises, never swap an exercise.
 

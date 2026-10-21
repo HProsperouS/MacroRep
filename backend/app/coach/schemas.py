@@ -80,6 +80,8 @@ class CoachMessage(CamelModel):
     id: str
     role: MessageRole
     text: str
+    # "revision" when the message reports a proposal revised at the user's request.
+    kind: Literal["answer", "clarification", "revision"] = "answer"
 
 
 class AskCoachInput(CamelModel):

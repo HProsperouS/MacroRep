@@ -93,6 +93,9 @@ class Proposal(Base):
     proposed_changes: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False, default=list)
     evidence: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     reviewer_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Earlier versions replaced at the user's request in Coach Chat, oldest first: each with
+    # its headline, proposed changes, evidence and reviewer note, the request, and when.
+    revisions: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False, default=list)
     status: Mapped[ProposalStatus] = mapped_column(
         SAEnum(ProposalStatus, name="proposal_status"), nullable=False, default=ProposalStatus.PENDING
     )
@@ -125,3 +128,5 @@ class CoachMessage(TimestampMixin, Base):
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role: Mapped[MessageRole] = mapped_column(SAEnum(MessageRole, name="message_role"), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    # For a coach message: an answer, a clarifying question, or the outcome of a revision.
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="answer", server_default="answer")

@@ -310,6 +310,20 @@ describe("CoachChat", () => {
     expect(screen.getByRole("textbox", { name: "Ask the coach" })).toHaveValue("Why more calories?")
   })
 
+  it("shows a revised proposal on its card once the coach has revised it", async () => {
+    api.getCurrentCheckIn
+      .mockResolvedValueOnce(checkIn({ suggestedQuestions: ["Make the cut smaller"] }))
+      .mockResolvedValue(checkIn({ suggestedQuestions: ["Make the cut smaller"], proposals: [nutritionProposal({ headline: "Adjust your daily target to 2,100 kcal" })] }))
+    api.askCoach.mockResolvedValue({ id: "m1", role: "coach", text: "I've revised the proposal.", kind: "revision" })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Make the cut smaller" }))
+
+    expect(await screen.findByText("Proposal updated")).toBeInTheDocument()
+    expect(await screen.findByText("Adjust your daily target to 2,100 kcal")).toBeInTheDocument()
+  })
+
   it("looks again for an answer the server saved after the browser gave up", async () => {
     api.askCoach.mockRejectedValue(new AxiosError("timeout", "ECONNABORTED"))
     const user = userEvent.setup()

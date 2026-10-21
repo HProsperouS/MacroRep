@@ -100,13 +100,20 @@ export function useAskCoach(checkInId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (text: string) => coachApi.askCoach(checkInId, text),
-    onSuccess: (reply, text) =>
+    onSuccess: (reply, text) => {
       queryClient.setQueryData<CoachMessage[]>(coachKeys.messages(checkInId), (old) => [
         ...(old ?? []),
-        { id: createRequestId(), role: "user", text },
+        { id: createRequestId(), role: "user", text, kind: "answer" },
         reply,
+      ])
+      // A revised proposal: show the new version on its card.
+      if (reply.kind === "revision") return queryClient.invalidateQueries({ queryKey: coachKeys.current() })
+    },
+    // The browser may have given up on an answer, or a revision, the server still saved.
+    onError: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: coachKeys.messages(checkInId) }),
+        queryClient.invalidateQueries({ queryKey: coachKeys.current() }),
       ]),
-    // The browser may have given up on an answer the server still saved.
-    onError: () => queryClient.invalidateQueries({ queryKey: coachKeys.messages(checkInId) }),
   })
 }

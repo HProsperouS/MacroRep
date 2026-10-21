@@ -213,31 +213,7 @@ def build_graph(model: CoachModel, metrics: RunMetrics) -> StateGraph[CoachState
         return {"workout": advice.model_dump() if advice else None}
 
     async def reviewer(state: CoachState) -> CoachState:
-        snapshot = state["snapshot"]
-        workout_advice = state.get("workout")
-        # The reviewer sees each training change next to the value it replaces.
-        if workout_advice is not None:
-            workout_advice = {
-                **workout_advice,
-                "adjustments": [
-                    {
-                        **adjustment,
-                        "current_value": _current_value(
-                            snapshot, adjustment["routine_id"], adjustment["exercise_id"], adjustment["field"]
-                        ),
-                    }
-                    for adjustment in workout_advice["adjustments"]
-                ],
-            }
-        context = {
-            "current_calorie_target": snapshot["target_calories"],
-            "missing_days": snapshot["missing_days"],
-            "avg_rpe": snapshot["avg_rpe"],
-            "weight_change_kg": snapshot["weight_change_kg"],
-            "goal_rate_kg_per_week": snapshot["goal_rate_kg_per_week"],
-            "nutrition": state.get("nutrition"),
-            "workout": workout_advice,
-        }
+        context = reviewer_context(state["snapshot"], state.get("nutrition"), state.get("workout"))
         review = await ask_agent(model, "reviewer", REVIEWER_INSTRUCTIONS, context, Review, metrics)
         return {"review": review.model_dump() if review else None}
 
@@ -255,6 +231,67 @@ def build_graph(model: CoachModel, metrics: RunMetrics) -> StateGraph[CoachState
     graph.add_edge("reviewer", "finalize")
     graph.add_edge("finalize", END)
     return graph
+
+
+def reviewer_context(
+    snapshot: Mapping[str, Any], nutrition: Mapping[str, Any] | None, workout: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    # The reviewer sees each training change next to the value it replaces.
+    if workout is not None:
+        workout = {
+            **workout,
+            "adjustments": [
+                {
+                    **adjustment,
+                    "current_value": _current_value(
+                        snapshot, adjustment["routine_id"], adjustment["exercise_id"], adjustment["field"]
+                    ),
+                }
+                for adjustment in workout["adjustments"]
+            ],
+        }
+    return {
+        "current_calorie_target": snapshot["target_calories"],
+        "missing_days": snapshot["missing_days"],
+        "avg_rpe": snapshot["avg_rpe"],
+        "weight_change_kg": snapshot["weight_change_kg"],
+        "goal_rate_kg_per_week": snapshot["goal_rate_kg_per_week"],
+        "nutrition": nutrition,
+        "workout": workout,
+    }
+
+
+def nutrition_draft(
+    advice: NutritionAdvice, current_target: int, new_target: int, note: str
+) -> ProposalDraft:
+    return ProposalDraft(
+        id="nutrition",
+        kind="nutrition",
+        headline=f"Adjust your daily target to {new_target:,} kcal",
+        changes=[
+            ProposalChangeDraft(
+                id="calories",
+                label="Daily calories",
+                unit="kcal",
+                before=current_target,
+                after=new_target,
+                step=limits.CALORIE_STEP,
+            )
+        ],
+        evidence=advice.evidence + ([advice.uncertainty] if advice.uncertainty else []),
+        reviewer_note=note,
+    )
+
+
+def training_draft(advice: WorkoutAdvice, adjustments: list[ValidAdjustment], note: str) -> ProposalDraft:
+    return ProposalDraft(
+        id="training",
+        kind="training",
+        headline=advice.headline,
+        changes=[_training_change(index, adjustment) for index, adjustment in enumerate(adjustments)],
+        evidence=advice.evidence + ([advice.uncertainty] if advice.uncertainty else []),
+        reviewer_note=note,
+    )
 
 
 _FIELD_LABELS = {
@@ -303,35 +340,11 @@ def _finalize(state: CoachState) -> dict[str, Any]:
     )
     proposals: list[ProposalDraft] = []
     if nutrition is not None and new_target is not None:
-        proposals.append(
-            ProposalDraft(
-                id="nutrition",
-                kind="nutrition",
-                headline=f"Adjust your daily target to {new_target:,} kcal",
-                changes=[
-                    ProposalChangeDraft(
-                        id="calories",
-                        label="Daily calories",
-                        unit="kcal",
-                        before=current_target,
-                        after=new_target,
-                        step=limits.CALORIE_STEP,
-                    )
-                ],
-                evidence=nutrition.evidence + ([nutrition.uncertainty] if nutrition.uncertainty else []),
-                reviewer_note=" ".join([review_note, *nutrition_notes, *conflict_notes]),
-            )
-        )
+        note = " ".join([review_note, *nutrition_notes, *conflict_notes])
+        proposals.append(nutrition_draft(nutrition, current_target, new_target, note))
     if workout is not None and adjustments:
         proposals.append(
-            ProposalDraft(
-                id="training",
-                kind="training",
-                headline=workout.headline,
-                changes=[_training_change(index, adjustment) for index, adjustment in enumerate(adjustments)],
-                evidence=workout.evidence + ([workout.uncertainty] if workout.uncertainty else []),
-                reviewer_note=" ".join([review_note, *workout_notes, *conflict_notes]),
-            )
+            training_draft(workout, adjustments, " ".join([review_note, *workout_notes, *conflict_notes]))
         )
 
     summary, stats = summarize_week(snapshot)

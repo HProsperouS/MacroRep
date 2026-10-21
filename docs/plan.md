@@ -179,9 +179,9 @@ These exclusions protect the four-person team from excessive scope and keep the 
 
 ### P3: Stretch features
 
-- Constrained Coach Chat. *Done as question and answer only: it explains the check-in, turns down medical and off-topic questions, and changes nothing (see [agents.md](agents.md#coach-chat)).*
-- Supervisor/Router with intent routing and clarification questions (§9.3, §9.9), built with Coach Chat.
-- Asking the agents to revise a proposal ("request changes", §9.2).
+- Constrained Coach Chat. *Done: it explains the check-in, turns down medical and off-topic questions, and turns a requested change into a revised proposal to apply (see [agents.md](agents.md#coach-chat)).*
+- Supervisor/Router with intent routing and clarification questions (§9.3, §9.9), built with Coach Chat. *Done in Coach Chat: each message gets an intent, an unclear change gets one question at a time (at most two in a row).*
+- Asking the agents to revise a proposal ("request changes", §9.2). *Done in Coach Chat, through the same limits, conflict rule and Reviewer as a check-in.*
 - Food-photo analysis with user correction.
 - Limited PWA offline support for an active workout.
 - Streaming agent progress.

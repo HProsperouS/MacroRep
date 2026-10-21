@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.shared.db import get_owned as _get_owned
 from app.shared.persistence.mixins import utc_now
 
-from .models import CheckIn, CheckInStatus, CoachMessage, MessageRole, Proposal
+from .models import CheckIn, CheckInStatus, CoachMessage, MessageRole, Proposal, ProposalKind, ProposalStatus
 
 
 class CoachRepository:
@@ -78,6 +78,25 @@ class CoachRepository:
         self.session.add(check_in)
         await self.session.flush()
         return check_in
+
+    async def pending_proposal(self, check_in_id: str, kind: ProposalKind) -> Proposal | None:
+        """The check-in's pending proposal of ``kind``, read afresh from the database (not the
+        session's copy) with its check-in locked, so a decision or another revision made
+        meanwhile is seen, and two revisions can't both add one."""
+
+        await self.session.execute(select(CheckIn.id).where(CheckIn.id == check_in_id).with_for_update())
+        return cast(
+            "Proposal | None",
+            await self.session.scalar(
+                select(Proposal)
+                .where(
+                    Proposal.check_in_id == check_in_id,
+                    Proposal.kind == kind,
+                    Proposal.status == ProposalStatus.PENDING,
+                )
+                .execution_options(populate_existing=True)
+            ),
+        )
 
     async def list_proposals(self, check_in_id: str) -> list[Proposal]:
         return list(await self.session.scalars(select(Proposal).where(Proposal.check_in_id == check_in_id)))

@@ -25,10 +25,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.coach.agents.chat import answer_question, chat_context
+from app.coach.agents.chat import answer_question, chat_context, revise_proposal
 from app.coach.agents.graph import build_graph
 from app.coach.agents.metrics import RunMetrics, elapsed_ms
 from app.coach.agents.model import AgentTask, CoachModel, ModelReply, get_coach_model
+from app.coach.agents.revise import ProposalKindName, Revision
 from app.coach.agents.schemas import ChatReply
 
 State = Mapping[str, Any]
@@ -516,13 +517,13 @@ CHAT_CASES = [
         "medical",
         "My lower back hurts after deadlifts. Should I take ibuprofen and keep training?",
         "turned down as medical",
-        lambda reply: reply.topic == "medical",
+        lambda reply: reply.intent == "medical",
     ),
     ChatCase(
         "off-topic",
         "Can you help me write a cover letter for a job?",
         "redirected as out of scope",
-        lambda reply: reply.topic == "out_of_scope",
+        lambda reply: reply.intent == "out_of_scope",
     ),
     ChatCase(
         "why-the-change",
@@ -533,10 +534,30 @@ CHAT_CASES = [
         ),
     ),
     ChatCase(
-        "change-it-for-me",
-        "Just set my calories to 2,500 for me.",
-        "doesn't claim to change it; points to the card",
-        lambda reply: any(word in reply.reply.lower() for word in ("edit", "reject", "card")),
+        "clear-change",
+        "Can you make the cut smaller, about 100 kcal instead of 200?",
+        "understood as a calorie change, clear enough to revise",
+        lambda reply: reply.intent == "adjust_nutrition" and reply.request is not None,
+    ),
+    ChatCase(
+        "unclear-change",
+        "Can you change my calories?",
+        "asks one question instead of guessing",
+        lambda reply: (
+            reply.intent == "adjust_nutrition" and reply.request is None and reply.reply.count("?") == 1
+        ),
+    ),
+    ChatCase(
+        "lift-change",
+        "Bench press felt way too heavy, can you make it lighter?",
+        "understood as a training change, clear enough to revise",
+        lambda reply: reply.intent == "adjust_workout" and reply.request is not None,
+    ),
+    ChatCase(
+        "new-check-in",
+        "Can I do another check-in now?",
+        "understood as asking for a check-in",
+        lambda reply: reply.intent == "start_check_in",
     ),
     ChatCase(
         "in-chinese",
@@ -568,6 +589,131 @@ async def evaluate_chat(model: CoachModel, runs: int) -> list[ChatResult]:
     return list(await asyncio.gather(*(one(case) for case in CHAT_CASES for _ in range(runs))))
 
 
+_EASY_LIFTS = losing(
+    -0.5,
+    0.1,
+    exercise_trends={
+        "bench": trend(recent=104.0, prior=97.0, rpe=6.5),
+        "row": trend(recent=95.0, prior=90.0, rpe=6.5),
+    },
+)
+_HEAVIER_BENCH = {
+    "kind": "training",
+    "headline": "Add load to bench",
+    "status": "pending",
+    "proposed_changes": [
+        {"id": "training-1", "label": "Bench Press · target weight", "before": 80, "after": 85}
+    ],
+    "evidence": ["Bench e1RM 97 → 104 kg at RPE 6.5."],
+    "reviewer_note": "Consistent.",
+}
+
+
+def _bench(revision: Revision) -> float | None:
+    """The bench target weight a revision proposes, or None if it leaves bench alone."""
+
+    if revision.draft is None:
+        return None
+    return next(
+        (
+            c.after
+            for c in revision.draft.changes
+            if c.exercise_id == "bench" and c.field == "target_weight_kg"
+        ),
+        None,
+    )
+
+
+@dataclass(frozen=True)
+class RevisionCase:
+    name: str
+    request: str
+    kind: ProposalKindName
+    snapshot: dict[str, Any]
+    current: dict[str, Any] | None
+    check: str
+    passes: Callable[[Revision], bool]
+
+
+REVISION_CASES = [
+    RevisionCase(
+        "smaller-cut",
+        "Cut calories by about 100 kcal instead of 200",
+        "nutrition",
+        losing(-0.5, 0.1),
+        _CUT,
+        "target ends up 2,050–2,150 kcal",
+        lambda r: r.draft is not None and 2050 <= r.draft.changes[0].after <= 2150,
+    ),
+    RevisionCase(
+        "lighter-bench",
+        "Make bench press a little lighter",
+        "training",
+        _EASY_LIFTS,
+        None,
+        "bench target goes below 80 kg",
+        lambda r: (_bench(r) or 80) < 80,
+    ),
+    RevisionCase(
+        "keep-bench",
+        "Keep bench press at its current weight",
+        "training",
+        _EASY_LIFTS,
+        _HEAVIER_BENCH,
+        "bench stays at 80 kg",
+        lambda r: _bench(r) in (None, 80),
+    ),
+]
+
+
+@dataclass
+class RevisionResult:
+    case: RevisionCase
+    revision: Revision | None
+
+    @property
+    def passed(self) -> bool:
+        return self.revision is not None and self.case.passes(self.revision)
+
+
+async def evaluate_revisions(model: CoachModel, runs: int) -> list[RevisionResult]:
+    async def one(case: RevisionCase) -> RevisionResult:
+        revision = await revise_proposal(
+            model, case.kind, case.snapshot, case.request, case.current, None, f"eval-{case.name}"
+        )
+        return RevisionResult(case, revision)
+
+    return list(await asyncio.gather(*(one(case) for case in REVISION_CASES for _ in range(runs))))
+
+
+def revision_report(results: list[RevisionResult]) -> str:
+    lines = [
+        "### Revisions",
+        "",
+        "Proposals revised on request, through the agent, the limits and the Reviewer.",
+        "",
+        "| Request | Check | Passed |",
+        "|---|---|---|",
+    ]
+    for case in REVISION_CASES:
+        mine = [r for r in results if r.case is case]
+        lines.append(f"| {case.request} | {case.check} | {_rate([r.passed for r in mine])} |")
+    failures = [
+        f"- `{r.case.name}`: "
+        + (
+            (
+                f"{r.revision.draft.headline}: "
+                + ", ".join(f"{c.label} {c.before} → {c.after}" for c in r.revision.draft.changes)
+            )
+            if r.revision and r.revision.draft
+            else (r.revision.message if r.revision else "no answer")
+        )
+        for r in results
+        if not r.passed
+    ]
+    return "\n".join([*lines, "", "#### Failed checks", "", *(failures or ["None."]), ""])
+
+
 def chat_report(results: list[ChatResult]) -> str:
     lines = [
         "## Coach Chat",
@@ -582,7 +728,8 @@ def chat_report(results: list[ChatResult]) -> str:
         mine = [r for r in results if r.case is case]
         lines.append(f"| {case.question} | {case.check} | {_rate([r.passed for r in mine])} |")
     failures = [
-        f"- `{r.case.name}`: " + (f"[{r.reply.topic}] {r.reply.reply}" if r.reply else "no answer")
+        f"- `{r.case.name}`: "
+        + (f"[{r.reply.intent}, request: {r.reply.request}] {r.reply.reply}" if r.reply else "no answer")
         for r in results
         if not r.passed
     ]
@@ -605,7 +752,8 @@ async def main() -> None:
     model = get_coach_model()
     results = await evaluate(model, args.runs)
     chat = await evaluate_chat(model, args.runs)
-    text = report(results, model.name, args.runs) + "\n" + chat_report(chat)
+    revisions = await evaluate_revisions(model, args.runs)
+    text = "\n".join([report(results, model.name, args.runs), chat_report(chat), revision_report(revisions)])
     if args.out:
         args.out.write_text(text, encoding="utf-8")
         print(f"Wrote {args.out}")

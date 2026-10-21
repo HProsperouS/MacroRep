@@ -65,7 +65,7 @@ checks each limit from both sides.
   and `OPENAI_API_KEY` set in `.env`, or on `FakeCoachModel` (the default),
   which answers each agent with simple rules and needs no key. Tests always use
   the fake. Coach Chat answers questions about a check-in from its data, and
-  changes nothing.
+  turns a requested change into a revised proposal for the user to apply.
 - **No shared-record audit trail.** Unlike a multi-staff CRM, MacroRep
   records are single-owner personal data, so there's no admin/agent role
   hierarchy or soft-delete-with-named-actor trail — just plain

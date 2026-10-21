@@ -88,5 +88,4 @@ npm run dev
 
 See `docs/plan.md` for the full scope, priorities, and multi-agent coach
 design. `backend/README.md` documents which parts of that plan are
-implemented, which are deliberately simplified for now (e.g. Coach Chat
-answers questions but can't change a proposal), and why.
+implemented, which are deliberately simplified for now, and why.

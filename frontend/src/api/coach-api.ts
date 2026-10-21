@@ -33,12 +33,12 @@ export const coachApi = {
     return data
   },
 
-  /** Waits longer than other requests: the model answers within 25 s on the server. */
+  /** Waits longer than other requests: working out the request and revising a proposal take up to 55 s on the server. */
   async askCoach(checkInId: string, text: string) {
     const { data } = await apiClient.post<CoachMessage>(
       `/coach/check-ins/${encodeURIComponent(checkInId)}/messages`,
       { text },
-      { timeout: 35_000 },
+      { timeout: 60_000 },
     )
     return data
   },

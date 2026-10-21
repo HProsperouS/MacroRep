@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class _AgentOutput(BaseModel):
@@ -62,9 +62,26 @@ class Review(_AgentOutput):
     note: str = Field(min_length=1, max_length=400)
 
 
-class ChatReply(_AgentOutput):
-    """Coach Chat's answer. The topic says what kind of question it was, so out-of-scope and
-    medical questions can be counted; only the reply is shown."""
+ChatIntent = Literal[
+    "explain", "adjust_nutrition", "adjust_workout", "start_check_in", "out_of_scope", "medical"
+]
 
-    topic: Literal["check_in", "progress", "nutrition", "training", "out_of_scope", "medical"]
+
+class ChatReply(_AgentOutput):
+    """Coach Chat's turn: what the user wants, and what to say.
+
+    For a change asked for clearly enough, ``request`` restates it for the agent that
+    revises the proposal. For one that isn't, ``request`` stays empty and ``reply`` asks one
+    question about what's missing.
+    """
+
+    intent: ChatIntent
     reply: str = Field(min_length=1, max_length=800)
+    request: str | None = Field(default=None, min_length=1, max_length=300)
+
+    @field_validator("request", mode="before")
+    @classmethod
+    def blank_request_is_none(cls, value: object) -> object:
+        """Models often send "" for "no request yet" rather than leaving it out."""
+
+        return None if isinstance(value, str) and not value.strip() else value

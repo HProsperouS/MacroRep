@@ -3,6 +3,7 @@ import { isAxiosError } from "axios"
 import { useState, type FormEvent } from "react"
 
 import { apiErrorMessage } from "@/api/client"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group"
@@ -54,7 +55,10 @@ export function CoachChat({ checkInId, suggestions, className }: CoachChatProps)
     send(draft)
   }
 
-  const messages: CoachMessage[] = [...(history.data ?? []), ...(question ? [{ id: "pending", role: "user" as const, text: question }] : [])]
+  const messages: CoachMessage[] = [
+    ...(history.data ?? []),
+    ...(question ? [{ id: "pending", role: "user" as const, text: question, kind: "answer" as const }] : []),
+  ]
 
   return (
     <Card className={className}>
@@ -67,7 +71,7 @@ export function CoachChat({ checkInId, suggestions, className }: CoachChatProps)
           <li className="flex gap-2">
             <Sparkles className="mt-1 size-4 shrink-0 text-primary" aria-hidden />
             <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm">
-              Ask me about this check-in: why a change was proposed, or how your week went. To change something, edit or reject it on its card.
+              Ask me about this check-in, or ask for a change, like “make the cut smaller”. A change comes back as a proposal for you to apply.
             </p>
           </li>
           {messages.map((message) => (
@@ -81,6 +85,11 @@ export function CoachChat({ checkInId, suggestions, className }: CoachChatProps)
               >
                 <span className="sr-only">{message.role === "user" ? "You: " : "Coach: "}</span>
                 {message.text}
+                {message.kind === "revision" ? (
+                  <Badge variant="secondary" className="mt-2 flex w-fit bg-primary/12 text-primary">
+                    Proposal updated
+                  </Badge>
+                ) : null}
               </p>
             </li>
           ))}

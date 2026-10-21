@@ -70,4 +70,6 @@ export type CoachMessage = {
   id: string
   role: "user" | "coach"
   text: string
+  /** A coach message that asked a clarifying question, or reported a proposal revised on request. */
+  kind: "answer" | "clarification" | "revision"
 }
