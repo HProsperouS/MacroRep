@@ -26,12 +26,13 @@ from app.analytics.nutrition import (
 from app.analytics.training import average_rpe, completion_percent, planned_sessions
 from app.analytics.weight import trend_on_or_before
 from app.body.service import trend_by_date
+from app.core.config import get_settings
 from app.identity.dependencies import ActorContext
 from app.profile.models import Profile, TargetSource
 from app.profile.repository import ProfileRepository
 from app.profile.service import DEFAULT_TARGETS
 from app.progress.repository import ProgressRepository
-from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, count_attempt, user_limiter
+from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, CHECK_INS_PER_USER, count_attempt, user_limiter
 from app.shared.timezones import local_today, user_zone
 from app.shared.validation import ensure_plausible_calories
 from app.workout.models import WorkoutPlanEntry, WorkoutPlanExercise
@@ -165,6 +166,10 @@ async def _forget_run(check_in_id: str) -> None:
         logger.warning("couldn't delete check-in checkpoints", extra={"check_in_id": check_in_id})
 
 
+def _check_in_count(owner_id: str) -> tuple[str, str]:
+    return ("check_in", owner_id)
+
+
 def _failed_pipeline(steps: list[dict[str, str]]) -> list[dict[str, str]]:
     """The steps as they stood, with the one that was running marked failed."""
 
@@ -212,13 +217,17 @@ class CoachService:
             await self.session.commit()
             await _forget_run(check_in_id)
 
-    async def start_check_in(self, idempotency_key: str, actor: ActorContext) -> tuple[CheckIn, bool]:
+    async def start_check_in(
+        self, idempotency_key: str, actor: ActorContext, *, limit_check_ins: bool = True
+    ) -> tuple[CheckIn, bool]:
         """Create a check-in for the last 7 days; returns it and whether it was newly created.
 
         Idempotent per (user, key): replaying a key returns the check-in it
         originally created instead of generating another one. Only a
         successful creation consumes a key, so a request refused for missing
         data can be retried with the same key once the data is logged.
+        With ``limit_check_ins``, each user gets ``CHECK_INS_PER_USER`` (then 429);
+        a run that fails gives its one back.
         """
 
         existing = await self.repository.get_by_idempotency_key(actor.actor_id, idempotency_key)
@@ -249,33 +258,46 @@ class CoachService:
         # Checked and frozen now, so a lack of data is refused at once and the proposals,
         # generated afterwards in the background, rest on exactly these numbers.
         snapshot = await self._snapshot_week(actor.actor_id, profile, start, today, zone)
-
-        check_in = CheckInModel(
-            owner_id=actor.actor_id,
-            week_label=f"Week {await self.repository.count_for_owner(actor.actor_id) + 1}",
-            range_label=f"{start.isoformat()} – {today.isoformat()}",
-            status=CheckInStatus.RUNNING,
-            summary="Reviewing your week…",
-            stats=[],
-            pipeline=RUNNING_PIPELINE,
-            suggested_questions=[],
-            idempotency_key=idempotency_key,
-            input_snapshot=snapshot,
-        )
+        # Counted before the row is written, so starts sent at once can't all slip under the
+        # limit, and given back unless the row is written: then no run, and no model calls.
+        count_key = _check_in_count(actor.actor_id)
+        if limit_check_ins:
+            count_attempt(
+                (count_key, CHECK_INS_PER_USER),
+                reason="That's a lot of check-ins for today.",
+                counts=user_limiter,
+            )
+        created = False
         try:
-            await self.repository.add_check_in(check_in)
-        except IntegrityError:
-            # Lost a race with a concurrent request carrying the same key (e.g.
-            # a double-submit): the unique (owner_id, idempotency_key) index
-            # rejected this insert. The winner's row is committed or about to
-            # be, so answer with it — exactly what a sequential replay gets.
-            await self.session.rollback()
-            winner = await self.repository.get_by_idempotency_key(actor.actor_id, idempotency_key)
-            if winner is None:
-                raise
-            return await self._to_read(winner), False
-
-        await self.session.commit()
+            check_in = CheckInModel(
+                owner_id=actor.actor_id,
+                week_label=f"Week {await self.repository.count_for_owner(actor.actor_id) + 1}",
+                range_label=f"{start.isoformat()} – {today.isoformat()}",
+                status=CheckInStatus.RUNNING,
+                summary="Reviewing your week…",
+                stats=[],
+                pipeline=RUNNING_PIPELINE,
+                suggested_questions=[],
+                idempotency_key=idempotency_key,
+                input_snapshot=snapshot,
+            )
+            try:
+                await self.repository.add_check_in(check_in)
+            except IntegrityError:
+                # Lost a race with a concurrent request carrying the same key (e.g.
+                # a double-submit): the unique (owner_id, idempotency_key) index
+                # rejected this insert. The winner's row is committed or about to
+                # be, so answer with it — exactly what a sequential replay gets.
+                await self.session.rollback()
+                winner = await self.repository.get_by_idempotency_key(actor.actor_id, idempotency_key)
+                if winner is None:
+                    raise
+                return await self._to_read(winner), False
+            await self.session.commit()
+            created = True
+        finally:
+            if limit_check_ins and not created:
+                user_limiter.undo(count_key)
         return await self._to_read(check_in), True
 
     async def generate(self, check_in_id: str) -> None:
@@ -334,6 +356,10 @@ class CoachService:
             logger.exception("check-in generation failed", extra={"check_in_id": check_in_id})
             outcome = "timed_out" if isinstance(error, TimeoutError) else "failed"
             error_name = type(error).__name__
+            # Our failure, not the user's: it doesn't use up one of their check-ins. (Only one
+            # runs at a time, so the latest count is this run's.)
+            if get_settings().rate_limits_enabled:
+                user_limiter.undo(_check_in_count(check_in.owner_id))
             await self.session.rollback()
             await self._mark_failed(check_in_id, steps, FAILED_REASON)
         except asyncio.CancelledError:
@@ -658,18 +684,30 @@ class CoachService:
     ) -> CoachMessage:
         """Answer a question about the check-in. The question and the answer are stored
         together, only once there is an answer, so asking again after a failure repeats nothing.
-        With ``limit_questions``, each user gets ``CHAT_QUESTIONS_PER_USER`` (then 429)."""
+        With ``limit_questions``, each user gets ``CHAT_QUESTIONS_PER_USER`` (then 429); a
+        question left unanswered gives its one back."""
 
         check_in = await self._owned_check_in(check_in_id, actor)
         if check_in.status in (CheckInStatus.RUNNING, CheckInStatus.FAILED):
             raise HTTPException(status.HTTP_409_CONFLICT, CHAT_NOT_READY)
-        # Counted from here on, where the paid model call is made, answered or not.
+        # Counted from here on, where the paid model call is made.
+        count_key = ("chat", actor.actor_id)
         if limit_questions:
             count_attempt(
-                (("chat", actor.actor_id), CHAT_QUESTIONS_PER_USER),
+                (count_key, CHAT_QUESTIONS_PER_USER),
                 reason="That's a lot of questions for now.",
                 counts=user_limiter,
             )
+        try:
+            return await self._answer(check_in, text, actor)
+        except Exception:
+            # Our failure, not the user's: it doesn't use up one of their questions.
+            if limit_questions:
+                user_limiter.undo(count_key)
+            raise
+
+    async def _answer(self, check_in: CheckInModel, text: str, actor: ActorContext) -> CoachMessage:
+        check_in_id = check_in.id
 
         snapshot = check_in.input_snapshot or {}
         history = await self.repository.list_messages(check_in_id, latest=CHAT_HISTORY)

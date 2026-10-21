@@ -39,6 +39,9 @@ REGISTRATIONS_PER_ADDRESS = Limit(10, 60 * 60)
 CHAT_QUESTIONS_PER_USER = Limit(30, 60 * 60)
 # Meal photos per user: each is a paid call to a vision model, which costs more than chat.
 PHOTOS_PER_USER = Limit(20, 60 * 60)
+# Check-ins per user: each runs three paid agents. Check-ins are weekly, so a day's
+# allowance covers retries and rejecting everything to start over.
+CHECK_INS_PER_USER = Limit(5, 24 * 60 * 60)
 
 # Memory stays bounded: expired keys are swept at most once a minute, and past the cap the
 # oldest keys are dropped (forgetting some attempts is better than running out of memory).
@@ -53,6 +56,7 @@ _LONGEST_WINDOW = max(
         REGISTRATIONS_PER_ADDRESS,
         CHAT_QUESTIONS_PER_USER,
         PHOTOS_PER_USER,
+        CHECK_INS_PER_USER,
     )
 )
 
@@ -138,4 +142,6 @@ def count_attempt(*checks: Check, reason: str = "Too many attempts.", counts: Ra
 
 def too_many_message(seconds: int, reason: str = "Too many attempts.") -> str:
     minutes = math.ceil(seconds / 60)
+    if minutes > 120:  # rounded up to whole hours, at most one too many
+        return f"{reason} Try again in {math.ceil(minutes / 60)} hours."
     return f"{reason} Try again in {minutes} minute{'s' if minutes != 1 else ''}."

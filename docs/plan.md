@@ -182,7 +182,7 @@ These exclusions protect the four-person team from excessive scope and keep the 
 - Supervisor/Router with intent routing and clarification questions (§9.3, §9.9), built with Coach Chat. *Done in Coach Chat: each message gets an intent, an unclear change gets one question at a time (at most two in a row).*
 - Asking the agents to revise a proposal ("request changes", §9.2). *Done in Coach Chat, through the same limits, conflict rule and Reviewer as a check-in.*
 - Food-photo analysis with user correction. *Done: the estimate is a Nutrition tool (§9.7) on the same model; every item is edited and confirmed before it's logged, and the photo is never stored (see [agents.md](agents.md#meal-photos)).*
-- Rate limiting. *Limits on sign-ins, sign-ups, Coach Chat messages and meal photos are done (see backend/README.md).*
+- Rate limiting. *Limits on sign-ins, sign-ups, check-ins, Coach Chat messages and meal photos are done (see backend/README.md).*
 
 P3 work begins only after the P0-P2 acceptance criteria are met.
 

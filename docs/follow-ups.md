@@ -29,13 +29,6 @@ whitespace-only passwords and ones equal to the email, and check new passwords
 against a common-password list (NIST SP 800-63B), either a small built-in list
 (~200) or a bundled one (~10,000). Deliberately left as is for now.
 
-## Known gaps
-
-- **Check-ins aren't rate limited:** each makes three paid model calls. Only one
-  runs at a time and none starts while proposals are pending, but a user who
-  rejects everything can start the next straight away. Coach Chat questions are
-  limited (30 per user an hour).
-
 ## Verification pending
 
 - **Migrations don't run on SQLite:** `alembic upgrade head` against a SQLite

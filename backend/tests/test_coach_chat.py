@@ -244,7 +244,7 @@ def test_a_question_comes_before_its_answer_even_when_saved_at_the_same_instant(
     assert [m["text"] for m in _messages(client, auth_headers, check_in["id"])] == ["Question", "Answer"]
 
 
-def test_questions_per_user_are_limited_failed_answers_included(
+def test_questions_per_user_are_limited_unanswered_ones_excepted(
     client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER
@@ -256,16 +256,17 @@ def test_questions_per_user_are_limited_failed_answers_included(
     assert (
         _ask(client, auth_headers, "no-such-check-in", "Why?").status_code == 404
     )  # not counted: no model call
-    for _ in range(CHAT_QUESTIONS_PER_USER.attempts - 1):
+    with monkeypatch.context() as patch:
+        _use(patch, RecordingModel(down))
+        for _ in range(3):  # our failure, not counted
+            assert _ask(client, auth_headers, check_in["id"], "Why?").status_code == 503
+    for _ in range(CHAT_QUESTIONS_PER_USER.attempts):
         assert _ask(client, auth_headers, check_in["id"], "Why?").status_code == 200
-    _use(monkeypatch, RecordingModel(down))
-    assert _ask(client, auth_headers, check_in["id"], "Why?").status_code == 503  # paid for, so counted
 
     refused = _ask(client, auth_headers, check_in["id"], "Why?")
 
     assert refused.status_code == 429
     assert refused.json()["detail"].startswith("That's a lot of questions for now. Try again in")
-    monkeypatch.undo()  # the model works again, for the other user's check-in and question
     other_user = register_user(client)
     _week_with_a_proposal(client, other_user)
     assert _ask(client, other_user, _start(client, other_user, "k").json()["id"], "Why?").status_code == 200

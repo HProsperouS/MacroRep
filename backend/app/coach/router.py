@@ -44,6 +44,7 @@ async def get_current_check_in(actor: ActorDep, service: CoachServiceDep) -> Che
         200: {"description": "Replay of an Idempotency-Key already used: the check-in it created."},
         409: {"description": "The current check-in is still running, or has proposals awaiting a decision."},
         422: {"description": "Not enough food or weigh-in data in the last 7 days."},
+        429: {"description": "Too many check-ins started today."},
     },
 )
 async def start_check_in(
@@ -52,11 +53,14 @@ async def start_check_in(
     actor: ActorDep,
     service: CoachServiceDep,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> CheckIn:
     """Review the last 7 days. Answers at once with a RUNNING check-in; poll
     ``GET /check-ins/current`` until it leaves RUNNING. Safe to retry with the same Idempotency-Key."""
 
-    check_in, created = await service.start_check_in(idempotency_key, actor)
+    check_in, created = await service.start_check_in(
+        idempotency_key, actor, limit_check_ins=settings.rate_limits_enabled
+    )
     if created:
         background.add_task(generate_check_in, check_in.id)
     else:

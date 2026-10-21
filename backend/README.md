@@ -78,7 +78,8 @@ checks each limit from both sides.
   from one address (so someone else guessing can't lock its owner out) and 30
   sign-ins per address; 50 wrong passwords for an account from anywhere and 10
   sign-ups per address an hour. Coach Chat allows 30 messages and meal photos
-  20 per user an hour, since each is a paid model call. Then 429 with `Retry-After`. `PREVIEW_AUTH_ENABLED` (on by default outside
+  20 per user an hour, and check-ins 5 a day, since each is a paid model call; one
+  that fails on our side is given back. Then 429 with `Retry-After`. `PREVIEW_AUTH_ENABLED` (on by default outside
   `APP_ENV=prod`) is a separate, additional local-dev seam: sending
   `X-Preview-Actor-Id: USR-DEMO` authenticates as the seeded demo user without
   going through login at all, useful for curling endpoints directly.

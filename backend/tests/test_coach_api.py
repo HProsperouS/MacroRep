@@ -1305,3 +1305,90 @@ def test_startup_takes_over_only_runs_whose_owner_must_be_gone(
     assert _check_in_row(client, old).status.value == "needs-review"  # type: ignore[attr-defined]
     assert _check_in_row(client, young).status.value == "running", "its owner may still be working on it"  # type: ignore[attr-defined]
     client.portal.call(stop_running_check_ins)
+
+
+def _start_and_reject(client: TestClient, headers: dict[str, str], key: str):
+    """Start a check-in and reject what it proposes, so the next one may start."""
+
+    response = _start(client, headers, key)
+    if response.status_code == 201:
+        check_in = _ready(client, headers)
+        for proposal in check_in["proposals"]:
+            client.post(
+                f"{CHECK_INS}/{check_in['id']}/proposals/{proposal['id']}/decision",
+                headers=headers,
+                json={"decision": "reject"},
+            )
+    return response
+
+
+def test_check_ins_per_user_are_limited(client: TestClient) -> None:
+    from app.shared.rate_limit import CHECK_INS_PER_USER
+
+    headers = _new_user(client)
+    assert _start(client, headers, "too-early").status_code == 422  # not counted: no model call
+    _week_with_a_proposal(client, headers)
+    for index in range(CHECK_INS_PER_USER.attempts):
+        assert _start_and_reject(client, headers, f"k{index}").status_code == 201
+    assert _start(client, headers, "k0").status_code == 200, "a replay is a read, still allowed"
+
+    refused = _start(client, headers, "one-more")
+
+    assert refused.status_code == 429
+    assert refused.json()["detail"] == "That's a lot of check-ins for today. Try again in 24 hours."
+    assert refused.headers["Retry-After"]
+    other_user = _new_user(client)
+    _week_with_a_proposal(client, other_user)
+    assert _start(client, other_user, "k0").status_code == 201
+
+
+def test_a_failed_check_in_doesnt_use_one_up(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.shared.rate_limit import CHECK_INS_PER_USER, user_limiter
+
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    async def broken(*_: object) -> None:
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", broken)
+    for index in range(CHECK_INS_PER_USER.attempts + 1):
+        assert _start(client, headers, f"fails-{index}").status_code == 201
+        assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"
+
+    assert all(not hits for key, hits in user_limiter._hits.items() if key[0] == "check_in")  # noqa: SLF001
+
+
+def test_a_check_in_that_couldnt_be_saved_doesnt_use_one_up(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.shared.rate_limit import user_limiter
+
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+
+    async def broken(*_: object) -> None:
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr("app.coach.repository.CoachRepository.add_check_in", broken)
+    with pytest.raises(RuntimeError):
+        _start(client, headers, "not-saved")
+
+    assert all(not hits for key, hits in user_limiter._hits.items() if key[0] == "check_in")  # noqa: SLF001
+
+
+def test_switched_off_check_ins_are_not_limited(client: TestClient) -> None:
+    from app.core.config import get_settings
+    from app.main import app
+    from app.shared.rate_limit import CHECK_INS_PER_USER, user_limiter
+
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+    settings = get_settings().model_copy(update={"rate_limits_enabled": False})
+    app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        for index in range(CHECK_INS_PER_USER.attempts + 1):
+            assert _start_and_reject(client, headers, f"k{index}").status_code == 201
+    finally:
+        app.dependency_overrides.pop(get_settings)
+    assert user_limiter._hits == {}  # noqa: SLF001

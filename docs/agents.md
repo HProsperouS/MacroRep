@@ -34,7 +34,8 @@ graph ends there; the user's decision goes through the proposals API, not the gr
 When a check-in starts, the backend checks there's enough data (food logged on at least 4
 of the last 7 days, at least 2 weigh-ins) and freezes the week into the check-in's
 `input_snapshot`. The agents only ever see this snapshot: they never query the database,
-and a run can be reproduced from it later.
+and a run can be reproduced from it later. Each user may start 5 check-ins a day (then 429);
+a run that fails gives its one back.
 
 The snapshot holds figures, not raw logs: average intake, the calorie target and its
 version, logging completeness, the trend-weight change against the goal rate, workouts
@@ -207,7 +208,8 @@ revision back. What comes out is a pending proposal for the user to apply:
   or added by another message, while the model worked is left as it is.
 
 `POST /coach/check-ins/{id}/messages` answers once the check-in is ready (409 while it is
-running or after it failed), up to 30 messages per user an hour (then 429). Working out the
+running or after it failed), up to 30 messages per user an hour (then 429; one left
+unanswered is given back). Working out the
 request may take 25 s and a revision 25 s (each with one retry of a transient error); the
 browser waits 60 s, and after an error reloads both the conversation and the cards. The message and the reply are stored together only once there is a
 reply, so a failure (503) leaves nothing to repeat. Each coach message has a `kind`

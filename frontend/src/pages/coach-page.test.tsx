@@ -200,6 +200,19 @@ describe("CoachPage decisions", () => {
     expect(await screen.findByText(/This page updates by itself/)).toBeInTheDocument()
   })
 
+  it("says when there have been too many check-ins today", async () => {
+    api.getCurrentCheckIn.mockResolvedValue(null)
+    const detail = "That's a lot of check-ins for today. Try again in 24 hours."
+    api.startCheckIn.mockRejectedValue(new AxiosError("429", "ERR_BAD_REQUEST", undefined, undefined, { status: 429, data: { detail } } as never))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Start check-in" }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t start a check-in", { description: detail }))
+    expect(screen.getByText("No check-in yet")).toBeInTheDocument()
+  })
+
   it("keeps one idempotency key across retries of a failed start", async () => {
     api.getCurrentCheckIn.mockResolvedValue(null)
     api.startCheckIn.mockRejectedValueOnce(new Error("timeout")).mockResolvedValue(running)

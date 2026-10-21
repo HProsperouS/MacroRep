@@ -174,6 +174,10 @@ def test_memory_stays_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     assert list(bounded._hits) == [("login", "10.0.0.2"), ("login", "10.0.0.3"), ("login", "10.0.0.4")]  # noqa: SLF001
 
 
-def test_the_wait_is_given_in_whole_minutes() -> None:
+def test_the_wait_is_given_in_whole_minutes_then_hours() -> None:
     assert too_many_message(30) == "Too many attempts. Try again in 1 minute."
     assert too_many_message(61) == "Too many attempts. Try again in 2 minutes."
+    assert too_many_message(60 * 60 + 1) == "Too many attempts. Try again in 61 minutes."
+    assert too_many_message(2 * 60 * 60) == "Too many attempts. Try again in 120 minutes."
+    assert too_many_message(2 * 60 * 60 + 1) == "Too many attempts. Try again in 3 hours."
+    assert too_many_message(24 * 60 * 60) == "Too many attempts. Try again in 24 hours."
