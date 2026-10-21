@@ -89,7 +89,8 @@ class ProgressService:
         scale_by_date = {row.log_date: float(row.weight_kg) for row in history}
 
         points: list[WeightPoint] = []
-        last_trend = 0.0
+        # No trend before the first weigh-in: a day with no weight isn't a weight of 0.
+        last_trend: float | None = None
         cursor = date_from
         while cursor <= date_to:
             if cursor in trends:
@@ -97,10 +98,12 @@ class ProgressService:
             points.append(WeightPoint(date=cursor, scale_kg=scale_by_date.get(cursor), trend_kg=last_trend))
             cursor += timedelta(days=1)
 
-        trend_at_start = points[0].trend_kg if points else 0.0
-        trend_at_end = points[-1].trend_kg if points else 0.0
-        change_kg = round(trend_at_end - trend_at_start, 2)
-        rate_per_week_kg = rate_per_week(change_kg, days_in_range)
+        # The change is measured over the days that have a trend, from the first of them.
+        trended = [(point.date, point.trend_kg) for point in points if point.trend_kg is not None]
+        trend_at_end = trended[-1][1] if trended else None
+        change_kg = round(trended[-1][1] - trended[0][1], 2) if trended else 0.0
+        trend_days = (trended[-1][0] - trended[0][0]).days + 1 if trended else days_in_range
+        rate_per_week_kg = rate_per_week(change_kg, trend_days)
 
         goal_rate = float(profile.weekly_rate_kg) if profile else 0.0
         target_by_date = targets_by_date(
@@ -125,7 +128,7 @@ class ProgressService:
         )
         avg_calories = average_daily_calories(calories_by_date)
         expenditure_kcal_per_day = estimate_expenditure(
-            avg_calories if avg_calories is not None else target_by_date[date_to], change_kg, days_in_range
+            avg_calories if avg_calories is not None else target_by_date[date_to], change_kg, trend_days
         )
 
         workouts_done = await self.repository.workouts_done(actor.actor_id, date_from, date_to, zone)

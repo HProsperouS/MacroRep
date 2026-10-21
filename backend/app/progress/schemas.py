@@ -16,7 +16,8 @@ ProgressRange = Literal["1M", "3M", "6M", "1Y", "All"]
 
 class WeightSummary(CamelModel):
     points: list[WeightPoint]
-    current_trend_kg: float
+    # None until there's a weigh-in.
+    current_trend_kg: float | None
     change_kg: float
     rate_per_week_kg: float
     goal_rate_per_week_kg: float

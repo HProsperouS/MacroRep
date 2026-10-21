@@ -22,7 +22,7 @@ function WeightTooltip({ active, payload }: { active?: boolean; payload?: Toolti
       title={format(parseISO(point.date), "EEE, d MMM")}
       rows={[
         { label: "Scale", value: point.scaleKg == null ? "—" : `${formatNumber(point.scaleKg, 1)} kg`, swatchClassName: "bg-chart-5" },
-        { label: "Trend", value: `${formatNumber(point.trendKg, 1)} kg`, swatchClassName: "bg-calories" },
+        { label: "Trend", value: point.trendKg == null ? "—" : `${formatNumber(point.trendKg, 1)} kg`, swatchClassName: "bg-calories" },
       ]}
     />
   )

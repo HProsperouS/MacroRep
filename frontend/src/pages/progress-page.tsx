@@ -104,7 +104,7 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
     <>
       <Card>
         <CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-4">
-          <Stat label="Trend weight" value={formatNumber(weight.currentTrendKg, 1)} unit="kg" hint={`${formatSigned(weight.changeKg)} kg this period`} />
+          <Stat label="Trend weight" value={weight.currentTrendKg == null ? "—" : formatNumber(weight.currentTrendKg, 1)} unit="kg" hint={`${formatSigned(weight.changeKg)} kg this period`} />
           <Stat
             label="Rate"
             value={formatSigned(weight.ratePerWeekKg, 2)}

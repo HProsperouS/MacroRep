@@ -32,4 +32,5 @@ class WeighInRead(CamelModel):
 class WeightPoint(CamelModel):
     date: date_
     scale_kg: float | None
-    trend_kg: float
+    # None on days before the first weigh-in.
+    trend_kg: float | None

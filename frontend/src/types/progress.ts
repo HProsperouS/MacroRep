@@ -6,7 +6,8 @@ export type WeightPoint = {
   date: string
   /** Null on days without a weigh-in. */
   scaleKg: number | null
-  trendKg: number
+  /** Null on days before the first weigh-in. */
+  trendKg: number | null
 }
 
 export type VolumeWeek = {
@@ -57,7 +58,8 @@ export type ProgressResponse = {
   to: string
   weight: {
     points: WeightPoint[]
-    currentTrendKg: number
+    /** Null until there's a weigh-in. */
+    currentTrendKg: number | null
     changeKg: number
     ratePerWeekKg: number
     goalRatePerWeekKg: number

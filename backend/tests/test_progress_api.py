@@ -207,3 +207,44 @@ def test_daily_calories_label_each_day_and_total_the_gap(client: TestClient) -> 
         "in-progress",
     ]
     assert body["days"][-1]["calories"] == 300
+
+
+def _weigh_in(client: TestClient, headers: dict[str, str], days_ago: int, weight_kg: float) -> None:
+    day = (date.today() - timedelta(days=days_ago)).isoformat()
+    response = client.post(
+        "/api/v1/body/weigh-ins", headers=headers, json={"date": day, "weightKg": weight_kg}
+    )
+    assert response.status_code == 201
+
+
+def test_days_before_the_first_weigh_in_have_no_trend(client: TestClient) -> None:
+    headers = _new_user(client)
+    _weigh_in(client, headers, days_ago=0, weight_kg=200)
+
+    weight = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["weight"]
+
+    *before, today = weight["points"]
+    assert all(point["trendKg"] is None for point in before), "no weight isn't a weight of 0"
+    assert (today["scaleKg"], today["trendKg"]) == (200, 200)
+    assert (weight["currentTrendKg"], weight["changeKg"], weight["ratePerWeekKg"]) == (200, 0, 0)
+
+
+def test_the_rate_is_measured_from_the_first_weigh_in_not_the_start_of_the_range(client: TestClient) -> None:
+    headers = _new_user(client)
+    _weigh_in(client, headers, days_ago=6, weight_kg=80)
+    _weigh_in(client, headers, days_ago=0, weight_kg=78)
+
+    weight = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["weight"]
+
+    # The trend moves 10% of the way: 80 -> 79.8. Over the 7 days with a trend, not the month.
+    assert weight["changeKg"] == -0.2
+    assert weight["ratePerWeekKg"] == -0.2
+
+
+def test_no_weigh_ins_means_no_trend_at_all(client: TestClient) -> None:
+    weight = client.get("/api/v1/progress", headers=_new_user(client), params={"range": "1M"}).json()[
+        "weight"
+    ]
+
+    assert weight["currentTrendKg"] is None
+    assert {point["trendKg"] for point in weight["points"]} == {None}

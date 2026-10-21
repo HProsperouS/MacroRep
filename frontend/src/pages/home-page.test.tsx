@@ -77,6 +77,19 @@ describe("HomePage", () => {
     expect(screen.getByText(/under target across 2 logged days · 1 under half the target/)).toBeInTheDocument()
   })
 
+  it("shows no trend weight before the first weigh-in, rather than 0", async () => {
+    const response = progressResponse()
+    progressApi.getProgress.mockResolvedValue({
+      ...response,
+      weight: { ...response.weight, points: response.weight.points.map((point) => ({ ...point, scaleKg: null, trendKg: null })), currentTrendKg: null },
+    })
+    renderPage()
+
+    const card = (await screen.findByText("Trend weight")).closest("[data-slot=card]") as HTMLElement
+    expect(await within(card).findByText("—")).toBeInTheDocument()
+    expect(within(card).queryByText("0.0")).not.toBeInTheDocument()
+  })
+
   it("nudges for a missed meal and a missing weigh-in", async () => {
     renderPage()
 
