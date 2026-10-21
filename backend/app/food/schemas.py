@@ -24,6 +24,7 @@ from app.shared.validation import (
 )
 
 from .models import MEAL_TYPES, SERVING_UNITS, FoodSource
+from .photo import MAX_PHOTO_DATA_URL_LENGTH, check_photo
 
 
 class Nutrition(CamelModel):
@@ -189,3 +190,31 @@ class UpdateFoodEntryInput(CamelModel):
 class FoodLogResponse(CamelModel):
     date: date_
     entries: list[FoodEntryRead]
+
+
+class PhotoEstimateInput(CamelModel):
+    """A meal photo as a data: URL. Only estimated, never stored."""
+
+    image: str = Field(max_length=MAX_PHOTO_DATA_URL_LENGTH)
+
+    @field_validator("image")
+    @classmethod
+    def check_image(cls, value: str) -> str:
+        return check_photo(value)
+
+
+class PhotoItemRead(CamelModel):
+    name: str
+    portion: str
+    grams: float
+    calories: int
+    protein: float
+    carbs: float
+    fat: float
+
+
+class PhotoEstimateRead(CamelModel):
+    """Estimated items for the user to correct and confirm; empty when no food was seen."""
+
+    items: list[PhotoItemRead]
+    note: str | None

@@ -131,11 +131,12 @@ async def ask_agent(
     context: Mapping[str, Any],
     output: type[T],
     metrics: RunMetrics,
+    images: tuple[str, ...] = (),
 ) -> T | None:
     """The agent's validated answer, or None if it never produced one that fits the schema.
     Every model call is added to ``metrics``, including one that fails."""
 
-    task = AgentTask(agent=agent, instructions=instructions, context=context, output=output)
+    task = AgentTask(agent=agent, instructions=instructions, context=context, output=output, images=images)
     for attempt in range(1, STRUCTURED_OUTPUT_ATTEMPTS + 1):
         started = time.monotonic()
         try:

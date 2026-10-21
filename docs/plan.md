@@ -182,7 +182,7 @@ These exclusions protect the four-person team from excessive scope and keep the 
 - Constrained Coach Chat. *Done: it explains the check-in, turns down medical and off-topic questions, and turns a requested change into a revised proposal to apply (see [agents.md](agents.md#coach-chat)).*
 - Supervisor/Router with intent routing and clarification questions (§9.3, §9.9), built with Coach Chat. *Done in Coach Chat: each message gets an intent, an unclear change gets one question at a time (at most two in a row).*
 - Asking the agents to revise a proposal ("request changes", §9.2). *Done in Coach Chat, through the same limits, conflict rule and Reviewer as a check-in.*
-- Food-photo analysis with user correction.
+- Food-photo analysis with user correction. *Done: the estimate is a Nutrition tool (§9.7) on the same model; every item is edited and confirmed before it's logged, and the photo is never stored (see [agents.md](agents.md#meal-photos)).*
 - Limited PWA offline support for an active workout.
 - Streaming agent progress.
 - Background job queue and rate limiting. *Limits on sign-ins, sign-ups and Coach Chat questions are done (see backend/README.md); the job queue is not.*
@@ -851,14 +851,14 @@ POST   /api/v1/coach/check-ins/{check_in_id}/messages
 - Use short access-token expiry and refresh-token rotation.
 - Store secrets in environment configuration or a cloud secret manager.
 - Enforce HTTPS in deployed environments.
-- Validate MIME type, size, and ownership of uploaded images.
-- Use signed or protected object URLs for private images.
+- Validate MIME type, size, and ownership of uploaded images. *Type checked by content, at most 4 MB, 20 per user an hour.*
+- Use signed or protected object URLs for private images. *Not needed: meal photos are estimated and dropped, never stored.*
 - Restrict CORS to the deployed frontend origin.
 - Add login and AI-endpoint rate limits if infrastructure permits.
 - Avoid sensitive personal information in logs, prompts, and error messages.
 - Minimize the data sent to the AI provider.
 - Do not send passwords, tokens, or unrelated user records to the model.
-- Provide an image-deletion path if image analysis is implemented.
+- Provide an image-deletion path if image analysis is implemented. *Not needed: nothing is stored to delete.*
 - Enforce user-level isolation for all queries.
 - Record security-relevant actions without logging secret values.
 - Run dependency and secret scans in CI where practical.

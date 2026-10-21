@@ -167,7 +167,8 @@ were written alongside the fixes, so this shows the agents handle these cases, n
 they're right in general.
 
 The report also covers Coach Chat (below): eight messages, and three revision requests run
-through the agent, the limits and the Reviewer, three runs each.
+through the agent, the limits and the Reviewer; and seven meal photos (below); three runs
+each.
 
 ## Coach Chat
 
@@ -215,6 +216,37 @@ reply, so a failure (503) leaves nothing to repeat. Each coach message has a `ki
 chat answered` (with the intent) and revisions as `coach chat revised`, each with run
 metrics. The rule-based model handles chat too, from keywords: medical words, calorie words
 or an exercise name with a direction, and a fixed 100 kcal or 2.5 kg step.
+
+## Meal photos
+
+The food page's **Scan** takes or picks a photo, which the browser scales to at most 1024 px
+and sends as a JPEG to `POST /food/photo-estimates`. As plan.md §9.7 suggests, the estimate
+is a nutrition tool, not an agent: one call on the same model (`agent="food_photo"`, with the
+image), whose `PhotoEstimate` lists each food with a name, how the portion looks, grams,
+calories and macros, and a note on what it couldn't judge (hidden oil, a bowl's depth) or
+why it found no food.
+
+- **Checked first** (`app/food/photo.py`): a JPEG, PNG or WebP data URL whose bytes match its
+  type, at most 4 MB; any request body over 6 MB is refused (413) before it's read
+  (`LimitBodySizeMiddleware`). 20 photos per user an hour (then 429); one that fails on our
+  side is given back.
+- **Never stored:** the photo goes to the model and is dropped; logs record the item count
+  and run metrics, never the image. So no object storage, signed links or deletion path.
+- **Nothing is logged by the estimate.** The user corrects each item (changing grams scales
+  its nutrition), removes or adds items, picks the meal and confirms; each item is then
+  logged as an entry with source `photo` and the label "*N* g · photo estimate".
+- **Consistent before it's shown:** an item whose calories are far below its macros is raised
+  to match them, since the log would refuse it.
+- Within 35 s, with one retry of a transient error if it can still finish in time (the
+  browser waits 45 s); otherwise 503. A photo costs at most four model calls (two tries, each
+  with a second ask after an answer that breaks the schema).
+  The rule-based model returns the same plate for any photo.
+
+The evaluation runs seven public photos from Wikimedia Commons (`evals/photos`, with
+`ATTRIBUTION.md`): rice, a banana, an egg with fries, chicken rice, a pizza slice, a chicken
+Caesar salad and a keyboard. It checks the foods are named (and none for the keyboard) and
+that the total falls in a wide plausible range. In one evaluation the same salad came out at
+330, 371 and 680 kcal in three runs, which is why every estimate is the user's to correct.
 
 ## Run metrics
 

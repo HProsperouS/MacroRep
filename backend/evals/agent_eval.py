@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import copy
 import re
 import time
@@ -30,7 +31,8 @@ from app.coach.agents.graph import build_graph
 from app.coach.agents.metrics import RunMetrics, elapsed_ms
 from app.coach.agents.model import AgentTask, CoachModel, ModelReply, get_coach_model
 from app.coach.agents.revise import ProposalKindName, Revision
-from app.coach.agents.schemas import ChatReply
+from app.coach.agents.schemas import ChatReply, PhotoEstimate
+from app.coach.agents.vision import estimate_photo
 
 State = Mapping[str, Any]
 # True or False, or None when the check doesn't apply to this run (its precondition didn't happen).
@@ -736,6 +738,109 @@ def chat_report(results: list[ChatResult]) -> str:
     return "\n".join([*lines, "", "### Failed checks", "", *(failures or ["None."]), ""])
 
 
+# --- Meal photos -------------------------------------------------------------------
+
+PHOTO_DIR = Path(__file__).parent / "photos"
+
+
+@dataclass(frozen=True)
+class PhotoCase:
+    file: str
+    shows: str
+    # Every group needs one of its words among the item names; none at all means no food.
+    must_name: tuple[tuple[str, ...], ...]
+    calories: tuple[int, int] | None
+
+
+PHOTO_CASES = [
+    PhotoCase("bowl-of-rice.jpg", "A bowl of white rice", (("rice",),), (150, 500)),
+    PhotoCase("banana.jpg", "A peeled banana", (("banana",),), (70, 150)),
+    PhotoCase(
+        "egg-and-fries.jpg", "A fried egg and fries", (("egg",), ("fries", "chips", "potato")), (350, 900)
+    ),
+    PhotoCase("chicken-rice.jpg", "Hainanese chicken rice", (("chicken",), ("rice",)), (450, 1100)),
+    PhotoCase("pizza-slice.jpg", "A slice of pepperoni pizza", (("pizza",),), (200, 550)),
+    PhotoCase(
+        "caesar-salad.jpg",
+        "A chicken Caesar salad",
+        (("chicken",), ("salad", "lettuce", "romaine")),
+        (300, 900),
+    ),
+    PhotoCase("keyboard.jpg", "A keyboard, no food", (), None),
+]
+
+
+@dataclass
+class PhotoResult:
+    case: PhotoCase
+    estimate: PhotoEstimate | None
+
+    @property
+    def total(self) -> int:
+        return sum(item.calories for item in self.estimate.items) if self.estimate else 0
+
+    @property
+    def named(self) -> bool | None:
+        if self.estimate is None:
+            return False
+        names = " ".join(item.name.lower() for item in self.estimate.items)
+        if not self.case.must_name:
+            return not self.estimate.items
+        return all(any(word in names for word in group) for group in self.case.must_name)
+
+    @property
+    def calories_in_range(self) -> bool | None:
+        if self.case.calories is None:
+            return None
+        low, high = self.case.calories
+        return self.estimate is not None and low <= self.total <= high
+
+
+async def evaluate_photos(model: CoachModel, runs: int) -> list[PhotoResult]:
+    async def one(case: PhotoCase) -> PhotoResult:
+        image = "data:image/jpeg;base64," + base64.b64encode((PHOTO_DIR / case.file).read_bytes()).decode()
+        return PhotoResult(case, await estimate_photo(model, image, f"eval-{case.file}"))
+
+    gate = asyncio.Semaphore(4)
+
+    async def gated(case: PhotoCase) -> PhotoResult:
+        async with gate:
+            return await one(case)
+
+    return list(await asyncio.gather(*(gated(case) for case in PHOTO_CASES for _ in range(runs))))
+
+
+def photo_report(results: list[PhotoResult]) -> str:
+    lines = [
+        "## Meal photos",
+        "",
+        "Public photos from Wikimedia Commons (`evals/photos/ATTRIBUTION.md`). The calorie",
+        "ranges are wide on purpose: a photo can't show oil, depth or exact size, which is why",
+        "the user corrects every estimate before logging it.",
+        "",
+        "| Photo | Shows | Foods named (or none, for no food) | Total kcal in range | Totals seen |",
+        "|---|---|---|---|---|",
+    ]
+    for case in PHOTO_CASES:
+        mine = [r for r in results if r.case is case]
+        expected = f"{case.calories[0]:,}–{case.calories[1]:,}" if case.calories else "—"
+        totals = ", ".join(f"{r.total:,}" if r.estimate else "no answer" for r in mine)
+        lines.append(
+            f"| `{case.file}` | {case.shows} | {_rate([r.named for r in mine])} | "
+            f"{_rate([r.calories_in_range for r in mine])} ({expected}) | {totals} |"
+        )
+    failures = [
+        f"- `{r.case.file}`: "
+        + (", ".join(f"{i.name} {i.grams:g} g {i.calories} kcal" for i in r.estimate.items) or "no items")
+        + (f". Note: {r.estimate.note}" if r.estimate.note else "")
+        if r.estimate
+        else f"- `{r.case.file}`: no answer"
+        for r in results
+        if r.named is False or r.calories_in_range is False
+    ]
+    return "\n".join([*lines, "", "### Failed checks", "", *(failures or ["None."]), ""])
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -753,7 +858,15 @@ async def main() -> None:
     results = await evaluate(model, args.runs)
     chat = await evaluate_chat(model, args.runs)
     revisions = await evaluate_revisions(model, args.runs)
-    text = "\n".join([report(results, model.name, args.runs), chat_report(chat), revision_report(revisions)])
+    photos = await evaluate_photos(model, args.runs)
+    text = "\n".join(
+        [
+            report(results, model.name, args.runs),
+            chat_report(chat),
+            revision_report(revisions),
+            photo_report(photos),
+        ]
+    )
     if args.out:
         args.out.write_text(text, encoding="utf-8")
         print(f"Wrote {args.out}")

@@ -25,6 +25,7 @@ export type FoodSearchPanelProps = {
   onQuickAdd: () => void
   onCreateCustom: (name?: string) => void
   onUnavailable: (feature: string) => void
+  onScanPhoto: () => void
   searchInputRef?: Ref<HTMLInputElement>
   autoFocus?: boolean
 }
@@ -41,6 +42,7 @@ export function FoodSearchPanel({
   onQuickAdd,
   onCreateCustom,
   onUnavailable,
+  onScanPhoto,
   searchInputRef,
   autoFocus,
 }: FoodSearchPanelProps) {
@@ -85,7 +87,7 @@ export function FoodSearchPanel({
           <Barcode data-icon="inline-start" />
           Barcode
         </Button>
-        <Button variant="outline" className="h-10" onClick={() => onUnavailable("Meal photo scanning")}>
+        <Button variant="outline" className="h-10" onClick={onScanPhoto}>
           <Camera data-icon="inline-start" />
           Scan
         </Button>

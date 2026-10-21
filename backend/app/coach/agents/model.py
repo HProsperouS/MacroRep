@@ -28,7 +28,7 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
-AgentName = Literal["nutrition", "workout", "reviewer", "chat"]
+AgentName = Literal["nutrition", "workout", "reviewer", "chat", "food_photo"]
 
 
 class ModelUnavailableError(Exception):
@@ -41,6 +41,8 @@ class AgentTask(Generic[T]):
     instructions: str
     context: Mapping[str, Any]
     output: type[T]
+    # Images for the model to look at, as data: URLs (only the food-photo estimate sends one).
+    images: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -76,6 +78,8 @@ class FakeCoachModel:
             return ModelReply(_fake_workout(task.context))
         if task.agent == "chat":
             return ModelReply(_fake_chat(task.context))
+        if task.agent == "food_photo":
+            return ModelReply(FAKE_PHOTO_ESTIMATE)
         return ModelReply(_fake_review(task.context))
 
 
@@ -100,7 +104,7 @@ class OpenAICoachModel:
                 model=self.model,
                 messages=[
                     {"role": "system", "content": task.instructions},
-                    {"role": "user", "content": json.dumps(task.context, default=str)},
+                    {"role": "user", "content": _user_content(task)},
                 ],
                 response_format={
                     "type": "json_schema",
@@ -139,6 +143,18 @@ class OpenAICoachModel:
             input_tokens=usage.prompt_tokens if usage else 0,
             output_tokens=usage.completion_tokens if usage else 0,
         )
+
+
+def _user_content(task: AgentTask[Any]) -> Any:
+    """The context as JSON, followed by any images."""
+
+    text = json.dumps(task.context, default=str)
+    if not task.images:
+        return text
+    return [
+        {"type": "text", "text": text},
+        *({"type": "image_url", "image_url": {"url": image}} for image in task.images),
+    ]
 
 
 _RETRYABLE_STATUSES = frozenset({408, 409, 429})
@@ -367,3 +383,29 @@ def _fake_revision(context: Mapping[str, Any]) -> dict[str, Any]:
                     "evidence": evidence,
                 }
     return {"action": "keep", "headline": "Keep training as it is", "evidence": evidence}
+
+
+# The fake's answer to any photo: a plate it always "sees".
+FAKE_PHOTO_ESTIMATE: dict[str, Any] = {
+    "items": [
+        {
+            "name": "Chicken rice",
+            "portion": "1 plate",
+            "grams": 350,
+            "calories": 600,
+            "protein": 30,
+            "carbs": 75,
+            "fat": 18,
+        },
+        {
+            "name": "Cucumber slices",
+            "portion": "a few slices",
+            "grams": 40,
+            "calories": 6,
+            "protein": 0.3,
+            "carbs": 1.4,
+            "fat": 0,
+        },
+    ],
+    "note": "Rule-based stand-in: every photo gets the same estimate.",
+}

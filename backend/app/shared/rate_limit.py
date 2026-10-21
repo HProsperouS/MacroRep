@@ -37,6 +37,8 @@ REGISTRATIONS_PER_ADDRESS = Limit(10, 60 * 60)
 # Coach Chat questions per user: each is a paid model call. Generous for a conversation
 # about one check-in, small enough to bound the bill.
 CHAT_QUESTIONS_PER_USER = Limit(30, 60 * 60)
+# Meal photos per user: each is a paid call to a vision model, which costs more than chat.
+PHOTOS_PER_USER = Limit(20, 60 * 60)
 
 # Memory stays bounded: expired keys are swept at most once a minute, and past the cap the
 # oldest keys are dropped (forgetting some attempts is better than running out of memory).
@@ -50,6 +52,7 @@ _LONGEST_WINDOW = max(
         LOGINS_PER_ADDRESS,
         REGISTRATIONS_PER_ADDRESS,
         CHAT_QUESTIONS_PER_USER,
+        PHOTOS_PER_USER,
     )
 )
 

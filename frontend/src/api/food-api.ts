@@ -1,6 +1,6 @@
 import { apiClient } from "@/api/client"
 import type { Nutrition } from "@/lib/macros"
-import type { DailyTargets, Food, FoodEntry, MealType, QuantityUnit } from "@/types/food"
+import type { DailyTargets, Food, FoodEntry, MealType, PhotoEstimate, QuantityUnit } from "@/types/food"
 
 export type FoodLogResponse = {
   date: string
@@ -54,6 +54,12 @@ export const foodApi = {
 
   async createCustomFood(input: CreateCustomFoodInput) {
     const { data } = await apiClient.post<Food>("/foods", input)
+    return data
+  },
+
+  /** Estimates a meal photo (a data: URL); logs nothing. Waits longer: the server allows 35 s. */
+  async estimatePhoto(image: string) {
+    const { data } = await apiClient.post<PhotoEstimate>("/food/photo-estimates", { image }, { timeout: 45_000 })
     return data
   },
 

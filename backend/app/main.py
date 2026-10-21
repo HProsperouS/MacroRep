@@ -23,7 +23,7 @@ from app.progress.router import router as progress_router
 from app.shared.errors import validation_error_handler
 from app.shared.logging import CorrelationIdMiddleware, configure_logging
 from app.shared.persistence import Base
-from app.shared.request_guard import RejectNulBytesMiddleware
+from app.shared.request_guard import LimitBodySizeMiddleware, RejectNulBytesMiddleware
 from app.workout.router import router as workout_router
 
 
@@ -56,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     # Added first so it sits innermost: CORS headers still wrap its 400s.
     application.add_middleware(RejectNulBytesMiddleware)
+    application.add_middleware(LimitBodySizeMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

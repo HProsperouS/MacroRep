@@ -11,6 +11,7 @@ import { EditFoodEntryForm } from "@/components/food/edit-food-entry-form"
 import { FoodSearchPanel, type FoodSearchPanelProps } from "@/components/food/food-search-panel"
 import { ManualEntry, type ManualEntryTab, type OverlayLayout } from "@/components/food/manual-entry"
 import { MealSection, MealSectionSkeleton } from "@/components/food/meal-section"
+import { PhotoReview } from "@/components/food/photo-review"
 import type { QuickAddDraft, QuickAddResult } from "@/components/food/quick-add-form"
 import { PageHeader } from "@/components/layout/page-header"
 import { ResponsiveOverlay } from "@/components/layout/responsive-overlay"
@@ -18,12 +19,22 @@ import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
-import { dateKey, useAddFoodEntry, useCreateCustomFood, useFoodLog, useNutritionTargets, useRemoveFoodEntry, useUpdateFoodEntry } from "@/hooks/use-food-log"
+import { Spinner } from "@/components/ui/spinner"
+import {
+  dateKey,
+  useAddFoodEntry,
+  useCreateCustomFood,
+  useFoodLog,
+  useNutritionTargets,
+  usePhotoEstimate,
+  useRemoveFoodEntry,
+  useUpdateFoodEntry,
+} from "@/hooks/use-food-log"
 import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
 import { amountLabelFor } from "@/hooks/use-serving-amount"
 import { EMPTY_ENTRIES, groupEntries, mealForTime } from "@/lib/food-log"
 import { formatNumber } from "@/lib/format"
-import { MEAL_LABELS, MEAL_TYPES, type FoodEntry, type MealType } from "@/types/food"
+import { MEAL_LABELS, MEAL_TYPES, type FoodEntry, type MealType, type PhotoItem } from "@/types/food"
 
 type ManualState = {
   open: boolean
@@ -55,6 +66,9 @@ export default function FoodPage() {
   const updateEntry = useUpdateFoodEntry()
   const createCustomFood = useCreateCustomFood()
   const [editing, setEditing] = useState<{ entry: FoodEntry; layout: OverlayLayout } | null>(null)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const [photoLayout, setPhotoLayout] = useState<OverlayLayout | null>(null)
+  const photo = usePhotoEstimate()
 
   const entries = foodLog.data?.entries ?? EMPTY_ENTRIES
   const { totals, byMeal } = useMemo(() => groupEntries(entries), [entries])
@@ -69,6 +83,35 @@ export default function FoodPage() {
   function openManual(tab: ManualEntryTab, draft?: QuickAddDraft) {
     setSearchOpen(false)
     setManual((prev) => ({ open: true, tab, draft, draftKey: prev.draftKey + 1, layout: isDesktop ? "dialog" : "drawer" }))
+  }
+
+  function scanPhoto() {
+    setSearchOpen(false)
+    photoInputRef.current?.click()
+  }
+
+  function photoChosen(file: File | undefined) {
+    if (!file) return
+    setPhotoLayout(isDesktop ? "dialog" : "drawer")
+    photo.mutate(file)
+  }
+
+  async function logPhotoItems(target: MealType, items: PhotoItem[]) {
+    let logged = 0
+    try {
+      for (const item of items) {
+        const { name, grams, calories, protein, carbs, fat } = item
+        const amountLabel = `${formatNumber(grams, 1)} g · photo estimate`
+        await addEntry.mutateAsync({ meal: target, name, amountLabel, source: "photo", calories, protein, carbs, fat })
+        logged += 1
+      }
+      setPhotoLayout(null)
+      const total = items.reduce((sum, item) => sum + item.calories, 0)
+      toast.success(`Added ${logged} item${logged === 1 ? "" : "s"} to ${MEAL_LABELS[target]}`, { description: `${formatNumber(total)} kcal` })
+    } catch (error) {
+      toast.error(`Logged ${logged} of ${items.length}; the rest didn’t save`, { description: apiErrorMessage(error) })
+    }
+    return logged
   }
 
   function notAvailable(feature: string) {
@@ -142,6 +185,7 @@ export default function FoodPage() {
     onQuickAdd: () => openManual("quick"),
     onCreateCustom: (name) => openManual("custom", name ? { name } : undefined),
     onUnavailable: notAvailable,
+    onScanPhoto: scanPhoto,
   }
 
   return (
@@ -205,7 +249,7 @@ export default function FoodPage() {
                   <Barcode data-icon="inline-start" />
                   Barcode
                 </Button>
-                <Button variant="outline" className="h-11" onClick={() => notAvailable("Meal photo scanning")}>
+                <Button variant="outline" className="h-11" onClick={scanPhoto}>
                   <Camera data-icon="inline-start" />
                   Scan
                 </Button>
@@ -269,6 +313,46 @@ export default function FoodPage() {
         onSaveAsCustom={(draft) => openManual("custom", draft)}
         onCustomSubmit={handleCustomSubmit}
       />
+
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        tabIndex={-1}
+        aria-label="Meal photo"
+        onChange={(event) => {
+          photoChosen(event.target.files?.[0])
+          event.target.value = "" // so the same photo can be chosen again
+        }}
+      />
+
+      <ResponsiveOverlay
+        open={photoLayout !== null}
+        onOpenChange={(open) => (open ? undefined : setPhotoLayout(null))}
+        layout={photoLayout ?? "dialog"}
+        title="Check the photo estimate"
+        description="These are estimates from the photo. Correct anything that's off; nothing is logged until you do."
+        className="sm:max-w-2xl"
+      >
+        {photo.isPending ? (
+          <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground" role="status">
+            <Spinner /> Looking at your meal…
+          </p>
+        ) : photo.isError ? (
+          <div className="flex flex-col items-start gap-3 py-2">
+            <p className="text-sm text-destructive" role="alert">
+              {apiErrorMessage(photo.error)}
+            </p>
+            <Button variant="outline" onClick={scanPhoto}>
+              Choose another photo
+            </Button>
+          </div>
+        ) : photo.data ? (
+          <PhotoReview key={photo.submittedAt} estimate={photo.data} defaultMeal={meal} onLog={logPhotoItems} onRetake={scanPhoto} />
+        ) : null}
+      </ResponsiveOverlay>
 
       <ResponsiveOverlay
         open={editing !== null}

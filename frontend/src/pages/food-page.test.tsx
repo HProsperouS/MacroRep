@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { AxiosError } from "axios"
 import { toast } from "sonner"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -16,8 +17,11 @@ const api = vi.hoisted(() => ({
   getFood: vi.fn(),
   createCustomFood: vi.fn(),
   getTargets: vi.fn(),
+  estimatePhoto: vi.fn(),
 }))
 vi.mock("@/api/food-api", () => ({ foodApi: api }))
+// jsdom can't decode or draw images; the resizing is the browser's job.
+vi.mock("@/lib/photo", () => ({ photoToDataUrl: vi.fn().mockResolvedValue("data:image/jpeg;base64,AA==") }))
 vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true }))
 
 const chicken: Food = {
@@ -333,5 +337,127 @@ describe("FoodPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Barcode" }))
     expect(toast).toHaveBeenCalledWith("Barcode scanning is coming soon", expect.anything())
+  })
+})
+
+describe("Meal photos", () => {
+  const plate = {
+    items: [
+      { name: "Chicken rice", portion: "1 plate", grams: 350, calories: 600, protein: 30, carbs: 75, fat: 18 },
+      { name: "Iced tea", portion: "1 glass", grams: 300, calories: 90, protein: 0, carbs: 22, fat: 0 },
+    ],
+    note: "Hidden oil in the rice is hard to judge.",
+  }
+  const photoFile = () => new File([new Uint8Array([0xff, 0xd8, 0xff])], "meal.jpg", { type: "image/jpeg" })
+
+  async function scan(user: ReturnType<typeof userEvent.setup>) {
+    renderWithQuery(<FoodPage />)
+    await screen.findByText("Chicken rice")
+    await user.upload(screen.getByLabelText("Meal photo"), photoFile())
+    return screen.findByRole("dialog", { name: "Check the photo estimate" })
+  }
+
+  it("shows the estimate, scales an item by its amount, and logs what's kept", async () => {
+    api.estimatePhoto.mockResolvedValue(plate)
+    api.addEntry.mockImplementation((input) => Promise.resolve({ ...input, id: `e-${input.name}` }))
+    const user = userEvent.setup()
+    const dialog = await scan(user)
+
+    expect(await within(dialog).findByText("Hidden oil in the rice is hard to judge.")).toBeInTheDocument()
+    expect(api.estimatePhoto).toHaveBeenCalledWith("data:image/jpeg;base64,AA==")
+    const rice = within(dialog).getByRole("listitem", { name: "Chicken rice" })
+    await user.clear(within(rice).getByLabelText("Amount"))
+    await user.type(within(rice).getByLabelText("Amount"), "175")
+    expect(within(rice).getByLabelText("Calories")).toHaveValue("300")
+    expect(within(rice).getByLabelText("Protein")).toHaveValue("15")
+    await user.click(within(dialog).getByRole("button", { name: "Remove Iced tea" }))
+    await user.click(within(dialog).getByRole("radio", { name: "Dinner" }))
+    await user.click(within(dialog).getByRole("button", { name: "Log 1 item to Dinner" }))
+
+    await waitFor(() =>
+      expect(api.addEntry).toHaveBeenCalledWith({
+        date: today,
+        meal: "dinner",
+        name: "Chicken rice",
+        amountLabel: "175 g · photo estimate",
+        source: "photo",
+        calories: 300,
+        protein: 15,
+        carbs: 37.5,
+        fat: 9,
+      }),
+    )
+    expect(api.addEntry).toHaveBeenCalledOnce()
+    expect(toast.success).toHaveBeenCalledWith("Added 1 item to Dinner", { description: "300 kcal" })
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  })
+
+  it("won't log calories far below the macros, or an unnamed item", async () => {
+    api.estimatePhoto.mockResolvedValue(plate)
+    const user = userEvent.setup()
+    const dialog = await scan(user)
+
+    const rice = await within(dialog).findByRole("listitem", { name: "Chicken rice" })
+    await user.clear(within(rice).getByLabelText("Calories"))
+    await user.type(within(rice).getByLabelText("Calories"), "60")
+    expect(within(rice).getByText(/Too low for these macros/)).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Log 2 items to Lunch" })).toBeDisabled()
+
+    await user.clear(within(rice).getByLabelText("Calories"))
+    await user.type(within(rice).getByLabelText("Calories"), "600")
+    await user.click(within(dialog).getByRole("button", { name: "Add an item" }))
+    expect(within(dialog).getByText("Enter a name")).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Log 3 items to Lunch" })).toBeDisabled()
+    expect(api.addEntry).not.toHaveBeenCalled()
+  })
+
+  it("keeps what didn't save when logging stops part way", async () => {
+    api.estimatePhoto.mockResolvedValue(plate)
+    api.addEntry.mockResolvedValueOnce({ id: "e1" }).mockRejectedValueOnce(new Error("down"))
+    const user = userEvent.setup()
+    const dialog = await scan(user)
+
+    await user.click(await within(dialog).findByRole("button", { name: "Log 2 items to Lunch" }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Logged 1 of 2; the rest didn’t save", expect.anything()))
+    expect(within(dialog).queryByRole("listitem", { name: "Chicken rice" })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Log 1 item to Lunch" })).toBeInTheDocument()
+  })
+
+  it("labels the entry with the amount as entered", async () => {
+    api.estimatePhoto.mockResolvedValue({ items: [plate.items[0]], note: null })
+    api.addEntry.mockImplementation((input) => Promise.resolve({ ...input, id: "e1" }))
+    const user = userEvent.setup()
+    const dialog = await scan(user)
+
+    const rice = await within(dialog).findByRole("listitem", { name: "Chicken rice" })
+    await user.clear(within(rice).getByLabelText("Amount"))
+    await user.type(within(rice).getByLabelText("Amount"), "12.5")
+    await user.click(within(dialog).getByRole("button", { name: "Log 1 item to Lunch" }))
+
+    await waitFor(() => expect(api.addEntry).toHaveBeenCalledWith(expect.objectContaining({ amountLabel: "12.5 g · photo estimate" })))
+  })
+
+  it("says when no food was found", async () => {
+    api.estimatePhoto.mockResolvedValue({ items: [], note: "This looks like a keyboard." })
+    const user = userEvent.setup()
+    const dialog = await scan(user)
+
+    expect(await within(dialog).findByText("No food was found in this photo.")).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Log 0 items to Lunch" })).toBeDisabled()
+  })
+
+  it("explains a photo that couldn't be read", async () => {
+    api.estimatePhoto.mockRejectedValue(
+      new AxiosError("429", "ERR_BAD_REQUEST", undefined, undefined, {
+        status: 429,
+        data: { detail: "That's a lot of photos for now. Try again in 20 minutes." },
+      } as never),
+    )
+    const user = userEvent.setup()
+    const dialog = await scan(user)
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Try again in 20 minutes.")
+    expect(within(dialog).getByRole("button", { name: "Choose another photo" })).toBeInTheDocument()
   })
 })

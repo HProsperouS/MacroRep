@@ -12,7 +12,9 @@ from evals.agent_eval import (
     chat_report,
     evaluate,
     evaluate_chat,
+    evaluate_photos,
     evaluate_revisions,
+    photo_report,
     report,
     revision_report,
     training_direction,
@@ -79,3 +81,12 @@ async def test_revisions_run_and_are_reported() -> None:
     assert len(results) == 3
     assert all(result.passed for result in results), "the rule-based agent's fixed steps happen to fit"
     assert "### Revisions" in revision_report(results)
+
+
+async def test_photos_run_and_are_reported() -> None:
+    results = await evaluate_photos(FakeCoachModel(), runs=1)
+
+    by_photo = {result.case.file: result.named for result in results}
+    assert by_photo["chicken-rice.jpg"], "the rule-based model always sees chicken rice"
+    assert by_photo["keyboard.jpg"] is False, "and so finds food even in a keyboard"
+    assert "## Meal photos" in photo_report(results)

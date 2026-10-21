@@ -3,6 +3,7 @@ import { format } from "date-fns"
 
 import { foodApi, type CreateCustomFoodInput, type CreateFoodEntryInput, type FoodLogResponse, type UpdateFoodEntryInput } from "@/api/food-api"
 import { foodKeys, progressKeys } from "@/api/query-keys"
+import { photoToDataUrl } from "@/lib/photo"
 import type { FoodEntry } from "@/types/food"
 
 type NewFoodEntry = Omit<FoodEntry, "id">
@@ -112,6 +113,11 @@ function refreshIntakeViews(queryClient: QueryClient) {
     queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "daily-calories"] }),
     queryClient.invalidateQueries({ queryKey: progressKeys.all }),
   ])
+}
+
+/** Estimates a meal photo the browser has scaled down first; logs nothing. */
+export function usePhotoEstimate() {
+  return useMutation({ mutationFn: async (file: File) => foodApi.estimatePhoto(await photoToDataUrl(file)) })
 }
 
 /** A single saved food, for re-scaling an entry logged from it. */

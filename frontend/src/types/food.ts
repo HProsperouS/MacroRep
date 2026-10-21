@@ -13,7 +13,7 @@ export const MEAL_LABELS: Record<MealType, string> = {
 export const SERVING_UNITS = ["g", "ml", "piece", "bowl", "plate", "cup", "slice", "tbsp", "scoop"] as const
 export type ServingUnit = (typeof SERVING_UNITS)[number]
 
-export type FoodSource = "database" | "custom" | "quick-add"
+export type FoodSource = "database" | "custom" | "quick-add" | "photo"
 
 /** A food that can be searched and logged. Nutrition is per one serving. */
 export type Food = {
@@ -28,7 +28,7 @@ export type Food = {
   fibreG?: number
   sugarG?: number
   sodiumMg?: number
-  source: Exclude<FoodSource, "quick-add">
+  source: Exclude<FoodSource, "quick-add" | "photo">
 }
 
 /** How a logged amount was entered: a count of the food's servings, or grams. */
@@ -59,4 +59,19 @@ export type TargetVersion = DailyTargets & {
   source: TargetSource
   /** ISO timestamp in UTC. */
   changedAt: string
+}
+
+/** One food a meal photo seems to hold, estimated by the model for the user to correct. */
+export type PhotoItem = Nutrition & {
+  name: string
+  /** How the portion looks, e.g. "1 cup". */
+  portion: string
+  grams: number
+}
+
+export type PhotoEstimate = {
+  /** Empty when no food was recognised. */
+  items: PhotoItem[]
+  /** What the model couldn't judge, or why it found nothing. */
+  note: string | null
 }

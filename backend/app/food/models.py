@@ -22,6 +22,8 @@ class FoodSource(StrEnum):
     DATABASE = "database"
     CUSTOM = "custom"
     QUICK_ADD = "quick-add"
+    # Entered from a meal-photo estimate the user checked and confirmed.
+    PHOTO = "photo"
 
 
 class Food(TimestampMixin, Base):

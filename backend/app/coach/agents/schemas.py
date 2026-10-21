@@ -85,3 +85,24 @@ class ChatReply(_AgentOutput):
         """Models often send "" for "no request yet" rather than leaving it out."""
 
         return None if isinstance(value, str) and not value.strip() else value
+
+
+class PhotoItem(_AgentOutput):
+    """One food or drink seen in a photo, with its estimated portion and nutrition."""
+
+    name: str = Field(min_length=1, max_length=80)
+    # How the portion looks, e.g. "1 cup" or "half a plate".
+    portion: str = Field(min_length=1, max_length=60)
+    grams: float = Field(gt=0, le=3_000)
+    calories: int = Field(ge=0, le=5_000)
+    protein: float = Field(ge=0, le=500)
+    carbs: float = Field(ge=0, le=500)
+    fat: float = Field(ge=0, le=500)
+
+
+class PhotoEstimate(_AgentOutput):
+    """What a meal photo seems to hold. No items means no food was recognised."""
+
+    items: list[PhotoItem] = Field(default_factory=list, max_length=12)
+    # What's uncertain (hidden oil, sauces, a hard-to-judge portion), or why nothing was found.
+    note: str | None = Field(default=None, max_length=300)
