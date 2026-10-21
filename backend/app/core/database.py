@@ -17,17 +17,12 @@ from app.core.config import Settings, get_settings
 
 
 def _engine_options(settings: Settings) -> dict[str, object]:
-    options: dict[str, object] = {
+    return {
         "echo": settings.database_echo,
         "pool_pre_ping": True,
+        "pool_size": settings.database_pool_size,
+        "max_overflow": settings.database_max_overflow,
     }
-    # SQLite's Static/Null pools do not accept these QueuePool options.
-    if not settings.database_url.startswith("sqlite"):
-        options.update(
-            pool_size=settings.database_pool_size,
-            max_overflow=settings.database_max_overflow,
-        )
-    return options
 
 
 def libpq_conninfo(database_url: str) -> str:

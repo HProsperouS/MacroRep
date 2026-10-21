@@ -1,9 +1,8 @@
 """Where the check-in graph keeps its state between steps.
 
-On PostgreSQL, ``AsyncPostgresSaver`` stores each step's checkpoint in its own tables
-(created by ``setup()``), so a run interrupted by a restart resumes from its last
-finished step. Elsewhere (SQLite in tests and quick local runs) an in-memory saver
-is used, which lasts only as long as the process.
+``AsyncPostgresSaver`` stores each step's checkpoint in its own tables (created by
+``setup()``), so a run interrupted by a restart resumes from its last finished step.
+Until the app has started it, an in-memory saver stands in.
 """
 
 from __future__ import annotations
@@ -16,7 +15,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
-from sqlalchemy.engine import make_url
 
 from app.core.database import libpq_conninfo
 
@@ -32,13 +30,9 @@ def get_checkpointer() -> BaseCheckpointSaver[str]:
 
 @asynccontextmanager
 async def checkpointer_lifespan(database_url: str) -> AsyncIterator[None]:
-    """Open the Postgres checkpointer for the app's lifetime, when the database is Postgres."""
+    """Open the Postgres checkpointer for the app's lifetime."""
 
     global _saver
-    url = make_url(database_url)
-    if url.get_backend_name() != "postgresql":
-        yield
-        return
     async with AsyncConnectionPool(
         libpq_conninfo(database_url),
         min_size=1,

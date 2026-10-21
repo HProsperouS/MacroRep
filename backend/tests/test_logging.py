@@ -136,7 +136,7 @@ def test_an_unwritable_log_dir_never_fails_the_caller(
 
 
 def settings(**values: Any) -> Settings:
-    return Settings(_env_file=None, DATABASE_URL="sqlite+aiosqlite://", **values)  # type: ignore[call-arg]
+    return Settings(_env_file=None, DATABASE_URL="postgresql+psycopg://localhost/unused", **values)  # type: ignore[call-arg]
 
 
 def test_log_dir_is_off_unless_set_and_relative_to_backend(tmp_path: Path) -> None:

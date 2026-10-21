@@ -255,9 +255,7 @@ class ProfileService:
         defaults = _untouched_defaults(await self.repository.target_history(profile.user_id))
         if defaults is None:
             return
-        created = (
-            profile.created_utc if profile.created_utc.tzinfo else profile.created_utc.replace(tzinfo=UTC)
-        )
+        created = profile.created_utc
         if datetime.now(UTC) - created > _NEW_ACCOUNT:
             return
         defaults.effective_date = local_today(user_zone(profile.timezone))
@@ -359,8 +357,7 @@ class ProfileService:
                 version=row.version,
                 effective_date=row.effective_date,
                 source=row.source,
-                # SQLite hands back naive datetimes; everything is stored in UTC.
-                changed_at=row.created_utc if row.created_utc.tzinfo else row.created_utc.replace(tzinfo=UTC),
+                changed_at=row.created_utc,
             )
             for row in reversed(await self.repository.target_history(profile.user_id))
         ]

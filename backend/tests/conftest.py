@@ -1,8 +1,9 @@
-"""Isolated FastAPI test application, on in-memory SQLite or a throwaway PostgreSQL database.
+"""Isolated FastAPI test application, on a throwaway PostgreSQL database: the database the app
+runs on, so the tests see what production does.
 
-Set ``TEST_DATABASE_URL`` to a ``postgresql+psycopg://`` database whose name ends in
-``_test`` to run the same tests on PostgreSQL instead (CI does). That database's ``public``
-schema is wiped before each test.
+By default that's ``macrorep_test`` on the compose PostgreSQL (``docker compose up -d
+postgres``), created on first use. ``TEST_DATABASE_URL`` picks another; its name must end in
+``_test``, since its ``public`` schema is wiped before each test.
 """
 
 from __future__ import annotations
@@ -15,11 +16,15 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import make_url
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite://")
-ON_POSTGRES = make_url(TEST_DATABASE_URL).get_backend_name() == "postgresql"
+TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL", "postgresql+psycopg://macrorep:local-development-only@localhost:5432/macrorep_test"
+)
+_url = make_url(TEST_DATABASE_URL)
 
+if _url.get_backend_name() != "postgresql":
+    raise RuntimeError("TEST_DATABASE_URL must be a postgresql+psycopg:// database: tests run on PostgreSQL")
 # Every test wipes it, so refuse anything that doesn't look like a database kept for tests.
-if ON_POSTGRES and not (make_url(TEST_DATABASE_URL).database or "").endswith("_test"):
+if not (_url.database or "").endswith("_test"):
     raise RuntimeError("TEST_DATABASE_URL must name a database ending in _test: the tests wipe it")
 
 os.environ.update(
@@ -42,12 +47,32 @@ from app.demo_seed import DEMO_USER_ID  # noqa: E402
 from app.main import app  # noqa: E402
 
 
-def _reset_postgres() -> None:
-    """Give each test an empty database, as a fresh in-memory SQLite one would be."""
+def _create_test_database() -> None:
+    """Create the test database if it isn't there yet, from the server's ``postgres`` database."""
+
+    server = _url.set(database="postgres").render_as_string(hide_password=False)
+    try:
+        with psycopg.connect(libpq_conninfo(server), autocommit=True) as connection:
+            found = connection.execute("SELECT 1 FROM pg_database WHERE datname = %s", (_url.database,))
+            if found.fetchone() is None:
+                connection.execute(f'CREATE DATABASE "{_url.database}"')
+    except psycopg.OperationalError as error:
+        raise RuntimeError(
+            f"Can't reach PostgreSQL at {_url.host}:{_url.port}. "
+            "Start it with `docker compose up -d postgres`, or set TEST_DATABASE_URL."
+        ) from error
+
+
+def _reset_database() -> None:
+    """Give each test an empty database."""
 
     with psycopg.connect(libpq_conninfo(TEST_DATABASE_URL), autocommit=True) as connection:
         connection.execute("DROP SCHEMA public CASCADE")
         connection.execute("CREATE SCHEMA public")
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    _create_test_database()
 
 
 @pytest.fixture(autouse=True)
@@ -62,8 +87,7 @@ def _fresh_rate_limits() -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    if ON_POSTGRES:
-        _reset_postgres()
+    _reset_database()
     with TestClient(app) as test_client:
         yield test_client
 

@@ -59,7 +59,7 @@ jobs:
           uv run --locked alembic downgrade c9d2e5f8a1b3
           uv run --locked alembic upgrade head
       # Wipes the database the migrations used: each test starts from an empty schema.
-      - name: Tests (PostgreSQL), with coverage
+      - name: Tests, with coverage
         run: uv run --locked pytest --cov
         env:
           TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
@@ -67,9 +67,6 @@ jobs:
       - name: Coverage summary
         if: ${{ !cancelled() && hashFiles('backend/.coverage') != '' }}
         run: uv run --locked coverage report --format=markdown --fail-under=0 >> "$GITHUB_STEP_SUMMARY"
-      # The default local run, so what developers run day to day keeps working too.
-      - name: Tests (SQLite)
-        run: uv run --locked pytest
 
   frontend:
     name: Frontend

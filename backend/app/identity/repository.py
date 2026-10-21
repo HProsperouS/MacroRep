@@ -27,11 +27,9 @@ class UserRepository:
 
     async def get_by_refresh_hash_locked(self, token_hash: str) -> User | None:
         """Resolve the session owner from a presented refresh token's digest,
-        holding a row lock until the caller commits (Postgres) so two
-        concurrent refreshes presenting the same cookie can't both rotate it
-        from the same stale read. A no-op on SQLite, which has no concurrent
-        writers to race against in the first place (used only by the
-        single-connection test suite).
+        holding a row lock until the caller commits, so two concurrent
+        refreshes presenting the same cookie can't both rotate it from the
+        same stale read.
         """
 
         return cast(

@@ -163,7 +163,7 @@ async def test_a_cut_off_answer_is_logged(caplog: pytest.LogCaptureFixture) -> N
 
 
 def settings(**values: Any) -> Settings:
-    return Settings(_env_file=None, DATABASE_URL="sqlite+aiosqlite://", **values)  # type: ignore[call-arg]
+    return Settings(_env_file=None, DATABASE_URL="postgresql+psycopg://localhost/unused", **values)  # type: ignore[call-arg]
 
 
 def test_openai_needs_a_key(monkeypatch: pytest.MonkeyPatch) -> None:

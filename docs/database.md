@@ -1,6 +1,6 @@
 # Database
 
-PostgreSQL 17 in every real environment; the test suite uses in-memory SQLite. The schema
+PostgreSQL 17 in every environment, the test suite included. The schema
 is defined by the SQLAlchemy models in each backend module (`backend/app/*/models.py`)
 and created by Alembic migrations (`backend/migrations/versions`).
 
@@ -267,6 +267,5 @@ Applied in this order (`backend/migrations/versions`):
 | `f9c5a3b7d1e4` | When the profile finished the sign-up guide (existing profiles count as done) |
 | `a2d6f8c4e1b7` | Profile birth date, sex and activity level, for estimating starting targets |
 
-Run `uv run alembic upgrade head` from `backend/`. Migrations are checked against
-PostgreSQL; on SQLite the chain stops at `a1f4c9e2b7d3` (see
-[`follow-ups.md`](follow-ups.md)), so local SQLite runs use `AUTO_CREATE_SCHEMA=true`.
+Run `uv run alembic upgrade head` from `backend/`. CI runs every migration on PostgreSQL,
+then downgrades and upgrades again.

@@ -89,13 +89,8 @@ def _to_proposal_read(proposal: ProposalModel) -> Proposal:
         reviewer_note=proposal.reviewer_note,
         status=proposal.status,
         proposed_changes=[ProposalChange(**change) for change in proposal.proposed_changes],
-        decided_at=_as_utc(proposal.decided_utc) if proposal.decided_utc else None,
+        decided_at=proposal.decided_utc,
     )
-
-
-def _as_utc(moment: datetime) -> datetime:
-    # SQLite hands back naive datetimes; everything is stored in UTC.
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
 CHECK_IN_WINDOW_DAYS = 7
@@ -200,7 +195,7 @@ class CoachService:
 
         if check_in.status != CheckInStatus.RUNNING:
             return
-        if datetime.now(UTC) - _as_utc(check_in.created_utc) < STALE_RUN_AFTER:
+        if datetime.now(UTC) - check_in.created_utc < STALE_RUN_AFTER:
             return
         await self._mark_failed(check_in.id, check_in.pipeline, INTERRUPTED_REASON)
         await self.session.refresh(check_in)

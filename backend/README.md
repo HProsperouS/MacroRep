@@ -24,7 +24,7 @@ backend/
 │   ├── coach/                          # check-ins, proposals, chat; agents/ is the LangGraph flow
 │   └── health/                          # liveness/readiness/version
 ├── migrations/             # Alembic schema migrations
-├── tests/                  # API, validation and formula tests (in-memory SQLite, or Postgres)
+├── tests/                  # API, validation and formula tests (on PostgreSQL)
 ├── pyproject.toml
 └── Dockerfile
 ```
@@ -116,17 +116,13 @@ uv run pytest
 uv run pytest --cov            # with branch coverage; fails below 90%
 ```
 
-Tests use in-memory SQLite by default. To run them on PostgreSQL, as CI also does, point
-`TEST_DATABASE_URL` at a separate database whose name ends in `_test` (anything else is
-refused): its `public` schema is wiped before every test. With the compose database:
-
-```bash
-docker compose exec postgres createdb -U macrorep macrorep_test   # once
-TEST_DATABASE_URL=postgresql+psycopg://macrorep:local-development-only@localhost:5432/macrorep_test uv run pytest
-```
+Tests run on PostgreSQL, the database the app runs on: by default `macrorep_test` on the
+compose database, created on first use, so start it first (`docker compose up -d
+postgres`). `TEST_DATABASE_URL` picks another database; its name must end in `_test`
+(anything else is refused), since its `public` schema is wiped before every test.
 
 CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
 backend lint, type check, migrations (upgrade, model check, downgrade and upgrade again)
-and tests on both PostgreSQL 17 and SQLite; frontend lint, type check, tests and build;
+and tests on PostgreSQL 17; frontend lint, type check, tests and build;
 the end-to-end tests (`frontend/e2e`) against this backend on PostgreSQL; and a build of
 the production backend image.

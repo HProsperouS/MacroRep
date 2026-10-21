@@ -42,22 +42,16 @@ def local_today(zone: ZoneInfo) -> date:
 
 
 def local_date(moment: datetime, zone: ZoneInfo) -> date:
-    """The user's calendar day for a stored timestamp.
+    """The user's calendar day for a stored timestamp."""
 
-    SQLite hands back naive datetimes; everything is stored in UTC, so a
-    naive value is read as UTC.
-    """
-
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
     return moment.astimezone(zone).date()
 
 
 def utc_bounds(start: date, end: date, zone: ZoneInfo) -> tuple[datetime, datetime]:
     """UTC instants spanning local days ``start`` to ``end`` inclusive: ``[from, until)``.
 
-    Filtering timestamps by a range rather than by their date keeps the query
-    working the same on SQLite and Postgres, and able to use the timestamp index.
+    Filtering timestamps by a range rather than by their date lets the query use
+    the timestamp index.
     """
 
     since = datetime.combine(start, time.min, tzinfo=zone).astimezone(UTC)

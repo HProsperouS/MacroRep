@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -55,7 +55,7 @@ def _to_exercise_read(exercise: Exercise, last_session: LastSession | None) -> E
 def _history_item(workout_session: WorkoutSession, sets: list[WorkoutSetLog]) -> WorkoutHistoryItem:
     """Totals follow ``finish_session``: every set is completed, every set but a warm-up adds volume."""
 
-    started_at, finished_at = _as_utc(workout_session.started_at), _as_utc(workout_session.finished_at)
+    started_at, finished_at = workout_session.started_at, workout_session.finished_at
     return WorkoutHistoryItem(
         id=workout_session.id,
         name=workout_session.name,
@@ -92,11 +92,6 @@ def _build_set_logs(
         for exercise_index, exercise_entry in enumerate(exercises)
         for index, logged_set in enumerate(exercise_entry.sets)
     ]
-
-
-def _as_utc(moment: datetime) -> datetime:
-    # SQLite hands back naive datetimes; everything is stored in UTC.
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
 def _history_exercises(sets: list[WorkoutSetLog]) -> list[HistoryExercise]:
@@ -440,8 +435,7 @@ class WorkoutService:
             owner_id=actor.actor_id,
             plan_entry_id=plan_id,
             name=payload.name,
-            # Stored as UTC whatever offset the client sent, so every reader can
-            # rely on it (SQLite keeps the wall-clock time and drops the offset).
+            # Stored as UTC whatever offset the client sent.
             started_at=payload.started_at.astimezone(UTC),
             finished_at=payload.finished_at.astimezone(UTC),
         )

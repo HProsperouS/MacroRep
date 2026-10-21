@@ -62,7 +62,7 @@ run Docker at all. Each service needs its own `.env`, since outside Docker
 there's no `compose.yaml` to inject config for you.
 
 **Backend** — needs Python 3.12 and [uv](https://docs.astral.sh/uv/), plus a
-reachable Postgres (or use SQLite for a zero-install quick start). See
+reachable PostgreSQL (`docker compose up -d postgres` starts one). See
 `backend/README.md` for full instructions; the short version:
 
 ```bash

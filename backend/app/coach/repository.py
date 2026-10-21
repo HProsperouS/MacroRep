@@ -130,7 +130,7 @@ class CoachRepository:
             .where(CoachMessage.check_in_id == check_in_id)
             # A question and its answer are saved together; should their times tie, the answer
             # sorts first here, so after the question once reversed. Spelled out, because
-            # PostgreSQL orders its enum by declaration and SQLite by name.
+            # Explicit, rather than leaning on the enum's declaration order.
             .order_by(
                 CoachMessage.created_utc.desc(), case((CoachMessage.role == MessageRole.COACH, 0), else_=1)
             )

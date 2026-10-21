@@ -65,8 +65,7 @@ async def resume_interrupted_check_ins() -> None:
         )
     now = datetime.now(UTC)
     for check_in_id, created in running:
-        started = created if created.tzinfo else created.replace(tzinfo=UTC)
-        owner_done_by = started + timedelta(seconds=RUN_TIMEOUT_SECONDS + _TAKEOVER_MARGIN_SECONDS)
+        owner_done_by = created + timedelta(seconds=RUN_TIMEOUT_SECONDS + _TAKEOVER_MARGIN_SECONDS)
         task = asyncio.create_task(_resume_after(check_in_id, (owner_done_by - now).total_seconds()))
         _running.add(task)
         task.add_done_callback(_running.discard)

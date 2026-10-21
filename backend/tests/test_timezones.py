@@ -30,11 +30,6 @@ def test_an_early_morning_session_belongs_to_the_local_day() -> None:
     assert local_date(sunday_night_utc, SINGAPORE).weekday() == 0
 
 
-def test_naive_timestamps_are_read_as_utc() -> None:
-    # SQLite returns stored timestamps without their offset.
-    assert local_date(datetime(2026, 9, 27, 23, 0), SINGAPORE) == date(2026, 9, 28)
-
-
 @pytest.mark.parametrize("name", [None, "", "Mars/Olympus_Mons", "../../etc/passwd"])
 def test_unknown_zones_fall_back_to_utc(name: str | None) -> None:
     assert user_zone(name) == ZoneInfo("UTC")

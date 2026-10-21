@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import estimated_one_rep_max
@@ -153,22 +153,9 @@ class WorkoutPlanRepository:
         return plan_entry
 
     async def delete(self, plan_entry: WorkoutPlanEntry) -> None:
-        """Remove a routine with its exercises and schedule days; logged workouts keep their history.
+        """Remove a routine. The database removes its exercises and schedule days with it (ON
+        DELETE CASCADE) and keeps logged workouts, unlinked (SET NULL)."""
 
-        Done by hand rather than leaning on ON DELETE, which SQLite doesn't enforce by default.
-        """
-
-        await self.session.execute(
-            delete(WorkoutScheduleDay).where(WorkoutScheduleDay.routine_id == plan_entry.id)
-        )
-        await self.session.execute(
-            delete(WorkoutPlanExercise).where(WorkoutPlanExercise.plan_entry_id == plan_entry.id)
-        )
-        await self.session.execute(
-            update(WorkoutSession)
-            .where(WorkoutSession.plan_entry_id == plan_entry.id)
-            .values(plan_entry_id=None)
-        )
         await self.session.delete(plan_entry)
         await self.session.flush()
 
@@ -259,8 +246,7 @@ class WorkoutSessionRepository:
         )
 
     async def delete_session(self, workout_session: WorkoutSession) -> None:
-        # Sets first: SQLite doesn't enforce ON DELETE CASCADE unless asked to.
-        await self.delete_sets(workout_session.owner_id, workout_session.id)
+        # The database removes its sets with it (ON DELETE CASCADE).
         await self.session.delete(workout_session)
         await self.session.flush()
 

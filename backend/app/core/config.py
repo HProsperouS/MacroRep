@@ -100,6 +100,16 @@ class Settings(BaseSettings):
         default="X-Correlation-ID", alias="CORRELATION_ID_HEADER", min_length=1
     )
 
+    @field_validator("database_url")
+    @classmethod
+    def postgres_only(cls, value: str) -> str:
+        """PostgreSQL in every environment: the schema, its migrations and the check-in
+        checkpoints rely on it."""
+
+        if not value.startswith("postgresql+psycopg://"):
+            raise ValueError("must be a postgresql+psycopg:// URL: MacroRep runs on PostgreSQL")
+        return value
+
     @field_validator("jwt_secret_key", mode="before")
     @classmethod
     def blank_secret_falls_back_to_local(cls, value: object) -> object:

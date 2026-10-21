@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from datetime import UTC
 from typing import Any, Literal
 
 from .models import SetKind, WorkoutPlanEntry
@@ -89,4 +88,4 @@ def routine_revision(routine: WorkoutPlanEntry) -> str:
     that check-in is refused if the routine was saved again since."""
 
     moment = routine.updated_utc or routine.created_utc
-    return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).isoformat()
+    return moment.isoformat()

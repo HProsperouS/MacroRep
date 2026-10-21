@@ -23,13 +23,6 @@ from .security import (
     verify_password,
 )
 
-
-def _as_aware_utc(value: datetime) -> datetime:
-    """SQLite drops timezone info on read, so normalize before comparing."""
-
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
 # One message for an unknown email and a wrong password; the sign-in limits count it.
 WRONG_CREDENTIALS = "Incorrect email or password"
 
@@ -111,11 +104,7 @@ class AuthService:
         user = await self.users.get_by_refresh_hash_locked(hash_refresh_token(refresh_token))
         # A rotated-away token no longer matches any row, so replaying an old
         # refresh token lands here as a 401.
-        if (
-            user is None
-            or user.refresh_expires_at is None
-            or _as_aware_utc(user.refresh_expires_at) <= datetime.now(UTC)
-        ):
+        if user is None or user.refresh_expires_at is None or user.refresh_expires_at <= datetime.now(UTC):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token is invalid or expired")
         if user.status is not UserStatus.ACTIVE:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")
