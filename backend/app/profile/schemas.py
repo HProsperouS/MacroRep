@@ -7,7 +7,7 @@ from datetime import date, datetime
 from pydantic import Field, field_validator, model_validator
 
 from app.analytics.energy import ActivityLevel, Sex
-from app.shared.schema import CamelModel, validate_choice
+from app.shared.schema import CamelModel
 from app.shared.timezones import is_known_timezone
 from app.shared.validation import (
     MAX_ABS_WEEKLY_RATE_KG,
@@ -24,9 +24,7 @@ from app.shared.validation import (
     BirthDate,
     PlainText,
     ensure_plausible_calories,
-    ensure_unique,
 )
-from app.workout.models import EQUIPMENT
 
 from .models import ExperienceLevel, Goal, TargetSource
 
@@ -71,9 +69,7 @@ class ProfileRead(CamelModel):
     height_cm: float
     goal: Goal
     weekly_rate_kg: float
-    training_days_per_week: int
     experience_level: ExperienceLevel
-    equipment: list[str]
     timezone: str
     # False until the sign-up guide is finished (POST /profile/onboarding).
     onboarded: bool
@@ -100,18 +96,10 @@ class UpdateProfileInput(CamelModel):
     goal: Goal
     # No health limit by design (the app cautions instead); only the column's capacity.
     weekly_rate_kg: float = Field(ge=-MAX_ABS_WEEKLY_RATE_KG, le=MAX_ABS_WEEKLY_RATE_KG)
-    # As the Profile form and the sign-up guide allow: the coach plans training around it.
-    training_days_per_week: int = Field(ge=1, le=7)
     experience_level: ExperienceLevel
     date_of_birth: BirthDate
     sex: Sex
     activity_level: ActivityLevel
-    equipment: list[str] = Field(default_factory=list, max_length=len(EQUIPMENT))
-
-    @field_validator("equipment")
-    @classmethod
-    def check_equipment(cls, value: list[str]) -> list[str]:
-        return ensure_unique([validate_choice(item, EQUIPMENT, "equipment") for item in value], "equipment")
 
 
 class EstimateTargetsInput(CamelModel):

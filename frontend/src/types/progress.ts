@@ -41,11 +41,10 @@ export type CheckInHistoryItem = {
  */
 export type DayStatus = "complete" | "partial" | "missing" | "in-progress"
 
-/** Finished days only: today isn't counted. */
+/** Finished days since the user started: today isn't counted, nor days before the account. */
 export type LoggingSummary = {
   completeDays: number
   partialDays: number
-  missingDays: number
   /** Logged days within ±10% of the calorie target; null with nothing logged. */
   targetAdherencePercent: number | null
   /** Intake minus target summed over logged days: negative means under target. */
@@ -61,12 +60,12 @@ export type ProgressResponse = {
     /** Null until there's a weigh-in. */
     currentTrendKg: number | null
     changeKg: number
-    ratePerWeekKg: number
+    /** Null until weigh-ins cover a week: fewer give no reliable rate. */
+    ratePerWeekKg: number | null
     goalRatePerWeekKg: number
   }
-  expenditureKcalPerDay: number
-  /** Share of finished days with any food logged. */
-  adherencePercent: number
+  /** Share of finished days since the user started with any food logged; null before there's one. */
+  adherencePercent: number | null
   logging: LoggingSummary
   workouts: {
     /** Every logged session, planned or not. */
@@ -80,8 +79,6 @@ export type ProgressResponse = {
     weeks: VolumeWeek[]
     /** Mean of the weeks in range: a reference line, not a goal. */
     averageTonnes: number
-    /** A weekly volume goal; null until one exists. Shown instead of the average when set. */
-    targetTonnes: number | null
     /** The most recent completed Monday–Sunday week. */
     lastWeekTonnes: number
     /** lastWeekTonnes vs the week before it; null when that week had no volume. */

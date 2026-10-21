@@ -21,9 +21,7 @@ const newProfile: Profile = {
   heightCm: 170,
   goal: "maintain",
   weeklyRateKg: 0,
-  trainingDaysPerWeek: 3,
   experienceLevel: "beginner",
-  equipment: [],
   timezone,
   onboarded: false,
   dateOfBirth: null,
@@ -56,10 +54,9 @@ async function fillAboutYou(user: UserEvent, weight = "72.4") {
   await user.type(screen.getByLabelText("Weight today"), weight)
 }
 
-/** The training step: intermediate, 4 days a week, moderately active. */
+/** The training step: intermediate, moderately active. */
 async function fillTraining(user: UserEvent) {
   await user.click(screen.getByRole("radio", { name: "Intermediate" }))
-  await user.type(screen.getByLabelText("Training days"), "4")
   await user.click(screen.getByRole("combobox", { name: "Activity level" }))
   await user.click(await screen.findByRole("option", { name: "Moderately active, exercise 3–5 days a week" }))
 }
@@ -71,8 +68,6 @@ async function fillUpToTargets(user: UserEvent) {
   await user.click(screen.getByRole("radio", { name: "Lose fat" }))
   await continueTo(user, "Training")
   await fillTraining(user)
-  await continueTo(user, "Equipment")
-  await user.click(screen.getByRole("button", { name: "Barbell" }))
   await continueTo(user, "Daily targets")
   await waitFor(() => expect(screen.getByRole("button", { name: "Finish setup" })).toBeEnabled())
 }
@@ -89,7 +84,7 @@ describe("OnboardingPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    expect(await screen.findByText("Step 1 of 5")).toBeInTheDocument()
+    expect(await screen.findByText("Step 1 of 4")).toBeInTheDocument()
     expect(screen.getByLabelText("Name")).toHaveValue("Sam")
     await fillUpToTargets(user)
     expect(profileApi.estimateTargets).toHaveBeenCalledWith({
@@ -113,9 +108,7 @@ describe("OnboardingPage", () => {
       heightCm: 168,
       goal: "lose",
       weeklyRateKg: -0.5,
-      trainingDaysPerWeek: 4,
       experienceLevel: "intermediate",
-      equipment: ["barbell"],
       dateOfBirth: "1995-04-20",
       sex: "female",
       activityLevel: "moderate",
@@ -134,7 +127,7 @@ describe("OnboardingPage", () => {
     expect(screen.getByText("Enter your weight")).toBeInTheDocument()
     expect(screen.getByText("Enter your date of birth")).toBeInTheDocument()
     expect(screen.getByText("Choose one")).toBeInTheDocument()
-    expect(screen.getByText("Step 1 of 5")).toBeInTheDocument()
+    expect(screen.getByText("Step 1 of 4")).toBeInTheDocument()
 
     await fillAboutYou(user, "72")
     await continueTo(user, "Your goal")
@@ -143,8 +136,8 @@ describe("OnboardingPage", () => {
     await user.click(screen.getByRole("radio", { name: "Maintain" }))
     await continueTo(user, "Training")
     await user.click(screen.getByRole("button", { name: "Continue" }))
-    expect(await screen.findByText("Enter your training days")).toBeInTheDocument()
-    expect(screen.getByText("Choose how active you are")).toBeInTheDocument()
+    expect(await screen.findByText("Choose how active you are")).toBeInTheDocument()
+    expect(screen.getByText("Choose your experience")).toBeInTheDocument()
   })
 
   it("only takes ages the estimate is meant for", async () => {
@@ -170,11 +163,11 @@ describe("OnboardingPage", () => {
     expect(screen.getByLabelText("Calories")).toHaveValue("2000")
     expect(profileApi.estimateTargets).toHaveBeenCalledOnce()
 
-    for (let back = 0; back < 4; back++) await user.click(screen.getByRole("button", { name: "Back" }))
+    for (let back = 0; back < 3; back++) await user.click(screen.getByRole("button", { name: "Back" }))
     await user.clear(await screen.findByLabelText("Weight today"))
     await user.type(screen.getByLabelText("Weight today"), "70")
     profileApi.estimateTargets.mockResolvedValue({ ...ESTIMATE, calories: 1900 })
-    for (const title of ["Your goal", "Training", "Equipment", "Daily targets"]) await continueTo(user, title)
+    for (const title of ["Your goal", "Training", "Daily targets"]) await continueTo(user, title)
     expect(screen.getByLabelText("Calories")).toHaveValue("1900")
   })
 
@@ -184,11 +177,11 @@ describe("OnboardingPage", () => {
     await fillUpToTargets(user)
     expect(screen.getByLabelText("Calories")).toHaveValue("1950")
 
-    for (let back = 0; back < 4; back++) await user.click(screen.getByRole("button", { name: "Back" }))
+    for (let back = 0; back < 3; back++) await user.click(screen.getByRole("button", { name: "Back" }))
     await user.clear(await screen.findByLabelText("Weight today"))
     await user.type(screen.getByLabelText("Weight today"), "60")
     profileApi.estimateTargets.mockRejectedValueOnce(new Error("offline"))
-    for (const title of ["Your goal", "Training", "Equipment", "Daily targets"]) await continueTo(user, title)
+    for (const title of ["Your goal", "Training", "Daily targets"]) await continueTo(user, title)
     expect(screen.getByLabelText("Calories")).toHaveValue("2200")
     expect(screen.getByText(/general starting targets/)).toBeInTheDocument()
 
@@ -249,7 +242,7 @@ describe("OnboardingPage", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t finish setting up", { description: "Something broke." }))
     await waitFor(() => expect(profileApi.getProfile).toHaveBeenCalledTimes(2))
     expect(screen.getByRole("heading", { name: "Daily targets" })).toBeInTheDocument()
-    for (let back = 0; back < 4; back++) await user.click(screen.getByRole("button", { name: "Back" }))
+    for (let back = 0; back < 3; back++) await user.click(screen.getByRole("button", { name: "Back" }))
     expect(await screen.findByLabelText("Height")).toHaveValue("168")
   })
 
@@ -289,7 +282,6 @@ describe("OnboardingPage", () => {
     await user.click(screen.getByRole("radio", { name: "Maintain" }))
     await continueTo(user, "Training")
     await fillTraining(user)
-    await continueTo(user, "Equipment")
 
     await user.dblClick(screen.getByRole("button", { name: "Continue" }))
 

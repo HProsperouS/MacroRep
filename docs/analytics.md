@@ -35,6 +35,13 @@ weigh-in does not move the trend.
 rate (kg/week) = trend change over the period ÷ (days in period ÷ 7)
 ```
 
+The trend carries into the period from the last weigh-in before it; with none,
+the period starts at the first day with a trend (there's no trend before the
+first weigh-in). There's no rate until the weigh-ins it rests on (that one and
+those in the period) cover a week: at least two, 7 days apart counting both.
+One weigh-in gives no change, and two a day or two apart turn day-to-day swings
+in water and food into a weekly rate several times too big.
+
 ## Nutrition — `analytics/nutrition.py`
 
 ### Portion scaling
@@ -76,7 +83,7 @@ day read as partial. Counts, adherence, and the target gap below cover
 **finished days only**.
 
 "Partial" is only a label. A partial day's intake still counts everywhere
-(averages, expenditure, the target gap), because some days really are eaten
+(averages and the target gap), because some days really are eaten
 well under target; the label flags that the day *may* be under-logged, not
 that it is. With no calorie target (0), no logged day is partial.
 
@@ -87,7 +94,10 @@ adherence (%) = finished days with food logged ÷ finished days × 100, clamped 
 ```
 
 Shown as **Days logged**. It measures logging consistency, not whether intake
-was on target.
+was on target. Days are counted from when the user started: the later of the
+period's start and the earlier of sign-up and the first day with food logged
+(so a diary backfilled after signing up counts). Days before then weren't
+missed. With no finished day yet, there is no value rather than 0%.
 
 ### Target adherence
 
@@ -112,18 +122,6 @@ the Progress page as an average per logged day.
 **Limitation:** every day is judged against the **current** calorie target,
 not the target in effect that day, because targets aren't versioned yet.
 Changing the target re-labels past days.
-
-### Estimated energy expenditure
-
-From energy balance: whatever was eaten and not stored or lost as body mass
-was expended.
-
-```
-expenditure (kcal/day) = average intake − (trend change (kg) × 7700) ÷ days
-```
-
-7700 kcal per kg is the common rule of thumb (≈ 3500 kcal/lb). Losing 0.5 kg
-in a week while eating 2000 kcal/day gives an estimate of 2550 kcal/day.
 
 ## Starting targets — `analytics/energy.py`
 
@@ -225,7 +223,8 @@ completion (%) = workouts done ÷ planned × 100
 - **Done** counts every logged session in the period, planned or not, so
   an extra session can make up for a skipped one.
 - **Planned** counts each day in the period whose weekday has a planned
-  workout, up to yesterday. **Today** counts only once a workout has been
+  workout, up to yesterday, from when the user had a plan: their first routine,
+  or an earlier logged workout. Days before then weren't missed. **Today** counts only once a workout has been
   logged today, so a planned day isn't a miss before there's been a chance
   to train.
 - Not capped at 100%: training more often than planned is reported as such.
@@ -233,9 +232,9 @@ completion (%) = workouts done ÷ planned × 100
 
 ## Limitations
 
-- **Expenditure is only as good as the logging.** Under-logged meals make
-  intake look low and expenditure look low with it. The check-in refuses to
-  run below a minimum of logged days for this reason.
+- **Intake is only as good as the logging.** Under-logged meals make intake
+  look low. The check-in refuses to run below a minimum of logged days for
+  this reason.
 - **7700 kcal/kg assumes typical tissue composition.** Early in a diet, water
   and glycogen changes make weight move faster than this predicts.
 - **e1RM is an estimate,** most reliable between 1 and 10 reps.

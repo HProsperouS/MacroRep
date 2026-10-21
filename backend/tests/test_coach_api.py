@@ -368,13 +368,13 @@ def test_check_in_reports_completion_and_effort(client: TestClient) -> None:
     _weigh_in(client, headers, days_ago=6, weight_kg=80)
     _weigh_in(client, headers, days_ago=0, weight_kg=80)
     _log_workout(client, headers, days_ago=1, rpe=8)
-    _log_workout(client, headers, days_ago=2, rpe=9)
+    _log_workout(client, headers, days_ago=5, rpe=9)  # training began then, though the routine is new
 
     _start(client, headers, "effort")
     check_in = _ready(client, headers)
     stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
-    # 6 finished plan days in the 7-day window; today isn't due until trained.
-    assert stats["Workouts"] == "2/6 (33%)"
+    # 5 finished plan days since training began; today isn't due until trained.
+    assert stats["Workouts"] == "2/5 (40%)"
     assert stats["Avg RPE"] == "8.5"
     assert "Average effort was RPE 8.5." in check_in["summary"]
 
@@ -1392,3 +1392,31 @@ def test_switched_off_check_ins_are_not_limited(client: TestClient) -> None:
     finally:
         app.dependency_overrides.pop(get_settings)
     assert user_limiter._hits == {}  # noqa: SLF001
+
+
+def test_the_snapshot_records_the_users_training_experience(client: TestClient) -> None:
+    from tests.test_onboarding import GUIDE, ONBOARDING
+
+    headers = _new_user(client)
+    assert (
+        client.post(ONBOARDING, headers=headers, json={**GUIDE, "experienceLevel": "advanced"}).status_code
+        == 200
+    )
+    _week_with_a_proposal(client, headers)
+
+    check_in_id = _start(client, headers, "experience").json()["id"]
+
+    assert _check_in_row(client, check_in_id).input_snapshot["experience_level"] == "advanced"  # type: ignore[attr-defined]
+
+
+def test_a_plan_made_mid_week_isnt_read_as_missed_sessions(client: TestClient) -> None:
+    # The workout agent holds progress back when completion looks low.
+    headers = _new_user(client)
+    _week_with_a_proposal(client, headers)
+    plan_every_day(client, headers)  # made today, with nothing logged before it
+
+    check_in_id = _start(client, headers, "mid-week").json()["id"]
+
+    snapshot = _check_in_row(client, check_in_id).input_snapshot  # type: ignore[attr-defined]
+    assert (snapshot["workouts_planned"], snapshot["completion_percent"]) == (0, None)
+    assert snapshot["adherence_percent"] == 100.0, "logged every day since the first"

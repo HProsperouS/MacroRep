@@ -12,7 +12,6 @@ from app.analytics.nutrition import (
     calories_implausibly_low,
     classify_day,
     day_statuses,
-    estimate_expenditure,
     logging_adherence_percent,
     logging_completeness,
     macro_calories,
@@ -180,21 +179,3 @@ def test_targets_by_date_falls_back_without_any_version() -> None:
         date(2024, 1, 1): 1800,
         date(2024, 1, 2): 1800,
     }
-
-
-def test_losing_weight_means_expenditure_exceeded_intake() -> None:
-    # 0.5 kg lost in 7 days = 0.5 * 7700 / 7 = 550 kcal/day deficit.
-    assert estimate_expenditure(2000, -0.5, 7) == 2550
-
-
-def test_gaining_weight_means_intake_exceeded_expenditure() -> None:
-    # 0.7 kg gained in 7 days = 770 kcal/day surplus.
-    assert estimate_expenditure(2000, 0.7, 7) == 1230
-
-
-def test_stable_weight_means_expenditure_equals_intake() -> None:
-    assert estimate_expenditure(2400, 0.0, 30) == 2400
-
-
-def test_expenditure_over_no_days_falls_back_to_intake() -> None:
-    assert estimate_expenditure(2100, -1.0, 0) == 2100

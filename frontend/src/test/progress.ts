@@ -16,9 +16,8 @@ export function progressResponse(overrides: Partial<ProgressResponse> = {}): Pro
       ratePerWeekKg: -0.3,
       goalRatePerWeekKg: -0.5,
     },
-    expenditureKcalPerDay: 2650,
     adherencePercent: 90,
-    logging: { completeDays: 25, partialDays: 2, missingDays: 3, targetAdherencePercent: 70, targetGapKcal: -5400 },
+    logging: { completeDays: 25, partialDays: 2, targetAdherencePercent: 70, targetGapKcal: -5400 },
     workouts: { done: 10, planned: 12, completionPercent: 83.3 },
     volume: {
       weeks: [
@@ -26,7 +25,6 @@ export function progressResponse(overrides: Partial<ProgressResponse> = {}): Pro
         { weekStart: "2026-10-13", tonnes: 14, avgRpe: null },
       ],
       averageTonnes: 13.25,
-      targetTonnes: null,
       lastWeekTonnes: 14,
       changePercent: 12,
     },

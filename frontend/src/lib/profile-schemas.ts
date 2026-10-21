@@ -4,7 +4,6 @@ import { toNumber } from "@/lib/format"
 import { caloriesImplausiblyLow, implausibleCaloriesMessage } from "@/lib/macros"
 import { requiredNumber } from "@/lib/zod-helpers"
 import { ACTIVITY_LEVELS, EXPERIENCE_LEVELS, GOALS, SEXES, type Goal, type UpdateProfileInput } from "@/types/profile"
-import { EQUIPMENT } from "@/types/workout"
 
 // Ages the target estimate's formula is meant for, as the server allows.
 const MIN_AGE = 13
@@ -26,16 +25,7 @@ export const profileSchema = z.object({
   goal: z.enum(GOALS),
   // No health limit by design (see RateField's caution); 99.99 is what the server can store.
   weeklyRate: requiredNumber("a weekly rate", 0, 99.99),
-  trainingDaysPerWeek: z.preprocess(
-    (value) => (value === "" || value == null ? undefined : Number(value)),
-    z
-      .number({ required_error: "Enter your training days", invalid_type_error: "Enter a number" })
-      .int("Whole days only")
-      .min(1, "At least 1 day")
-      .max(7, "At most 7 days"),
-  ),
   experienceLevel: z.enum(EXPERIENCE_LEVELS),
-  equipment: z.array(z.enum(EQUIPMENT)),
   dateOfBirth: z
     .string()
     .min(1, "Enter your date of birth")
@@ -59,9 +49,7 @@ export function toUpdateProfileInput(values: z.output<typeof profileSchema>): Up
     heightCm: values.heightCm,
     goal: values.goal,
     weeklyRateKg: signedRate(values.goal, values.weeklyRate),
-    trainingDaysPerWeek: values.trainingDaysPerWeek,
     experienceLevel: values.experienceLevel,
-    equipment: values.equipment,
     dateOfBirth: values.dateOfBirth,
     sex: values.sex,
     activityLevel: values.activityLevel,

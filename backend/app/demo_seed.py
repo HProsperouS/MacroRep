@@ -63,9 +63,7 @@ async def seed_demo_data() -> None:
                     height_cm=175,
                     goal=Goal.LOSE,
                     weekly_rate_kg=-0.5,
-                    training_days_per_week=3,
                     experience_level=ExperienceLevel.INTERMEDIATE,
-                    equipment=["barbell", "dumbbell", "bodyweight"],
                     onboarded_utc=utc_now(),
                     date_of_birth=date(1998, 6, 15),
                     sex=Sex.MALE,
@@ -199,7 +197,6 @@ async def seed_demo_data() -> None:
                 "goal": "lose",
                 "routines": [],
                 "exercise_trends": {},
-                "equipment": [],
             }
             draft = await run_agents(snapshot, FakeCoachModel())
             today = _demo_today()

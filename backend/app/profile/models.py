@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, Numeric, String
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,13 +43,9 @@ class Profile(TimestampMixin, Base):
     height_cm: Mapped[float] = mapped_column(Numeric(5, 1), nullable=False)
     goal: Mapped[Goal] = mapped_column(SAEnum(Goal, name="profile_goal"), nullable=False)
     weekly_rate_kg: Mapped[float] = mapped_column(Numeric(4, 2), nullable=False)
-    training_days_per_week: Mapped[int] = mapped_column(Integer, nullable=False)
     experience_level: Mapped[ExperienceLevel] = mapped_column(
         SAEnum(ExperienceLevel, name="experience_level"), nullable=False, default=ExperienceLevel.BEGINNER
     )
-    # Equipment the user has access to, from workout.models.EQUIPMENT — used to
-    # steer which exercises the (future) coach pipeline proposes.
-    equipment: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     # IANA name (e.g. "Asia/Singapore"), kept in sync from the browser. Decides
     # the user's "today" and which day a workout falls on (app.shared.timezones).
     timezone: Mapped[str] = mapped_column(

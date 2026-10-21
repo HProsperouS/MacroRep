@@ -97,9 +97,7 @@ def _apply(profile: Profile, payload: UpdateProfileInput) -> None:
     profile.height_cm = payload.height_cm
     profile.goal = payload.goal
     profile.weekly_rate_kg = payload.weekly_rate_kg
-    profile.training_days_per_week = payload.training_days_per_week
     profile.experience_level = payload.experience_level
-    profile.equipment = payload.equipment
     profile.date_of_birth = payload.date_of_birth
     profile.sex = payload.sex
     profile.activity_level = payload.activity_level
@@ -138,9 +136,7 @@ class ProfileService:
             height_cm=170,
             goal=Goal.MAINTAIN,
             weekly_rate_kg=0,
-            training_days_per_week=3,
             experience_level=ExperienceLevel.BEGINNER,
-            equipment=[],
         )
         try:
             # A savepoint, so losing the race below undoes only this insert.
@@ -168,9 +164,7 @@ class ProfileService:
             height_cm=float(profile.height_cm),
             goal=profile.goal,
             weekly_rate_kg=float(profile.weekly_rate_kg),
-            training_days_per_week=profile.training_days_per_week,
             experience_level=profile.experience_level,
-            equipment=list(profile.equipment),
             timezone=profile.timezone,
             onboarded=profile.onboarded_utc is not None,
             date_of_birth=profile.date_of_birth,

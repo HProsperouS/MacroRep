@@ -28,12 +28,12 @@ from app.analytics.weight import trend_on_or_before
 from app.body.service import trend_by_date
 from app.core.config import get_settings
 from app.identity.dependencies import ActorContext
-from app.profile.models import Profile, TargetSource
+from app.profile.models import ExperienceLevel, Profile, TargetSource
 from app.profile.repository import ProfileRepository
 from app.profile.service import DEFAULT_TARGETS
 from app.progress.repository import ProgressRepository
 from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, CHECK_INS_PER_USER, count_attempt, user_limiter
-from app.shared.timezones import local_today, user_zone
+from app.shared.timezones import local_date, local_today, user_zone
 
 # The same bounds as the targets the user sets, so a proposal can't set one they couldn't type in.
 from app.shared.validation import MAX_TARGET_CALORIES, MIN_TARGET_CALORIES, ensure_plausible_calories
@@ -410,8 +410,11 @@ class CoachService:
         target_calories = round(target_by_date[end])
         # Non-None: the data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days.
         avg_calories = cast(float, average_daily_calories(calories_by_date))
+        # Judged from when the user started, as on Progress: days before it weren't missed.
+        signed_up = local_date(profile.created_utc, zone) if profile else start
+        logged_from = max(start, await self.week_data.logging_started(owner_id, signed_up))
         # `end` is today: still being logged, so it's left out of completeness and the target gap.
-        statuses = day_statuses(calories_by_date, start, end, target_by_date, end)
+        statuses = day_statuses(calories_by_date, logged_from, end, target_by_date, end)
         completeness = logging_completeness(statuses.values())
         finished_logged = [
             (calories_by_date[day], target_by_date[day])
@@ -419,12 +422,19 @@ class CoachService:
             if day_status in (DayStatus.COMPLETE, DayStatus.PARTIAL)
         ]
         workouts_done = await self.week_data.workouts_done(owner_id, start, end, zone)
-        workouts_planned = planned_sessions(
-            await self.week_data.plan_weekdays(owner_id),
-            start,
-            end,
-            end,
-            trained_today=await self.week_data.workouts_done(owner_id, end, end, zone) > 0,
+        # Nor were plan days before there was a plan: the workout agent holds back progress when
+        # completion looks low, so a plan made mid-week mustn't read as missed sessions.
+        training_started = await self.week_data.training_started(owner_id, zone)
+        workouts_planned = (
+            planned_sessions(
+                await self.week_data.plan_weekdays(owner_id),
+                max(start, training_started),
+                end,
+                end,
+                trained_today=await self.week_data.workouts_done(owner_id, end, end, zone) > 0,
+            )
+            if training_started
+            else 0
         )
         rpe_entries = await self.week_data.rpe_entries(owner_id, start, end, zone)
         routines = await self.week_data.scheduled_routines(owner_id)
@@ -436,7 +446,9 @@ class CoachService:
             # The targets version the proposals were made against; applying one checks it is still current.
             "target_version": current_targets.version if current_targets else None,
             "food_log_days": len(calories_by_date),
-            "adherence_percent": logging_adherence_percent(len(calories_by_date), CHECK_IN_WINDOW_DAYS),
+            "adherence_percent": logging_adherence_percent(
+                len(calories_by_date), (end - logged_from).days + 1
+            ),
             "complete_days": completeness.complete,
             "partial_days": completeness.partial,
             "missing_days": completeness.missing,
@@ -463,7 +475,8 @@ class CoachService:
                 end,
                 zone,
             ),
-            "equipment": list(profile.equipment) if profile else [],
+            # A profile not made yet would start as a beginner.
+            "experience_level": (profile.experience_level if profile else ExperienceLevel.BEGINNER).value,
             "goal": profile.goal.value if profile else "maintain",
         }
 

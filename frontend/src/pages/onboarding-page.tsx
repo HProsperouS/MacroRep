@@ -10,7 +10,7 @@ import { z } from "zod"
 import { apiErrorMessage } from "@/api/client"
 import { profileKeys } from "@/api/query-keys"
 import { QueryError } from "@/components/layout/query-error"
-import { ActivityChoice, EquipmentChoice, ExperienceChoice, GoalChoice, SexChoice } from "@/components/profile/profile-choices"
+import { ActivityChoice, ExperienceChoice, GoalChoice, SexChoice } from "@/components/profile/profile-choices"
 import { RateInput } from "@/components/profile/profile-form"
 import { MacroSummary, TargetsFields } from "@/components/profile/targets-form"
 import { Button } from "@/components/ui/button"
@@ -49,10 +49,9 @@ const STEPS: { title: string; description: string; fields: FieldPath<OnboardingF
   { title: "Your goal", description: "Your coach sets calorie targets towards it.", fields: ["goal", "weeklyRate"] },
   {
     title: "Training",
-    description: "Your coach sets training volume to suit it, and your activity estimates what you burn.",
-    fields: ["experienceLevel", "trainingDaysPerWeek", "activityLevel"],
+    description: "Your coach paces training changes to your experience, and your activity helps estimate your targets.",
+    fields: ["experienceLevel", "activityLevel"],
   },
-  { title: "Equipment", description: "Choose everything you have access to.", fields: ["equipment"] },
   {
     title: "Daily targets",
     description: "Keep these or change them. Each weekly check-in then adjusts them from what you log.",
@@ -111,8 +110,6 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
       heightCm: "",
       weightKg: "",
       weeklyRate: "0.5",
-      trainingDaysPerWeek: "",
-      equipment: [],
       calories: targets ? String(targets.calories) : "",
       protein: targets ? String(targets.protein) : "",
       carbs: targets ? String(targets.carbs) : "",
@@ -282,7 +279,6 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
                     render={({ field }) => <ExperienceChoice value={field.value} onChange={field.onChange} />}
                   />
                 </Choice>
-                <TextField id="onboarding-days" label="Training days" unit="days / week" inputMode="numeric" error={errors.trainingDaysPerWeek?.message} {...register("trainingDaysPerWeek")} />
                 <Choice legend="Daily activity, training included" error={errors.activityLevel?.message}>
                   <Controller
                     control={control}
@@ -291,16 +287,6 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
                   />
                 </Choice>
               </>
-            ) : null}
-
-            {step === 3 ? (
-              <Choice legend="Equipment you have access to" description="Leave it empty if you train with your body weight only.">
-                <Controller
-                  control={control}
-                  name="equipment"
-                  render={({ field }) => <EquipmentChoice value={field.value} onChange={field.onChange} />}
-                />
-              </Choice>
             ) : null}
 
             {last ? (

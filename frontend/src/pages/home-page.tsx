@@ -76,7 +76,7 @@ export default function HomePage() {
 
       <div className="grid items-start gap-4 lg:grid-cols-12 lg:gap-6">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-7 lg:gap-6">
-          <TodayNutritionCard today={today} expenditureKcal={progress.data?.expenditureKcalPerDay} />
+          <TodayNutritionCard today={today} />
           {isDesktop ? <CaloriesWeekCard /> : actionCards}
         </div>
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-5 lg:gap-6">

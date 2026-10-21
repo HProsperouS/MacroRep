@@ -64,10 +64,11 @@ describe("ProgressPage", () => {
   it("explains empty sections", async () => {
     api.getProgress.mockResolvedValue(
       progressResponse({
-        weight: { ...progressResponse().weight, points: [{ date: "2026-10-20", scaleKg: null, trendKg: 80 }] },
-        logging: { completeDays: 0, partialDays: 0, missingDays: 30, targetAdherencePercent: null, targetGapKcal: 0 },
+        adherencePercent: null,
+        weight: { ...progressResponse().weight, points: [{ date: "2026-10-20", scaleKg: null, trendKg: 80 }], ratePerWeekKg: null },
+        logging: { completeDays: 0, partialDays: 0, targetAdherencePercent: null, targetGapKcal: 0 },
         workouts: { done: 0, planned: 0, completionPercent: null },
-        volume: { ...progressResponse().volume, targetTonnes: 15, changePercent: null },
+        volume: { ...progressResponse().volume, changePercent: null },
         rpe: { thisWeekAvg: null, change: null },
         strength: [],
         checkIns: [],
@@ -80,7 +81,10 @@ describe("ProgressPage", () => {
     await waitFor(() => expect(screen.getAllByText("No weigh-ins in this period.")).toHaveLength(2))
     expect(screen.getByText("Logged days within ±10%")).toBeInTheDocument()
     expect(screen.getByText("No plan set")).toBeInTheDocument()
-    expect(screen.getByText("Target 15 t")).toBeInTheDocument()
+    // Weigh-ins don't cover a week yet: no rate, and no verdict against the goal.
+    expect(screen.getByText("Rate").parentElement).toHaveTextContent(/^Rate—Needs a week of weigh-ins$/)
+    // Nothing finished yet: a dash, not 0%.
+    expect(screen.getByText("Days logged").parentElement).toHaveTextContent(/^Days logged—/)
     expect(screen.getByText("No RPE logged this week yet")).toBeInTheDocument()
     expect(screen.getByText(/Log a few working sets/)).toBeInTheDocument()
     expect(screen.getByText("No check-ins in this period.")).toBeInTheDocument()
@@ -108,22 +112,6 @@ describe("ProgressPage", () => {
 
     expect(await screen.findByText("Latest 12 months")).toBeInTheDocument()
     expect(api.listWeighIns).toHaveBeenCalledWith("2025-10-20", "2026-10-20", expect.anything())
-  })
-
-  it("exports the weight series as CSV", async () => {
-    const createObjectURL = vi.fn(() => "blob:weights")
-    Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() })
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(await screen.findByRole("button", { name: "Export" }))
-
-    expect(click).toHaveBeenCalledOnce()
-    const link = click.mock.contexts[0] as HTMLAnchorElement
-    expect(link.download).toBe("macrorep-weight-2026-09-21-to-2026-10-20.csv")
-    const blob = (createObjectURL.mock.calls[0] as unknown as [Blob])[0]
-    expect(await blob.text()).toBe("date,scale_kg,trend_kg\n2026-10-18,80.4,80.6\n2026-10-19,80,80.5\n2026-10-20,,80.4")
   })
 
   it("offers a retry when progress can't be loaded", async () => {

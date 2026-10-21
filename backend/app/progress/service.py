@@ -12,9 +12,7 @@ from datetime import date, timedelta
 
 from app.analytics.nutrition import (
     DayStatus,
-    average_daily_calories,
     day_statuses,
-    estimate_expenditure,
     logging_adherence_percent,
     logging_completeness,
     target_adherence_percent,
@@ -55,6 +53,9 @@ from .schemas import (
 )
 
 _RANGE_DAYS: dict[str, int] = {"1M": 30, "3M": 90, "6M": 182, "1Y": 365}
+# Weigh-ins must cover this many days for a weekly rate. (Stricter than a check-in, which
+# needs two weigh-ins within its 7 days: it reads the change, not a rate to judge pace by.)
+RATE_NEEDS_DAYS = 7
 
 
 class ProgressService:
@@ -89,8 +90,10 @@ class ProgressService:
         scale_by_date = {row.log_date: float(row.weight_kg) for row in history}
 
         points: list[WeightPoint] = []
-        # No trend before the first weigh-in: a day with no weight isn't a weight of 0.
-        last_trend: float | None = None
+        # The trend carries in from the last weigh-in before the range, if any. Before the
+        # first weigh-in ever there's none: a day with no weight isn't a weight of 0.
+        before = [row.log_date for row in history if row.log_date < date_from]
+        last_trend: float | None = trends[before[-1]] if before else None
         cursor = date_from
         while cursor <= date_to:
             if cursor in trends:
@@ -103,7 +106,12 @@ class ProgressService:
         trend_at_end = trended[-1][1] if trended else None
         change_kg = round(trended[-1][1] - trended[0][1], 2) if trended else 0.0
         trend_days = (trended[-1][0] - trended[0][0]).days + 1 if trended else days_in_range
-        rate_per_week_kg = rate_per_week(change_kg, trend_days)
+        # A weekly rate needs the weigh-ins it rests on (the one carried in, and those in range)
+        # to cover a week: one gives no change, and two a day or two apart turn day-to-day
+        # swings (water, food) into a rate several times too big.
+        weighed = before[-1:] + [row.log_date for row in history if date_from <= row.log_date <= date_to]
+        weighed_over_a_week = len(weighed) >= 2 and (weighed[-1] - weighed[0]).days + 1 >= RATE_NEEDS_DAYS
+        rate_per_week_kg = rate_per_week(change_kg, trend_days) if weighed_over_a_week else None
 
         goal_rate = float(profile.weekly_rate_kg) if profile else 0.0
         target_by_date = targets_by_date(
@@ -113,28 +121,37 @@ class ProgressService:
             DEFAULT_TARGETS.calories,
         )
 
-        calories_by_date = await self.repository.daily_calories(actor.actor_id, date_from, date_to)
-        status_by_date = day_statuses(calories_by_date, date_from, date_to, target_by_date, today)
+        # Days before the user started weren't missed.
+        signed_up = local_date(profile.created_utc, zone) if profile else date_from
+        counted_from = max(date_from, await self.repository.logging_started(actor.actor_id, signed_up))
+        calories_by_date = await self.repository.daily_calories(actor.actor_id, counted_from, date_to)
+        status_by_date = day_statuses(calories_by_date, counted_from, date_to, target_by_date, today)
         completeness = logging_completeness(status_by_date.values())
         logged_days = completeness.complete + completeness.partial
-        adherence_percent = logging_adherence_percent(logged_days, sum(completeness))
+        finished_days = sum(completeness)
+        adherence_percent = logging_adherence_percent(logged_days, finished_days) if finished_days else None
         finished_logged = _finished_logged_days(calories_by_date, status_by_date, target_by_date)
         logging = LoggingSummary(
             complete_days=completeness.complete,
             partial_days=completeness.partial,
-            missing_days=completeness.missing,
             target_adherence_percent=target_adherence_percent(finished_logged),
             target_gap_kcal=target_gap_kcal(finished_logged),
-        )
-        avg_calories = average_daily_calories(calories_by_date)
-        expenditure_kcal_per_day = estimate_expenditure(
-            avg_calories if avg_calories is not None else target_by_date[date_to], change_kg, trend_days
         )
 
         workouts_done = await self.repository.workouts_done(actor.actor_id, date_from, date_to, zone)
         trained_today = await self.repository.workouts_done(actor.actor_id, today, today, zone) > 0
-        workouts_planned = planned_sessions(
-            await self.repository.plan_weekdays(actor.actor_id), date_from, date_to, today, trained_today
+        # Nor were workouts due before there was a plan to follow; with none, nothing was.
+        training_started = await self.repository.training_started(actor.actor_id, zone)
+        workouts_planned = (
+            planned_sessions(
+                await self.repository.plan_weekdays(actor.actor_id),
+                max(date_from, training_started),
+                date_to,
+                today,
+                trained_today,
+            )
+            if training_started
+            else 0
         )
 
         weekly_volume = await self.repository.weekly_volume(actor.actor_id, date_from, date_to, zone)
@@ -214,7 +231,6 @@ class ProgressService:
                 rate_per_week_kg=rate_per_week_kg,
                 goal_rate_per_week_kg=goal_rate,
             ),
-            expenditure_kcal_per_day=expenditure_kcal_per_day,
             adherence_percent=adherence_percent,
             logging=logging,
             workouts=WorkoutsSummary(

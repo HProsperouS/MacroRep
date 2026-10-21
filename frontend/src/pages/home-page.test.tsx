@@ -67,7 +67,7 @@ describe("HomePage", () => {
 
     expect(await screen.findByText("1,600")).toBeInTheDocument()
     expect(screen.getByText("kcal left")).toBeInTheDocument()
-    expect(screen.getByText("2,650")).toBeInTheDocument()
+    expect(screen.queryByText(/Burned/)).not.toBeInTheDocument() // not something the logs can tell
     expect(screen.getByText("80.4")).toBeInTheDocument()
     expect(screen.getByText("−0.3 kg / wk")).toBeInTheDocument()
     expect(await screen.findByText("Push day")).toBeInTheDocument()
@@ -81,13 +81,14 @@ describe("HomePage", () => {
     const response = progressResponse()
     progressApi.getProgress.mockResolvedValue({
       ...response,
-      weight: { ...response.weight, points: response.weight.points.map((point) => ({ ...point, scaleKg: null, trendKg: null })), currentTrendKg: null },
+      weight: { ...response.weight, points: response.weight.points.map((point) => ({ ...point, scaleKg: null, trendKg: null })), currentTrendKg: null, ratePerWeekKg: null },
     })
     renderPage()
 
     const card = (await screen.findByText("Trend weight")).closest("[data-slot=card]") as HTMLElement
     expect(await within(card).findByText("—")).toBeInTheDocument()
     expect(within(card).queryByText("0.0")).not.toBeInTheDocument()
+    expect(within(card).queryByText(/kg \/ wk/)).not.toBeInTheDocument()
   })
 
   it("nudges for a missed meal and a missing weigh-in", async () => {

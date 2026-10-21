@@ -78,7 +78,7 @@ def snapshot(**overrides: Any) -> dict[str, Any]:
             }
         ],
         "exercise_trends": {},
-        "equipment": ["barbell"],
+        "experience_level": "beginner",
     }
     return {**base, **overrides}
 
@@ -441,8 +441,18 @@ async def test_a_snapshot_taken_before_training_data_was_gathered_still_runs() -
     old = {
         key: value
         for key, value in snapshot().items()
-        if key not in ("routines", "exercise_trends", "equipment")
+        if key not in ("routines", "exercise_trends", "experience_level")
     }
     draft = await run_agents(old, FakeCoachModel())
     assert draft.pipeline[2]["status"] == "done"
     assert all(p.kind != "training" for p in draft.proposals)
+
+
+def test_the_workout_agent_paces_progress_to_the_users_experience() -> None:
+    from app.coach.agents.graph import WORKOUT_INSTRUCTIONS
+
+    assert workout_context(snapshot())["experience_level"] == "beginner"
+    # Snapshots from before it was gathered are paced as for an intermediate.
+    old = {key: value for key, value in snapshot().items() if key != "experience_level"}
+    assert workout_context(old)["experience_level"] == "intermediate"
+    assert "experience_level" in WORKOUT_INSTRUCTIONS

@@ -1,5 +1,4 @@
 import type { DailyTargets } from "@/types/food"
-import type { Equipment } from "@/types/workout"
 
 export const GOALS = ["lose", "maintain", "gain"] as const
 export type Goal = (typeof GOALS)[number]
@@ -45,10 +44,7 @@ export type Profile = {
   goal: Goal
   /** Target change per week in kg; negative when losing. */
   weeklyRateKg: number
-  trainingDaysPerWeek: number
   experienceLevel: ExperienceLevel
-  /** Equipment the user has access to; steers what the coach proposes. */
-  equipment: Equipment[]
   /** IANA timezone, e.g. "Asia/Singapore"; synced from the browser, decides the user's calendar days. */
   timezone: string
   /** False until the sign-up guide is finished; until then the app shows only the guide. */

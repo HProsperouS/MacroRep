@@ -39,7 +39,9 @@ export function TrendWeightCard({ data, error, onRetry, onAddWeighIn }: TrendWei
                 {data.weight.currentTrendKg == null ? "—" : formatNumber(data.weight.currentTrendKg, 1)}
               </span>
               <span className="text-sm text-muted-foreground">kg</span>
-              <Badge className="ml-auto bg-primary/12 text-primary">{formatSigned(data.weight.ratePerWeekKg, 2)} kg / wk</Badge>
+              {data.weight.ratePerWeekKg == null ? null : (
+                <Badge className="ml-auto bg-primary/12 text-primary">{formatSigned(data.weight.ratePerWeekKg, 2)} kg / wk</Badge>
+              )}
             </div>
             <WeightChart points={data.weight.points} height={96} compact />
             <WeightLegend />

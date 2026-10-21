@@ -94,7 +94,6 @@ def week(**overrides: Any) -> dict[str, Any]:
             "bench": trend(recent=100.0, prior=99.0, rpe=8.0),
             "row": trend(recent=90.0, prior=89.5, rpe=8.0),
         },
-        "equipment": ["barbell", "dumbbell"],
     }
     snapshot.update(overrides)
     return snapshot

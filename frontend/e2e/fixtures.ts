@@ -79,11 +79,8 @@ async function finishGuideInBrowser(page: Page) {
   await page.getByRole("radio", { name: "Maintain" }).click()
   await next.click()
   await page.getByRole("radio", { name: "Beginner" }).click()
-  await page.getByLabel("Training days").fill("3")
   await page.getByRole("combobox", { name: "Activity level" }).click()
   await page.getByRole("option", { name: "Moderately active, exercise 3–5 days a week" }).click()
-  await next.click()
-  await page.getByRole("button", { name: "Barbell" }).click()
   await next.click()
   await expect(page.getByText(/^Estimated for you:/)).toBeVisible()
   for (const [label, value] of [
@@ -120,9 +117,7 @@ export async function signUpThroughApi(request: APIRequestContext) {
       heightCm: 175,
       goal: "maintain",
       weeklyRateKg: 0,
-      trainingDaysPerWeek: 3,
       experienceLevel: "beginner",
-      equipment: ["barbell"],
       dateOfBirth: "1995-04-20",
       sex: "male",
       activityLevel: "moderate",

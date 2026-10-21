@@ -53,7 +53,7 @@ rejected.
 | Agent | Sees | Returns |
 |---|---|---|
 | **Nutrition** | Calorie target, average intake, logging completeness, gap to target, weight change against the goal rate, goal | `keep` or `change` with a new calorie target, a headline, evidence, and what the data can't tell |
-| **Workout** | Workouts done and planned, average RPE, scheduled routines with their targets, per-exercise trends, equipment | `keep` or `change` with adjustments (routine, exercise, field, new value, reason), headline, evidence |
+| **Workout** | Workouts done and planned, average RPE, scheduled routines with their targets, per-exercise trends, training experience (paces how quickly to progress) | `keep` or `change` with adjustments (routine, exercise, field, new value, reason), headline, evidence |
 | **Reviewer** | Both proposals, each training change next to the value it replaces, missing days, RPE, weight change against the goal | Findings (info, warning or conflict), whether to keep each proposal, and a note for the user |
 
 Each agent sees only its own slice: the Nutrition agent never sees routines, the Workout

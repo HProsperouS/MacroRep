@@ -16,12 +16,10 @@ GUIDE: dict[str, Any] = {
     "heightCm": 168,
     "goal": "lose",
     "weeklyRateKg": -0.5,
-    "trainingDaysPerWeek": 4,
     "experienceLevel": "intermediate",
     "dateOfBirth": "1995-04-20",
     "sex": "female",
     "activityLevel": "moderate",
-    "equipment": ["barbell", "dumbbell"],
     "weightKg": 72.4,
     "targets": {"calories": 1900, "protein": 140, "carbs": 190, "fat": 63},
 }
@@ -60,11 +58,7 @@ def test_the_guide_saves_the_profile_todays_weight_and_the_starting_targets(clie
         "lose",
         -0.5,
     )
-    assert (profile["trainingDaysPerWeek"], profile["experienceLevel"], profile["equipment"]) == (
-        4,
-        "intermediate",
-        ["barbell", "dumbbell"],
-    )
+    assert profile["experienceLevel"] == "intermediate"
     assert client.get("/api/v1/profile", headers=headers).json() == profile
     [weigh_in] = _weigh_ins(client, headers)
     assert weigh_in["weightKg"] == 72.4

@@ -95,5 +95,5 @@ def test_training_today_counts_in_the_users_timezone(client: TestClient) -> None
     _log_bench(client, headers, datetime.now(UTC) - timedelta(minutes=2))
 
     workouts = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["workouts"]
-    # 29 finished plan days, plus today's once trained: today is Kiritimati's today.
-    assert workouts == {"done": 1, "planned": 30, "completionPercent": 3.3}
+    # The plan began today, so only today is due, once trained: today is Kiritimati's today.
+    assert workouts == {"done": 1, "planned": 1, "completionPercent": 100.0}

@@ -1,5 +1,5 @@
 """Portion scaling, intake averages, logging adherence and completeness, target
-comparison, and estimated energy expenditure."""
+and target comparison."""
 
 from __future__ import annotations
 
@@ -205,15 +205,3 @@ def target_gap_kcal(logged_days: Iterable[tuple[float, float]]) -> int:
     """
 
     return round(sum(calories - target for calories, target in logged_days))
-
-
-def estimate_expenditure(avg_intake_kcal: float, trend_change_kg: float, days: int) -> float:
-    """Estimated daily energy expenditure (kcal/day) from intake and the weight trend.
-
-    Energy balance: whatever was eaten and not reflected as weight change was
-    expended. Losing weight means expenditure exceeded intake, and vice versa.
-    """
-
-    if days <= 0:
-        return round(avg_intake_kcal)
-    return round(avg_intake_kcal - (trend_change_kg * KCAL_PER_KG_BODY_MASS) / days)

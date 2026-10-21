@@ -14,7 +14,6 @@ import {
   type Goal,
   type Sex,
 } from "@/types/profile"
-import { EQUIPMENT, EQUIPMENT_LABELS, type Equipment } from "@/types/workout"
 
 type ChoiceProps<T> = {
   /** Undefined until one is chosen (nothing shows as selected). */
@@ -74,17 +73,5 @@ export function ActivityChoice({ id, value, onChange, disabled }: ChoiceProps<Ac
         </SelectGroup>
       </SelectContent>
     </Select>
-  )
-}
-
-export function EquipmentChoice({ value, onChange, disabled }: { value: Equipment[]; onChange: (value: Equipment[]) => void; disabled?: boolean }) {
-  return (
-    <ToggleGroup type="multiple" variant="outline" value={value} onValueChange={(next: Equipment[]) => onChange(next)} aria-label="Available equipment" className="flex-wrap" disabled={disabled}>
-      {EQUIPMENT.map((item) => (
-        <ToggleGroupItem key={item} value={item} className="h-10 data-[state=on]:border-primary/45 data-[state=on]:bg-primary/7">
-          {EQUIPMENT_LABELS[item]}
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
   )
 }

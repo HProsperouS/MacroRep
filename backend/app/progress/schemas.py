@@ -19,7 +19,8 @@ class WeightSummary(CamelModel):
     # None until there's a weigh-in.
     current_trend_kg: float | None
     change_kg: float
-    rate_per_week_kg: float
+    # Null until weigh-ins cover a week.
+    rate_per_week_kg: float | None
     goal_rate_per_week_kg: float
 
 
@@ -34,9 +35,6 @@ class VolumeSummary(CamelModel):
     weeks: list[VolumeWeek]
     # Mean of the weeks in range: a reference line, not a goal anyone set.
     average_tonnes: float
-    # A weekly volume goal (e.g. derived from the workout plan). Always null
-    # for now; clients show `average_tonnes` as their reference until it's set.
-    target_tonnes: float | None = None
     # The most recent *completed* Monday-Sunday week, so a half-finished
     # current week never reads as a drop.
     last_week_tonnes: float
@@ -75,11 +73,11 @@ class CheckInHistoryItem(CamelModel):
 
 
 class LoggingSummary(CamelModel):
-    """Finished days only: today is still being logged and isn't counted."""
+    """Finished days since the user signed up: today is still being logged and isn't
+    counted, and days before the account existed weren't missed."""
 
     complete_days: int
     partial_days: int
-    missing_days: int
     # Logged days within ±10% of the calorie target; null with nothing logged.
     target_adherence_percent: float | None
     # Intake minus target summed over logged days: negative means under target.
@@ -91,9 +89,8 @@ class ProgressResponse(CamelModel):
     date_from: date_ = Field(alias="from")
     date_to: date_ = Field(alias="to")
     weight: WeightSummary
-    expenditure_kcal_per_day: float
-    # Share of finished days with any food logged.
-    adherence_percent: float
+    # Share of finished days since sign-up with any food logged; null before there's one.
+    adherence_percent: float | None
     logging: LoggingSummary
     workouts: WorkoutsSummary
     volume: VolumeSummary

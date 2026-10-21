@@ -12,7 +12,7 @@ already local; timestamps (workouts, check-ins) are matched through
 from __future__ import annotations
 
 from datetime import date as date_
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -68,6 +68,33 @@ class ProgressRepository:
             WorkoutSession.started_at < until,
         )
         return int(await self.session.scalar(statement) or 0)
+
+    async def logging_started(self, owner_id: str, signed_up: date_) -> date_:
+        """The day logging is judged from: sign-up, or an earlier day the user backfilled.
+        Days before it weren't missed (Progress and the check-in both use it)."""
+
+        first: date_ | None = await self.session.scalar(
+            select(func.min(FoodEntry.log_date)).where(FoodEntry.owner_id == owner_id)
+        )
+        return min(signed_up, first) if first else signed_up
+
+    async def training_started(self, owner_id: str, zone: ZoneInfo) -> date_ | None:
+        """The user's day they first had a plan: their first routine, or an earlier logged
+        workout. Plan days before it weren't missed; None means nothing has started."""
+
+        first_routine = (
+            select(func.min(WorkoutPlanEntry.created_utc))
+            .where(WorkoutPlanEntry.owner_id == owner_id)
+            .scalar_subquery()
+        )
+        first_workout = (
+            select(func.min(WorkoutSession.started_at))
+            .where(WorkoutSession.owner_id == owner_id)
+            .scalar_subquery()
+        )
+        # One round trip; PostgreSQL's LEAST skips a NULL.
+        started: datetime | None = await self.session.scalar(select(func.least(first_routine, first_workout)))
+        return local_date(started, zone) if started else None
 
     async def plan_weekdays(self, owner_id: str) -> set[int]:
         """Days of the week (0=Monday) with a planned workout."""

@@ -24,12 +24,10 @@ PROFILE = {
     "heightCm": 175,
     "goal": "lose",
     "weeklyRateKg": -0.5,
-    "trainingDaysPerWeek": 3,
     "experienceLevel": "beginner",
     "dateOfBirth": "1995-04-20",
     "sex": "female",
     "activityLevel": "moderate",
-    "equipment": [],
 }
 QUICK_ADD = {
     "date": TODAY.isoformat(),
@@ -135,16 +133,10 @@ CASES: list[tuple[str, str, str, dict[str, Any], int]] = [
     ("height above maximum", "PUT", "/api/v1/profile", {**PROFILE, "heightCm": 250.1}, 422),
     ("name at maximum", "PUT", "/api/v1/profile", {**PROFILE, "name": "x" * 60}, 200),
     ("name above maximum", "PUT", "/api/v1/profile", {**PROFILE, "name": "x" * 61}, 422),
-    # Training days 1-7, as the forms allow.
-    ("training days at minimum", "PUT", "/api/v1/profile", {**PROFILE, "trainingDaysPerWeek": 1}, 200),
-    ("no training days", "PUT", "/api/v1/profile", {**PROFILE, "trainingDaysPerWeek": 0}, 422),
-    ("training days at maximum", "PUT", "/api/v1/profile", {**PROFILE, "trainingDaysPerWeek": 7}, 200),
-    ("training days above maximum", "PUT", "/api/v1/profile", {**PROFILE, "trainingDaysPerWeek": 8}, 422),
     ("fast weekly rate is allowed", "PUT", "/api/v1/profile", {**PROFILE, "weeklyRateKg": -5}, 200),
     ("rate at storage limit", "PUT", "/api/v1/profile", {**PROFILE, "weeklyRateKg": -99.99}, 200),
     ("rate beyond storage limit", "PUT", "/api/v1/profile", {**PROFILE, "weeklyRateKg": -100}, 422),
     ("whitespace-only name", "PUT", "/api/v1/profile", {**PROFILE, "name": "   "}, 422),
-    ("repeated equipment", "PUT", "/api/v1/profile", {**PROFILE, "equipment": ["barbell", "barbell"]}, 422),
     # Targets: 1,000-6,000 kcal; protein up to 500 g, carbs 1,000 g, fat 400 g, as the forms
     # allow; calories consistent with macros.
     (

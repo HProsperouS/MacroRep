@@ -53,7 +53,6 @@ def test_volume_compares_the_last_two_completed_weeks(client: TestClient) -> Non
     volume = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["volume"]
     assert volume["lastWeekTonnes"] == 1.0
     assert volume["changePercent"] == 25.0
-    assert volume["targetTonnes"] is None
     assert volume["averageTonnes"] > 0
 
 
@@ -66,19 +65,28 @@ def test_volume_change_is_null_without_a_week_to_compare_against(client: TestCli
     assert volume["changePercent"] is None
 
 
-def test_completion_counts_plan_days_that_fell_due(client: TestClient) -> None:
+def test_completion_counts_plan_days_that_fell_due_since_training_began(client: TestClient) -> None:
     headers = _new_user(client)
     plan_every_day(client, headers)
+    # Backfilled: training began 3 days ago, though the routine was only made today.
+    _log_session(client, headers, date.today() - timedelta(days=3), 100, 5)
     _log_session(client, headers, date.today() - timedelta(days=1), 100, 5)
-    _log_session(client, headers, date.today() - timedelta(days=2), 100, 5)
 
-    # 1M is 30 days ending today: 29 finished plan days, and today isn't due until trained.
+    # 3 finished plan days since then (one missed), and today isn't due until trained.
     workouts = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["workouts"]
-    assert workouts == {"done": 2, "planned": 29, "completionPercent": 6.9}
+    assert workouts == {"done": 2, "planned": 3, "completionPercent": 66.7}
 
     _log_session(client, headers, date.today(), 100, 5)
     workouts = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["workouts"]
-    assert workouts == {"done": 3, "planned": 30, "completionPercent": 10.0}
+    assert workouts == {"done": 3, "planned": 4, "completionPercent": 75.0}
+
+
+def test_a_plan_made_today_has_nothing_due_yet(client: TestClient) -> None:
+    headers = _new_user(client)
+    plan_every_day(client, headers)
+
+    workouts = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["workouts"]
+    assert workouts == {"done": 0, "planned": 0, "completionPercent": None}
 
 
 def test_completion_is_null_without_a_plan(client: TestClient) -> None:
@@ -180,15 +188,14 @@ def test_progress_reports_logging_completeness_and_the_gap_to_target(client: Tes
     headers = _log_mixed_week(client)
 
     body = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()
-    # 1M is 30 days ending today; the 29 finished ones are judged.
+    # Judged from the first day logged (3 days ago), not the 30 days of 1M: the account is new.
     assert body["logging"] == {
         "completeDays": 2,
         "partialDays": 1,
-        "missingDays": 26,
         "targetAdherencePercent": 33.3,  # only the 2000 kcal day is within ±10%
         "targetGapKcal": -1900,  # the partial day's 600 kcal counts as eaten
     }
-    assert body["adherencePercent"] == 10.3  # 3 of 29 finished days logged
+    assert body["adherencePercent"] == 100.0  # 3 of 3 finished days logged
 
 
 def test_daily_calories_label_each_day_and_total_the_gap(client: TestClient) -> None:
@@ -226,7 +233,8 @@ def test_days_before_the_first_weigh_in_have_no_trend(client: TestClient) -> Non
     *before, today = weight["points"]
     assert all(point["trendKg"] is None for point in before), "no weight isn't a weight of 0"
     assert (today["scaleKg"], today["trendKg"]) == (200, 200)
-    assert (weight["currentTrendKg"], weight["changeKg"], weight["ratePerWeekKg"]) == (200, 0, 0)
+    assert (weight["currentTrendKg"], weight["changeKg"]) == (200, 0)
+    assert weight["ratePerWeekKg"] is None, "one weigh-in gives no rate"
 
 
 def test_the_rate_is_measured_from_the_first_weigh_in_not_the_start_of_the_range(client: TestClient) -> None:
@@ -241,6 +249,18 @@ def test_the_rate_is_measured_from_the_first_weigh_in_not_the_start_of_the_range
     assert weight["ratePerWeekKg"] == -0.2
 
 
+def test_no_weekly_rate_from_weigh_ins_only_days_apart(client: TestClient) -> None:
+    headers = _new_user(client)
+    _weigh_in(client, headers, days_ago=3, weight_kg=80)
+    _weigh_in(client, headers, days_ago=0, weight_kg=79)
+
+    weight = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["weight"]
+
+    # Day-to-day swings over 4 days would make a rate several times too big.
+    assert weight["ratePerWeekKg"] is None
+    assert weight["changeKg"] == -0.1
+
+
 def test_no_weigh_ins_means_no_trend_at_all(client: TestClient) -> None:
     weight = client.get("/api/v1/progress", headers=_new_user(client), params={"range": "1M"}).json()[
         "weight"
@@ -248,3 +268,26 @@ def test_no_weigh_ins_means_no_trend_at_all(client: TestClient) -> None:
 
     assert weight["currentTrendKg"] is None
     assert {point["trendKg"] for point in weight["points"]} == {None}
+
+
+def test_a_new_account_has_missed_nothing_yet(client: TestClient) -> None:
+    headers = _new_user(client)
+    _log_calories(client, headers, days_ago=0, calories=756)  # today: still being logged
+
+    body = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()
+
+    assert body["adherencePercent"] is None, "no finished day yet, so no share of them"
+    assert (body["logging"]["completeDays"], body["logging"]["partialDays"]) == (0, 0)
+
+
+def test_the_trend_carries_in_from_weigh_ins_before_the_range(client: TestClient) -> None:
+    headers = _new_user(client)
+    _weigh_in(client, headers, days_ago=60, weight_kg=80)
+    _weigh_in(client, headers, days_ago=3, weight_kg=79)
+
+    weight = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["weight"]
+
+    assert weight["points"][0]["trendKg"] == 80, "the range opens on the trend so far, not on nothing"
+    # Over the month from that trend: the weigh-ins it rests on cover far more than a week.
+    assert weight["changeKg"] == -0.1
+    assert weight["ratePerWeekKg"] == round(-0.1 / (30 / 7), 3)

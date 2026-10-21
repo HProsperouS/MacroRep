@@ -48,9 +48,7 @@ erDiagram
         numeric height_cm
         enum goal "lose / maintain / gain"
         numeric weekly_rate_kg
-        int training_days_per_week
         enum experience_level
-        json equipment
         string timezone "IANA name"
         timestamp onboarded_utc "null until the sign-up guide is done"
         date date_of_birth "null until the sign-up guide"
@@ -267,6 +265,8 @@ Applied in this order (`backend/migrations/versions`):
 | `f9c5a3b7d1e4` | When the profile finished the sign-up guide (existing profiles count as done) |
 | `a2d6f8c4e1b7` | Profile birth date, sex and activity level, for estimating starting targets |
 | `b3e7a9d5c2f1` | Drops a food's brand, fibre, sugar and sodium, which nothing used |
+| `c4f9b2e8a6d3` | Drops training days per week: the weekly schedule says which days the user trains |
+| `d5a1c7e3f9b4` | Drops the user's equipment, which nothing used (exercises keep theirs) |
 
 Run `uv run alembic upgrade head` from `backend/`. CI runs every migration on PostgreSQL,
 then downgrades and upgrades again.

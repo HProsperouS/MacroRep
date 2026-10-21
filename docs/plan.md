@@ -143,7 +143,7 @@ These exclusions protect the four-person team from excessive scope and keep the 
 ### P0: Required product foundation
 
 - User registration, login, logout, and token refresh.
-- User profile, goals, preferences, experience level, and equipment availability.
+- User profile, goals, preferences, and experience level.
 - Meal and nutrition logging.
 - Body-weight logging.
 - Workout routine creation.
@@ -211,7 +211,7 @@ The proposal and demonstration will focus on no more than four user journeys.
 ### Journey 1: Onboarding and goal setup
 
 1. User creates an account.
-2. User enters profile information, training experience, available equipment, and primary goal.
+2. User enters profile information, training experience, and primary goal.
 3. System validates inputs and creates an initial profile.
 4. User is taken to the dashboard with clear next actions.
 
@@ -265,8 +265,6 @@ If food-photo analysis is implemented, the AI result remains an editable estimat
 - Primary goal: lose weight, maintain weight, gain weight, or improve strength.
 - Target rate or target range where appropriate.
 - Training experience.
-- Training days per week.
-- Available equipment.
 - Plan effective dates and revision history.
 
 Profile fields must be kept proportional to the project. The system should not collect sensitive data that it does not use.
@@ -415,8 +413,8 @@ The tools return structured values. They do not return unrestricted database acc
 Responsibilities:
 
 - interpret completion, volume, load, repetition, and RPE trends;
-- propose changes to exercise selection, volume, intensity, or progression;
-- respect equipment availability and planned training days;
+- propose changes to volume, intensity, or progression, paced to the user's training experience;
+- respect the planned training days;
 - explain the evidence behind each recommendation.
 
 Example tools:
@@ -713,7 +711,7 @@ macrorep/
 |---|---|
 | `users` | Account identity and status |
 | `refresh_tokens` | Refresh-token rotation and revocation |
-| `user_profiles` | Experience, equipment, goal, timezone |
+| `user_profiles` | Experience, goal, timezone |
 | `goals` | Current and historical user goals |
 | `body_weight_entries` | Dated weight records |
 | `nutrition_plans` | Versioned calorie and macro targets |

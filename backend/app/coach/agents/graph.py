@@ -102,8 +102,11 @@ given. Small steps only: sets by {limits.MAX_SET_CHANGE}, weight by at most
 {int(limits.MAX_LOAD_CHANGE_SHARE * 100)}%, reps by {limits.MAX_REP_CHANGE}. Rising RPE without
 strength gains suggests easing off; low RPE with steady gains suggests progressing. When most planned
 workouts were missed (completion_percent under about 70), don't increase anything: the
-missed sessions, not the load, are what to fix. Cite the trends you used as evidence. No
-injury advice.
+missed sessions, not the load, are what to fix. Pace progress to experience_level: a beginner
+progressing smoothly can add weight or reps every week; an intermediate needs steadier
+evidence over the weeks before progressing; an advanced lifter progresses rarely and by the
+smallest step, and only on a clear trend. Cite the trends you used as evidence. No injury
+advice.
 {output_limits(WorkoutAdvice)}"""
 
 REVIEWER_INSTRUCTIONS = f"""You are the Reviewer of a fitness app's weekly check-in.
@@ -186,7 +189,8 @@ def workout_context(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         # Absent from snapshots taken before training data was gathered: then there's nothing to adjust.
         "routines": snapshot.get("routines") or [],
         "exercise_trends": snapshot.get("exercise_trends") or {},
-        "equipment": snapshot.get("equipment") or [],
+        # Absent from snapshots taken before it was gathered: then pace as for an intermediate.
+        "experience_level": snapshot.get("experience_level") or "intermediate",
     }
 
 

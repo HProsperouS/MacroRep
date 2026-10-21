@@ -29,9 +29,7 @@ const profile: Profile = {
   heightCm: 178,
   goal: "lose",
   weeklyRateKg: -0.5,
-  trainingDaysPerWeek: 4,
   experienceLevel: "intermediate",
-  equipment: ["barbell", "dumbbell"],
   timezone: "UTC",
   onboarded: true,
   dateOfBirth: "1995-04-20",
@@ -68,7 +66,6 @@ describe("ProfilePage", () => {
     await user.clear(name)
     await user.type(name, "Alex Tan")
     await user.click(screen.getByRole("radio", { name: "Advanced" }))
-    await user.click(screen.getByRole("button", { name: "Cable" }))
     await user.click(screen.getByRole("button", { name: "Save profile" }))
 
     await waitFor(() =>
@@ -77,9 +74,7 @@ describe("ProfilePage", () => {
         heightCm: 178,
         goal: "lose",
         weeklyRateKg: -0.5,
-        trainingDaysPerWeek: 4,
         experienceLevel: "advanced",
-        equipment: ["barbell", "dumbbell", "cable"],
         dateOfBirth: "1995-04-20",
         sex: "male",
         activityLevel: "moderate",
@@ -113,18 +108,15 @@ describe("ProfilePage", () => {
     await waitFor(() => expect(profileApi.updateProfile).toHaveBeenCalledWith(expect.objectContaining({ goal: "gain", weeklyRateKg: 0.8 })))
   })
 
-  it("refuses an out-of-range height and training days", async () => {
+  it("refuses an out-of-range height", async () => {
     const user = userEvent.setup()
     renderPage()
 
     await user.clear(await screen.findByLabelText("Height"))
     await user.type(screen.getByLabelText("Height"), "50")
-    await user.clear(screen.getByLabelText("Training days"))
-    await user.type(screen.getByLabelText("Training days"), "9")
     await user.click(screen.getByRole("button", { name: "Save profile" }))
 
     expect(await screen.findByText("Must be at least 100")).toBeInTheDocument()
-    expect(screen.getByText("At most 7 days")).toBeInTheDocument()
     expect(profileApi.updateProfile).not.toHaveBeenCalled()
   })
 

@@ -11,13 +11,7 @@ import { useFoodLog, useNutritionTargets } from "@/hooks/use-food-log"
 import { EMPTY_ENTRIES, groupEntries } from "@/lib/food-log"
 import { formatNumber } from "@/lib/format"
 
-type TodayNutritionCardProps = {
-  today: Date
-  /** Estimated expenditure from the progress endpoint; hidden when unknown. */
-  expenditureKcal?: number
-}
-
-export function TodayNutritionCard({ today, expenditureKcal }: TodayNutritionCardProps) {
+export function TodayNutritionCard({ today }: { today: Date }) {
   const foodLog = useFoodLog(today)
   const targets = useNutritionTargets()
 
@@ -92,15 +86,6 @@ export function TodayNutritionCard({ today, expenditureKcal }: TodayNutritionCar
                 <span className="text-sm text-muted-foreground">/ {formatNumber(target.calories)} kcal</span>
               </dd>
             </div>
-            {expenditureKcal ? (
-              <div className="flex flex-col gap-0.5">
-                <dt className="text-xs text-muted-foreground">Burned (est. expenditure)</dt>
-                <dd>
-                  <span className="font-display text-3xl leading-none font-semibold">{formatNumber(expenditureKcal)}</span>{" "}
-                  <span className="text-sm text-muted-foreground">kcal / day</span>
-                </dd>
-              </div>
-            ) : null}
           </dl>
         </div>
         <div className="flex flex-col gap-3.5 sm:flex-row sm:gap-5">

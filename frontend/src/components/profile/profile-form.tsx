@@ -3,7 +3,7 @@ import { TriangleAlert } from "lucide-react"
 import { Controller, useForm, useWatch, type Control, type UseFormRegisterReturn } from "react-hook-form"
 import { z } from "zod"
 
-import { ActivityChoice, EquipmentChoice, ExperienceChoice, GoalChoice, SexChoice } from "@/components/profile/profile-choices"
+import { ActivityChoice, ExperienceChoice, GoalChoice, SexChoice } from "@/components/profile/profile-choices"
 import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
 import { FieldDescription, FieldError, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
@@ -35,9 +35,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
       heightCm: String(profile.heightCm),
       goal: profile.goal,
       weeklyRate: String(Math.abs(profile.weeklyRateKg)),
-      trainingDaysPerWeek: String(profile.trainingDaysPerWeek),
       experienceLevel: profile.experienceLevel,
-      equipment: profile.equipment,
       dateOfBirth: profile.dateOfBirth ?? "",
       sex: profile.sex ?? undefined,
       activityLevel: profile.activityLevel ?? undefined,
@@ -70,21 +68,12 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
             name="goal"
             render={({ field }) => <GoalChoice value={field.value} onChange={field.onChange} disabled={submitting} />}
           />
-          <FieldDescription>Your coach uses this to set calorie targets and training volume.</FieldDescription>
+          <FieldDescription>Your coach adjusts your calorie target towards it.</FieldDescription>
         </FieldSet>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           <RateField control={control} error={errors.weeklyRate?.message} disabled={submitting} register={register("weeklyRate")} />
           <TextField id="profile-height" label="Height" unit="cm" inputMode="decimal" error={errors.heightCm?.message} disabled={submitting} {...register("heightCm")} />
-          <TextField
-            id="profile-days"
-            label="Training days"
-            unit="days / week"
-            inputMode="numeric"
-            error={errors.trainingDaysPerWeek?.message}
-            disabled={submitting}
-            {...register("trainingDaysPerWeek")}
-          />
         </div>
 
         <FieldSet className="gap-2">
@@ -105,16 +94,6 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
           />
           <FieldError errors={[errors.activityLevel]} />
           <FieldDescription>With your age, sex, height and weight, it estimates how much you burn a day.</FieldDescription>
-        </FieldSet>
-
-        <FieldSet className="gap-2">
-          <FieldLegend variant="label">Equipment you have access to</FieldLegend>
-          <Controller
-            control={control}
-            name="equipment"
-            render={({ field }) => <EquipmentChoice value={field.value} onChange={field.onChange} disabled={submitting} />}
-          />
-          <FieldDescription>Used to steer which exercises your coach proposes.</FieldDescription>
         </FieldSet>
       </FieldGroup>
 
