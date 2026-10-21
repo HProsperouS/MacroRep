@@ -49,7 +49,7 @@ never API responses.
 |---|---|---|
 | Sign-up guide | `/welcome` | A new account's first stop: profile, today's weight, goal, training, activity, equipment and starting targets (estimated from those details), saved together. The app's pages wait until it's done |
 | Home | `/` | Today's calories and macros, today's workout, weight trend, check-in banner |
-| Food | `/food` | Daily food log by meal; search, quick add, custom foods |
+| Food | `/food` | Daily food log by meal; search (offering what you ate in the last 30 days first), meal photos, quick add, custom foods |
 | Workout | `/workout` | Start a routine or an empty workout; live logging with rest timer and pause |
 | History | `/workout/history` | Logged workouts; edit or delete one |
 | Plan | `/workout/plan` | Routines, and the weekly schedule that assigns them to days |

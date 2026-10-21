@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import date as date_
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db import escape_like
@@ -17,12 +18,41 @@ class FoodRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def search(self, owner_id: str, query: str, limit: int) -> list[Food]:
+    async def search(
+        self, owner_id: str, query: str, limit: int, exclude: Collection[str] = ()
+    ) -> list[Food]:
         statement = select(Food).where(or_(Food.owner_id.is_(None), Food.owner_id == owner_id))
+        if exclude:
+            statement = statement.where(Food.id.not_in(exclude))
         if query:
             pattern = f"%{escape_like(query.strip())}%"
             statement = statement.where(Food.name.ilike(pattern, escape="\\"))
         statement = statement.order_by(Food.name.asc()).limit(limit)
+        return list(await self.session.scalars(statement))
+
+    async def recently_eaten(self, owner_id: str, since: date_, limit: int) -> list[Food]:
+        """Foods the user ate on or after ``since`` (by the day they're logged against, on the
+        owner/date index), the most often eaten first, then the most lately. Quick adds and photo
+        entries aren't foods, so they're left out."""
+
+        statement = (
+            select(Food)
+            .join(FoodEntry, FoodEntry.food_id == Food.id)
+            .where(
+                FoodEntry.owner_id == owner_id,
+                FoodEntry.log_date >= since,
+                # Never another user's food, should an entry ever point at one.
+                or_(Food.owner_id.is_(None), Food.owner_id == owner_id),
+            )
+            .group_by(Food.id)
+            .order_by(
+                func.count(FoodEntry.id).desc(),
+                func.max(FoodEntry.log_date).desc(),
+                func.max(FoodEntry.created_utc).desc(),
+                Food.name,
+            )
+            .limit(limit)
+        )
         return list(await self.session.scalars(statement))
 
     async def get_visible(self, food_id: str, owner_id: str) -> Food | None:

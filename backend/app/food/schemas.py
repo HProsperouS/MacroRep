@@ -187,6 +187,15 @@ class UpdateFoodEntryInput(CamelModel):
         return self.quantity is not None or self.quantity_unit is not None
 
 
+class FoodSuggestions(CamelModel):
+    """What to offer before anything is searched for."""
+
+    # Foods the user logged lately, the most often eaten first.
+    recent: list[FoodRead]
+    # Other foods to fill the rest (the catalog and the user's own), for a user with little history.
+    common: list[FoodRead]
+
+
 class FoodLogResponse(CamelModel):
     date: date_
     entries: list[FoodEntryRead]

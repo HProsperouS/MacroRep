@@ -1,5 +1,5 @@
 import { addDays, format, isToday, isYesterday, parseISO } from "date-fns"
-import { Barcode, Camera, ChevronLeft, ChevronRight, RotateCw, Search, Zap } from "lucide-react"
+import { Camera, ChevronLeft, ChevronRight, RotateCw, Search, Zap } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -114,10 +114,6 @@ export default function FoodPage() {
     return logged
   }
 
-  function notAvailable(feature: string) {
-    toast(`${feature} is coming soon`, { description: "It needs the backend image service, which isn’t connected yet." })
-  }
-
   function logEntry(entry: Omit<FoodEntry, "id">) {
     setSearchOpen(false)
     addEntry.mutate(entry, {
@@ -184,7 +180,6 @@ export default function FoodPage() {
     onAdd: logEntry,
     onQuickAdd: () => openManual("quick"),
     onCreateCustom: (name) => openManual("custom", name ? { name } : undefined),
-    onUnavailable: notAvailable,
     onScanPhoto: scanPhoto,
   }
 
@@ -244,11 +239,7 @@ export default function FoodPage() {
                 <Search data-icon="inline-start" />
                 Search foods, brands, dishes
               </Button>
-              <div className="grid grid-cols-3 gap-2">
-                <Button variant="outline" className="h-11" onClick={() => notAvailable("Barcode scanning")}>
-                  <Barcode data-icon="inline-start" />
-                  Barcode
-                </Button>
+              <div className="grid grid-cols-2 gap-2">
                 <Button variant="outline" className="h-11" onClick={scanPhoto}>
                   <Camera data-icon="inline-start" />
                   Scan

@@ -23,6 +23,7 @@ from .schemas import (
     FoodEntryRead,
     FoodLogResponse,
     FoodRead,
+    FoodSuggestions,
     PhotoEstimateInput,
     PhotoEstimateRead,
     PhotoItemRead,
@@ -76,6 +77,15 @@ async def search_foods(
     limit: Annotated[int, Query(ge=1, le=50)] = 8,
 ) -> list[FoodRead]:
     return await service.search_foods(actor, q, limit)
+
+
+@router.get("/foods/suggestions", response_model=FoodSuggestions)
+async def suggest_foods(
+    actor: ActorDep, service: FoodServiceDep, limit: Annotated[int, Query(ge=1, le=20)] = 8
+) -> FoodSuggestions:
+    """Foods to offer before a search: what the user ate lately, then catalog foods."""
+
+    return await service.suggest_foods(actor, limit)
 
 
 @router.get("/foods/{food_id}", response_model=FoodRead)

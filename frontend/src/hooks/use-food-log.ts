@@ -40,6 +40,7 @@ export function useNutritionTargets() {
   })
 }
 
+/** Searches the foods; only asked for once there's something to search for. */
 export function useFoodSearch(query: string) {
   const q = query.trim()
   return useQuery({
@@ -47,6 +48,17 @@ export function useFoodSearch(query: string) {
     queryFn: ({ signal }) => foodApi.searchFoods(q, signal),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+    enabled: q !== "",
+  })
+}
+
+/** What to offer before a search: the user's recent foods, then catalog ones. */
+export function useFoodSuggestions(enabled: boolean) {
+  return useQuery({
+    queryKey: foodKeys.suggestions(),
+    queryFn: ({ signal }) => foodApi.suggestFoods(signal),
+    staleTime: 60_000,
+    enabled,
   })
 }
 
@@ -107,11 +119,13 @@ export function useUpdateFoodEntry() {
   })
 }
 
-/** Views computed from logged intake: the weekly calories card and the progress page. */
+/** Views computed from logged intake: the weekly calories card, the progress page, and the
+ *  foods suggested as recently eaten. */
 function refreshIntakeViews(queryClient: QueryClient) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "daily-calories"] }),
     queryClient.invalidateQueries({ queryKey: progressKeys.all }),
+    queryClient.invalidateQueries({ queryKey: foodKeys.suggestions() }),
   ])
 }
 
@@ -134,6 +148,10 @@ export function useCreateCustomFood() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: CreateCustomFoodInput) => foodApi.createCustomFood(input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "search"] }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: [...foodKeys.all, "search"] }),
+        queryClient.invalidateQueries({ queryKey: foodKeys.suggestions() }),
+      ]),
   })
 }

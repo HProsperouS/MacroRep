@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date as date_
+from datetime import timedelta
 from typing import cast
 
 from fastapi import HTTPException, status
@@ -20,6 +21,7 @@ from .schemas import (
     FoodEntryRead,
     FoodLogResponse,
     FoodRead,
+    FoodSuggestions,
     Nutrition,
     QuantityUnit,
     UpdateFoodEntryInput,
@@ -113,6 +115,10 @@ def _to_entry_read(entry: FoodEntry) -> FoodEntryRead:
     )
 
 
+# How far back "recently eaten" looks.
+RECENT_FOODS_WINDOW = timedelta(days=30)
+
+
 class FoodService:
     def __init__(self, session: AsyncSession, foods: FoodRepository, entries: FoodEntryRepository) -> None:
         self.session = session
@@ -122,6 +128,20 @@ class FoodService:
     async def search_foods(self, actor: ActorContext, query: str, limit: int) -> list[FoodRead]:
         rows = await self.foods.search(actor.actor_id, query, limit)
         return [_to_food_read(row) for row in rows]
+
+    async def suggest_foods(self, actor: ActorContext, limit: int) -> FoodSuggestions:
+        """What the user eats lately, then catalog foods to fill up to ``limit``."""
+
+        # By the server's date: a day either way doesn't matter over a month.
+        since = date_.today() - RECENT_FOODS_WINDOW
+        recent = await self.foods.recently_eaten(actor.actor_id, since, limit)
+        common: list[Food] = []
+        if len(recent) < limit:
+            shown = [food.id for food in recent]
+            common = await self.foods.search(actor.actor_id, "", limit - len(recent), exclude=shown)
+        return FoodSuggestions(
+            recent=[_to_food_read(food) for food in recent], common=[_to_food_read(food) for food in common]
+        )
 
     async def create_custom_food(self, payload: CreateCustomFoodInput, actor: ActorContext) -> FoodRead:
         food = Food(

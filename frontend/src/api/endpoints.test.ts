@@ -46,6 +46,7 @@ const cases: [string, () => Promise<unknown>, Sent][] = [
   ["update entry", () => foodApi.updateEntry("e/1", body as never), { method: "patch", url: "/food-log/entries/e%2F1", body }],
   ["remove entry", () => foodApi.removeEntry("e1"), { method: "delete", url: "/food-log/entries/e1" }],
   ["search foods", () => foodApi.searchFoods("rice"), { method: "get", url: "/foods", params: { q: "rice", limit: 8 } }],
+  ["suggest foods", () => foodApi.suggestFoods(), { method: "get", url: "/foods/suggestions", params: { limit: 8 } }],
   ["get food", () => foodApi.getFood("f1"), { method: "get", url: "/foods/f1" }],
   ["create food", () => foodApi.createCustomFood(body as never), { method: "post", url: "/foods", body }],
   ["targets", () => foodApi.getTargets(), { method: "get", url: "/nutrition/targets" }],

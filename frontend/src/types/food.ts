@@ -15,6 +15,9 @@ export type ServingUnit = (typeof SERVING_UNITS)[number]
 
 export type FoodSource = "database" | "custom" | "quick-add" | "photo"
 
+/** Foods to offer before a search: what the user ate lately, then other foods to fill up. */
+export type FoodSuggestions = { recent: Food[]; common: Food[] }
+
 /** A food that can be searched and logged. Nutrition is per one serving. */
 export type Food = {
   id: string

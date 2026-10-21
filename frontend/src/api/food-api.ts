@@ -1,6 +1,6 @@
 import { apiClient } from "@/api/client"
 import type { Nutrition } from "@/lib/macros"
-import type { DailyTargets, Food, FoodEntry, MealType, PhotoEstimate, QuantityUnit } from "@/types/food"
+import type { DailyTargets, Food, FoodEntry, FoodSuggestions, MealType, PhotoEstimate, QuantityUnit } from "@/types/food"
 
 export type FoodLogResponse = {
   date: string
@@ -44,6 +44,11 @@ export const foodApi = {
 
   async searchFoods(query: string, signal?: AbortSignal) {
     const { data } = await apiClient.get<Food[]>("/foods", { params: { q: query, limit: 8 }, signal })
+    return data
+  },
+
+  async suggestFoods(signal?: AbortSignal) {
+    const { data } = await apiClient.get<FoodSuggestions>("/foods/suggestions", { params: { limit: 8 }, signal })
     return data
   },
 

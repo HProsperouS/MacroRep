@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   updateEntry: vi.fn(),
   removeEntry: vi.fn(),
   searchFoods: vi.fn(),
+  suggestFoods: vi.fn(),
   getFood: vi.fn(),
   createCustomFood: vi.fn(),
   getTargets: vi.fn(),
@@ -59,6 +60,7 @@ beforeEach(() => {
   api.getFoodLog.mockImplementation((date: string) => Promise.resolve({ date, entries: date === today ? [rice] : [] }))
   api.getTargets.mockResolvedValue({ calories: 2200, protein: 150, carbs: 250, fat: 70 })
   api.searchFoods.mockResolvedValue([chicken])
+  api.suggestFoods.mockResolvedValue({ recent: [], common: [chicken] })
 })
 
 afterEach(() => {
@@ -128,10 +130,37 @@ describe("FoodPage", () => {
     expect(within(dialog).getByLabelText("Food name")).toHaveValue("laksa")
   })
 
+  it("shows an error when the suggestions can't be loaded", async () => {
+    api.suggestFoods.mockRejectedValue(new Error("down"))
+    renderWithQuery(<FoodPage />)
+    expect(await screen.findByText("Couldn’t load suggestions")).toBeInTheDocument()
+  })
+
   it("shows an error when the search fails", async () => {
     api.searchFoods.mockRejectedValue(new Error("down"))
+    const user = userEvent.setup()
     renderWithQuery(<FoodPage />)
+    await screen.findByText("Chicken rice")
+
+    await user.type(screen.getByRole("searchbox", { name: "Search foods" }), "laksa")
     expect(await screen.findByText("Search isn’t available")).toBeInTheDocument()
+  })
+
+  it("offers what the user ate lately first, then more foods, before anything is searched", async () => {
+    const egg = { ...chicken, id: "f-egg", name: "Egg, whole" }
+    api.suggestFoods.mockResolvedValue({ recent: [egg], common: [chicken] })
+    renderWithQuery(<FoodPage />)
+
+    const recent = await screen.findByRole("region", { name: "Recently eaten" })
+    expect(within(recent).getByText("Egg, whole")).toBeInTheDocument()
+    expect(within(screen.getByRole("region", { name: "More foods" })).getByText("Chicken breast")).toBeInTheDocument()
+    expect(api.searchFoods).not.toHaveBeenCalled()
+  })
+
+  it("says so when there's nothing to suggest yet", async () => {
+    api.suggestFoods.mockResolvedValue({ recent: [], common: [] })
+    renderWithQuery(<FoodPage />)
+    expect(await screen.findByText("No foods to suggest yet")).toBeInTheDocument()
   })
 
   it("logs a quick add, calculating calories from the macros", async () => {
@@ -330,13 +359,11 @@ describe("FoodPage", () => {
     expect(await screen.findByText("Chicken rice")).toBeInTheDocument()
   })
 
-  it("says scanning isn't available yet", async () => {
-    const user = userEvent.setup()
+  it("offers no barcode scanning, which isn't built", async () => {
     renderWithQuery(<FoodPage />)
     await screen.findByText("Chicken rice")
 
-    await user.click(screen.getByRole("button", { name: "Barcode" }))
-    expect(toast).toHaveBeenCalledWith("Barcode scanning is coming soon", expect.anything())
+    expect(screen.queryByRole("button", { name: /barcode/i })).not.toBeInTheDocument()
   })
 })
 

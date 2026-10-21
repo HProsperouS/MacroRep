@@ -6,6 +6,7 @@ export const foodKeys = {
   logs: () => [...foodKeys.all, "log"] as const,
   log: (date: string) => [...foodKeys.logs(), date] as const,
   search: (query: string) => [...foodKeys.all, "search", query] as const,
+  suggestions: () => [...foodKeys.all, "suggestions"] as const,
   food: (foodId: string) => [...foodKeys.all, "food", foodId] as const,
   targets: () => [...foodKeys.all, "targets"] as const,
   targetHistory: () => [...foodKeys.targets(), "history"] as const,
