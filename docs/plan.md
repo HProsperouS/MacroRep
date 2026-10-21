@@ -172,7 +172,6 @@ These exclusions protect the four-person team from excessive scope and keep the 
 - ~~Cloud deployment.~~ A deployment design document instead: the project is not deployed (see [deployment.md](deployment.md)).
 - Automated CI (continuous deployment isn't needed without a deployment).
 - Integration and end-to-end tests.
-- ~~Load testing for selected endpoints.~~ Dropped (see the scope changes below).
 - Logging, health checks, and basic monitoring, including agent run metrics (duration, outcome, retries).
 - Evaluation of the agents' quality (§26) on the real model: fixed scenarios with known sensible answers ([agent-evaluation.md](agent-evaluation.md)).
 - Architecture documentation, ERD, API documentation, and setup guide.
@@ -183,9 +182,7 @@ These exclusions protect the four-person team from excessive scope and keep the 
 - Supervisor/Router with intent routing and clarification questions (§9.3, §9.9), built with Coach Chat. *Done in Coach Chat: each message gets an intent, an unclear change gets one question at a time (at most two in a row).*
 - Asking the agents to revise a proposal ("request changes", §9.2). *Done in Coach Chat, through the same limits, conflict rule and Reviewer as a check-in.*
 - Food-photo analysis with user correction. *Done: the estimate is a Nutrition tool (§9.7) on the same model; every item is edited and confirmed before it's logged, and the photo is never stored (see [agents.md](agents.md#meal-photos)).*
-- Limited PWA offline support for an active workout.
-- Streaming agent progress.
-- Background job queue and rate limiting. *Limits on sign-ins, sign-ups and Coach Chat questions are done (see backend/README.md); the job queue is not.*
+- Rate limiting. *Limits on sign-ins, sign-ups, Coach Chat messages and meal photos are done (see backend/README.md).*
 
 P3 work begins only after the P0-P2 acceptance criteria are met.
 
@@ -206,7 +203,6 @@ Agreed once P1's agents, validation and approval were built, to keep the plan ma
 | Agent run metrics | P1 (implied) | P2 | Part of logging and monitoring. |
 | AI quality evaluation | §26 | P2 | Measured alongside the test report. |
 | Cloud deployment | P2 | Design document only | The project is not deployed. |
-| Load testing | P2 | Dropped | Without a deployment there is no real environment to measure, and a laptop run says little about it. |
 
 ## 7. Core User Journeys
 
@@ -641,8 +637,7 @@ Profile
 
 ### Optional infrastructure
 
-- Redis for rate limiting, caching, or a background queue.
-- A Python job worker for long-running agent or image-analysis jobs.
+- Redis for rate limiting or caching.
 - PostgreSQL `pgvector` only if a real retrieval use case is identified.
 - Error tracking and metrics service based on the selected cloud platform.
 
@@ -843,7 +838,6 @@ POST   /api/v1/coach/check-ins/{check_in_id}/messages
 - Idempotency key for check-in creation and plan application.
 - Ownership check at the service or repository boundary.
 - OpenAPI examples for important endpoints.
-- Server-Sent Events may be used for progress streaming; polling is an acceptable MVP fallback.
 
 ## 17. Security and Privacy
 
@@ -1204,7 +1198,7 @@ Dates should be assigned after the team confirms the course deadline.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Scope becomes too large | Core journeys remain incomplete | Freeze P0/P1; treat chat, vision, and offline sync as stretch features |
+| Scope becomes too large | Core journeys remain incomplete | Freeze P0/P1; treat chat and vision as stretch features |
 | General chat receives ambiguous requests | Unpredictable behavior and excessive implementation effort | Supported intent allow-list, typed router output, focused clarification, bounded loops |
 | AI performs incorrect calculations | Unsafe or inconsistent proposal | Deterministic analytics and validation; strict schemas |
 | Agents produce conflicting changes | Poor combined plan | Dedicated Reviewer Agent and conflict rules |
