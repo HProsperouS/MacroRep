@@ -101,6 +101,25 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument()
   })
 
+  it("says when there have been too many attempts", async () => {
+    authApi.login.mockRejectedValue(
+      new AxiosError("429", "ERR_BAD_REQUEST", undefined, undefined, {
+        status: 429,
+        data: { detail: "Too many attempts. Try again in 15 minutes." },
+      } as never),
+    )
+    const user = userEvent.setup()
+    renderAt("/login")
+
+    await user.type(await screen.findByLabelText("Email"), "alex@example.com")
+    await user.type(screen.getByLabelText("Password"), "long-enough-pw")
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Couldn’t sign you in", { description: "Too many attempts. Try again in 15 minutes." }),
+    )
+  })
+
   it("creates an account and opens the app", async () => {
     authApi.register.mockResolvedValue({ accessToken: "new", tokenType: "bearer", expiresIn: 900 })
     const user = userEvent.setup()

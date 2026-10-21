@@ -31,13 +31,10 @@ against a common-password list (NIST SP 800-63B), either a small built-in list
 
 ## Known gaps
 
-- **No login rate limiting:** unlimited wrong-password attempts are answered
-  (30 in a row, then the right one, all worked), and registering a taken email
-  says so, which lets addresses be checked in bulk. `plan.md` §17 asks for
-  login rate limits. Proposed: ~5 failed attempts per email per 15 minutes
-  plus a per-IP cap, returning 429. An in-memory limiter (`slowapi`) works
-  locally; on AWS with several containers it needs a shared store (Redis) or
-  an AWS WAF rate-based rule.
+- **No limit on AI endpoints:** `plan.md` §17 also asks for rate limits on AI
+  endpoints. Coach Chat questions and check-ins each make paid model calls, and
+  a signed-in user can send them as fast as they like (a check-in only one at a
+  time). A per-user cap on chat questions would bound the cost.
 
 ## Verification pending
 

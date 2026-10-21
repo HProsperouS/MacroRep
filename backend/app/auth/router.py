@@ -19,8 +19,17 @@ from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.identity.repository import UserRepository
 
+from .rate_limit import (
+    FAILED_LOGINS_PER_EMAIL,
+    FAILED_LOGINS_PER_EMAIL_AND_ADDRESS,
+    LOGINS_PER_ADDRESS,
+    REGISTRATIONS_PER_ADDRESS,
+    Limit,
+    limiter,
+    too_many_message,
+)
 from .schemas import AccessToken, LoginInput, MeRead, RegisterInput
-from .service import AuthService
+from .service import WRONG_CREDENTIALS, AuthService
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
 
@@ -65,13 +74,38 @@ def _clear_refresh_cookie(response: Response, settings: Settings) -> None:
     )
 
 
+def _address(request: Request) -> str:
+    # The connecting address. Behind a proxy that is the proxy's, unless uvicorn is told to
+    # trust its X-Forwarded-For (--proxy-headers); see docs/deployment.md.
+    return request.client.host if request.client else "unknown"
+
+
+Check = tuple[tuple[str, str], Limit]
+
+
+def _count_attempt(*checks: Check) -> None:
+    """Refuse with 429 if any check is over its limit; otherwise count this attempt in each.
+    Counted before the attempt runs, so attempts sent at once can't all slip under a limit."""
+
+    wait = max((limiter.retry_after(key, limit) or 0 for key, limit in checks), default=0)
+    if wait:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, too_many_message(wait), headers={"Retry-After": str(wait)}
+        )
+    for key, limit in checks:
+        limiter.hit(key, limit)
+
+
 @router.post("/auth/register", response_model=AccessToken, status_code=status.HTTP_201_CREATED)
 async def register(
     payload: RegisterInput,
+    request: Request,
     response: Response,
     service: AuthServiceDep,
     settings: SettingsDep,
 ) -> AccessToken:
+    if settings.auth_rate_limit_enabled:
+        _count_attempt((("register", _address(request)), REGISTRATIONS_PER_ADDRESS))
     access_token, refresh_token = await service.register(payload)
     _set_refresh_cookie(response, settings, refresh_token)
     return access_token
@@ -80,11 +114,37 @@ async def register(
 @router.post("/auth/login", response_model=AccessToken)
 async def login(
     payload: LoginInput,
+    request: Request,
     response: Response,
     service: AuthServiceDep,
     settings: SettingsDep,
 ) -> AccessToken:
-    access_token, refresh_token = await service.login(payload)
+    if not settings.auth_rate_limit_enabled:
+        access_token, refresh_token = await service.login(payload)
+        _set_refresh_cookie(response, settings, refresh_token)
+        return access_token
+
+    address, email = _address(request), payload.email.strip().lower()
+    from_here = ("login-failed", f"{email} from {address}")
+    anywhere = ("login-failed", email)
+    # Every attempt counts as a wrong password until it proves otherwise, and a locked
+    # account is refused before its password is checked, even a correct one.
+    _count_attempt(
+        (("login", address), LOGINS_PER_ADDRESS),
+        (from_here, FAILED_LOGINS_PER_EMAIL_AND_ADDRESS),
+        (anywhere, FAILED_LOGINS_PER_EMAIL),
+    )
+    try:
+        access_token, refresh_token = await service.login(payload)
+    except Exception as error:
+        # Anything but a wrong password (a disabled account, a server error) wasn't a guess.
+        if not (isinstance(error, HTTPException) and error.detail == WRONG_CREDENTIALS):
+            limiter.undo(from_here)
+            limiter.undo(anywhere)
+        raise
+    # The owner from here starts afresh; the account-wide count keeps bounding guesses elsewhere.
+    limiter.clear(from_here)
+    limiter.undo(anywhere)
     _set_refresh_cookie(response, settings, refresh_token)
     return access_token
 

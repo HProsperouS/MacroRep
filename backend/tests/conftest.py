@@ -50,6 +50,15 @@ def _reset_postgres() -> None:
         connection.execute("CREATE SCHEMA public")
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits() -> None:
+    """Each test starts with no sign-in or sign-up attempts counted."""
+
+    from app.auth.rate_limit import limiter
+
+    limiter.reset()
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     if ON_POSTGRES:

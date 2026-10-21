@@ -1,0 +1,179 @@
+"""Limits on sign-in and sign-up attempts."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from app.auth import rate_limit
+from app.auth.rate_limit import (
+    FAILED_LOGINS_PER_EMAIL,
+    FAILED_LOGINS_PER_EMAIL_AND_ADDRESS,
+    LOGINS_PER_ADDRESS,
+    REGISTRATIONS_PER_ADDRESS,
+    Limit,
+    RateLimiter,
+    limiter,
+    too_many_message,
+)
+from app.auth.service import WRONG_CREDENTIALS
+from app.core.config import get_settings
+from app.main import app
+
+PASSWORD = "long-enough-pw"
+
+
+@pytest.fixture
+def elsewhere(client: TestClient) -> Iterator[TestClient]:
+    """The same app reached from another address (``client`` connects as "testclient")."""
+
+    with TestClient(app, client=("203.0.113.7", 50000)) as other:
+        yield other
+
+
+def _register(client: TestClient, email: str):
+    return client.post("/api/v1/auth/register", json={"name": "Alex", "email": email, "password": PASSWORD})
+
+
+def _login(client: TestClient, email: str, password: str = PASSWORD):
+    return client.post("/api/v1/auth/login", json={"email": email, "password": password})
+
+
+def test_five_wrong_passwords_lock_the_account_from_that_address(client: TestClient) -> None:
+    _register(client, "alex@example.com")
+    for _ in range(FAILED_LOGINS_PER_EMAIL_AND_ADDRESS.attempts):
+        assert _login(client, "alex@example.com", "wrong-password").status_code == 401
+
+    locked = _login(client, "Alex@Example.com")  # the same account, however it's written
+
+    assert locked.status_code == 429, "even the right password: guessing can't continue"
+    assert locked.json()["detail"] == "Too many attempts. Try again in 15 minutes."
+    assert int(locked.headers["Retry-After"]) > 14 * 60
+    assert _login(client, "other@example.com", "wrong-password").status_code == 401, (
+        "other accounts aren't locked"
+    )
+
+
+def test_someone_else_guessing_cant_lock_the_owner_out(client: TestClient, elsewhere: TestClient) -> None:
+    _register(client, "alex@example.com")
+    for _ in range(FAILED_LOGINS_PER_EMAIL_AND_ADDRESS.attempts + 1):
+        _login(elsewhere, "alex@example.com", "wrong-password")
+
+    assert _login(client, "alex@example.com").status_code == 200
+
+
+def test_guessing_one_account_from_many_addresses_is_bounded(client: TestClient) -> None:
+    _register(client, "alex@example.com")
+    for index in range(FAILED_LOGINS_PER_EMAIL.attempts):
+        with TestClient(app, client=(f"198.51.100.{index}", 50000)) as guesser:
+            assert _login(guesser, "alex@example.com", "wrong-password").status_code == 401
+
+    with TestClient(app, client=("198.51.100.250", 50000)) as fresh_address:
+        assert _login(fresh_address, "alex@example.com", "wrong-password").status_code == 429
+
+
+def test_a_successful_sign_in_forgets_earlier_wrong_passwords_from_there(client: TestClient) -> None:
+    _register(client, "alex@example.com")
+    for _ in range(FAILED_LOGINS_PER_EMAIL_AND_ADDRESS.attempts - 1):
+        _login(client, "alex@example.com", "wrong-password")
+    assert _login(client, "alex@example.com").status_code == 200
+
+    for _ in range(FAILED_LOGINS_PER_EMAIL_AND_ADDRESS.attempts - 1):
+        assert _login(client, "alex@example.com", "wrong-password").status_code == 401
+    assert _login(client, "alex@example.com").status_code == 200
+
+
+def test_only_wrong_passwords_count_against_the_account(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _register(client, "alex@example.com")
+
+    async def broken(*_: object) -> None:
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr("app.auth.service.AuthService.login", broken)
+    failing = TestClient(app, raise_server_exceptions=False)
+    for _ in range(FAILED_LOGINS_PER_EMAIL_AND_ADDRESS.attempts + 1):
+        assert _login(failing, "alex@example.com").status_code == 500
+    monkeypatch.undo()
+
+    assert _login(client, "alex@example.com").status_code == 200
+
+
+def test_attempts_are_counted_before_the_password_is_checked(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """So guesses sent at the same moment can't all pass the check while none is counted yet."""
+
+    counted: list[int] = []
+
+    async def checking(*_: object) -> None:
+        counted.append(len(limiter._hits.get(("login-failed", "alex@example.com from testclient"), ())))  # noqa: SLF001
+        raise HTTPException(401, WRONG_CREDENTIALS)
+
+    monkeypatch.setattr("app.auth.service.AuthService.login", checking)
+    _login(client, "alex@example.com", "wrong-password")
+    assert counted == [1]
+
+
+def test_one_address_can_only_try_so_many_accounts(client: TestClient) -> None:
+    for index in range(LOGINS_PER_ADDRESS.attempts):
+        assert _login(client, f"guess-{index}@example.com", "wrong-password").status_code == 401
+
+    assert _login(client, "someone-else@example.com", "wrong-password").status_code == 429
+
+
+def test_one_address_can_only_sign_up_so_often_refused_attempts_included(client: TestClient) -> None:
+    assert _register(client, "taken@example.com").status_code == 201
+    for _ in range(REGISTRATIONS_PER_ADDRESS.attempts - 1):
+        assert _register(client, "taken@example.com").status_code == 409
+
+    refused = _register(client, "new@example.com")
+    assert refused.status_code == 429
+    assert refused.headers["Retry-After"]
+
+
+def test_switched_off_nothing_is_counted(client: TestClient) -> None:
+    settings = get_settings().model_copy(update={"auth_rate_limit_enabled": False})
+    app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        for _ in range(FAILED_LOGINS_PER_EMAIL_AND_ADDRESS.attempts + 1):
+            assert _login(client, "alex@example.com", "wrong-password").status_code == 401
+        assert _register(client, "alex@example.com").status_code == 201
+    finally:
+        app.dependency_overrides.pop(get_settings)
+    assert limiter._hits == {}  # noqa: SLF001
+
+
+def test_attempts_age_out_of_the_window() -> None:
+    now = [0.0]
+    window = RateLimiter(clock=lambda: now[0])
+    limit = Limit(attempts=2, window_seconds=60)
+    key = ("login", "1.2.3.4")
+
+    window.hit(key, limit)
+    now[0] = 30
+    window.hit(key, limit)
+    assert window.retry_after(key, limit) == 30, "until the first attempt is a minute old"
+    now[0] = 60
+    assert window.retry_after(key, limit) is None
+
+
+def test_memory_stays_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rate_limit, "_MAX_KEYS", 3)
+    bounded = RateLimiter(clock=lambda: 0.0)
+    limit = Limit(attempts=5, window_seconds=60)
+
+    assert bounded.retry_after(("login", "never-seen"), limit) is None
+    assert bounded._hits == {}, "checking records nothing"  # noqa: SLF001
+    for index in range(5):
+        bounded.hit(("login", f"10.0.0.{index}"), limit)
+    assert list(bounded._hits) == [("login", "10.0.0.2"), ("login", "10.0.0.3"), ("login", "10.0.0.4")]  # noqa: SLF001
+
+
+def test_the_wait_is_given_in_whole_minutes() -> None:
+    assert too_many_message(30) == "Too many attempts. Try again in 1 minute."
+    assert too_many_message(61) == "Too many attempts. Try again in 2 minutes."

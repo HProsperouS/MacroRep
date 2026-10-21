@@ -73,7 +73,11 @@ checks each limit from both sides.
 - **Auth is self-issued, not a third-party provider.** `app/auth` implements
   email/password registration and login (Argon2 hashing), a short-lived JWT
   access token, and a rotating refresh token stored as an httpOnly cookie —
-  see that module's docstrings. `PREVIEW_AUTH_ENABLED` (on by default outside
+  see that module's docstrings. Sign-in and sign-up attempts are limited
+  (`app/auth/rate_limit.py`): in 15 minutes, 5 wrong passwords for an account
+  from one address (so someone else guessing can't lock its owner out) and 30
+  sign-ins per address; 50 wrong passwords for an account from anywhere and 10
+  sign-ups per address an hour. Then 429 with `Retry-After`. `PREVIEW_AUTH_ENABLED` (on by default outside
   `APP_ENV=prod`) is a separate, additional local-dev seam: sending
   `X-Preview-Actor-Id: USR-DEMO` authenticates as the seeded demo user without
   going through login at all, useful for curling endpoints directly.

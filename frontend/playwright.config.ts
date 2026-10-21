@@ -52,6 +52,8 @@ export default defineConfig({
         DEBUG: "false",
         LOG_JSON: "false",
         LOG_DIR: "",
+        // Every test signs up from the same address; repeated runs would hit the sign-up limit.
+        AUTH_RATE_LIMIT_ENABLED: "false",
       },
     },
     {

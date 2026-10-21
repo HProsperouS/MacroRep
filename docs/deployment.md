@@ -218,7 +218,13 @@ creating anything. A model provider's API calls would add a per-check-in cost.
 
 Gaps that would matter for real users, tracked in [`follow-ups.md`](follow-ups.md):
 
-- **No login rate limiting.** On AWS this needs a shared store or an AWS WAF rate-based
-  rule on the CloudFront distribution, since in-memory limits don't span tasks.
+- **Sign-in limits count per task, by the connecting address.** `app/auth/rate_limit.py`
+  keeps its counts in memory, so with two tasks an account gets twice the attempts. And
+  behind CloudFront and the ALB the connecting address is the ALB's, so every user would
+  share one count. The client's own address has to be passed through: have CloudFront send
+  its `CloudFront-Viewer-Address` header to the origin and read that, or run uvicorn with
+  `--proxy-headers` trusting both the ALB's and CloudFront's address ranges. For more than one
+  task, move the counts to a shared store (Redis) or use an AWS WAF rate-based rule on the
+  distribution instead.
 - **No infrastructure code or deploy pipeline.** CI is step 1 of releasing and builds the
   image, but pushes nothing; the other steps are manual.

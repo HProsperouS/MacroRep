@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default="/api", alias="API_PREFIX", pattern=r"^/[^\s]*$")
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"], alias="CORS_ORIGINS")
     preview_auth_enabled: bool = Field(default=True, alias="PREVIEW_AUTH_ENABLED")
+    # Limits on sign-in and sign-up attempts (app/auth/rate_limit.py). Off only for the
+    # end-to-end tests, which sign up many users from one address.
+    auth_rate_limit_enabled: bool = Field(default=True, alias="AUTH_RATE_LIMIT_ENABLED")
     auto_create_schema: bool = Field(default=False, alias="AUTO_CREATE_SCHEMA")
     seed_demo_data: bool = Field(default=False, alias="SEED_DEMO_DATA")
 

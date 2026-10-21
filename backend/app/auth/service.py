@@ -30,6 +30,10 @@ def _as_aware_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+# One message for an unknown email and a wrong password; the sign-in limits count it.
+WRONG_CREDENTIALS = "Incorrect email or password"
+
+
 class AuthService:
     def __init__(self, session: AsyncSession, users: UserRepository, settings: Settings) -> None:
         self.session = session
@@ -88,7 +92,7 @@ class AuthService:
         if user is None or user.password_hash is None or not password_matches:
             # One message for both branches, so a wrong address and a wrong
             # password are indistinguishable to the caller.
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, WRONG_CREDENTIALS)
         if user.status is not UserStatus.ACTIVE:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")
         session = self._issue(user)

@@ -185,7 +185,7 @@ These exclusions protect the four-person team from excessive scope and keep the 
 - Food-photo analysis with user correction.
 - Limited PWA offline support for an active workout.
 - Streaming agent progress.
-- Background job queue and rate limiting.
+- Background job queue and rate limiting. *Sign-in and sign-up limits are done (see backend/README.md); the job queue and limits on AI endpoints are not.*
 
 P3 work begins only after the P0-P2 acceptance criteria are met.
 
