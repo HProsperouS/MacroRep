@@ -93,7 +93,7 @@ Each module under `backend/app/` follows the same layout: `models.py` (tables),
 | `profile` | `profiles`, `nutrition_targets` | Profile, timezone, versioned daily targets |
 | `food` | `foods`, `food_entries` | Food catalog and the daily food log |
 | `body` | `weigh_ins` | Weigh-ins and the trend weight |
-| `workout` | `exercises`, routines, schedule, sessions, sets | Exercise catalog, routines, weekly schedule, logged workouts |
+| `workout` | `exercises`, routines, schedule, sessions, sets | Validated built-in catalog plus private custom exercises, routines, weekly schedule, logged workouts |
 | `progress` | (none: reads the others) | Dashboard figures, and the week's data a check-in needs |
 | `coach` | `coach_check_ins`, `coach_proposals`, `coach_messages` | Check-ins, the agents, proposal decisions |
 | `analytics` | (none) | Pure, tested formulas: adherence, trend weight, e1RM, volume, RPE |

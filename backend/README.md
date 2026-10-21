@@ -17,7 +17,7 @@ backend/
 │   ├── auth/                   # registration, login, refresh-token rotation, logout
 │   ├── profile/                 # fitness profile and nutrition targets
 │   ├── food/                     # food catalog and daily food log
-│   ├── workout/                    # exercise catalog, weekly plan, logged sessions
+│   ├── workout/                    # built-in/custom exercise catalog, weekly plan, logged sessions
 │   ├── body/                        # weigh-ins and trend-weight calculation
 │   ├── progress/                     # read-model composing the above into dashboard charts
 │   ├── analytics/                     # deterministic nutrition, training and weight formulas
@@ -31,6 +31,13 @@ backend/
 
 Each domain normally owns `models.py`, `schemas.py`, `repository.py`,
 `service.py`, and `router.py`.
+
+`app/workout/catalog.py` is the validated, append-only source for the built-in
+exercise library. Its Alembic data migration installs the same global rows in
+every environment (`owner_id` is null); `AUTO_CREATE_SCHEMA` installs them
+independently of demo data. A user's custom exercises use that user's id and
+are visible only to them. Every future catalog addition must include a new
+additive data migration so already-upgraded databases receive it.
 
 ### Input validation
 

@@ -23,7 +23,8 @@ from app.identity.models import User, UserStatus
 from app.profile.models import ExperienceLevel, Goal, NutritionTarget, Profile, TargetSource
 from app.shared.persistence.mixins import utc_now
 from app.shared.timezones import local_today, user_zone
-from app.workout.models import Exercise, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutScheduleDay
+from app.workout.catalog import ensure_system_exercises
+from app.workout.models import WorkoutPlanEntry, WorkoutPlanExercise, WorkoutScheduleDay
 
 DEMO_USER_ID = "USR-DEMO"
 DEMO_USER_EMAIL = "alex.tan@example.com"
@@ -125,29 +126,7 @@ async def seed_demo_data() -> None:
                 ]
             )
 
-        exercises = {
-            "exercise-bench-press": Exercise(
-                id="exercise-bench-press",
-                name="Barbell Bench Press",
-                equipment="barbell",
-                muscles=["chest", "triceps", "shoulders"],
-            ),
-            "exercise-squat": Exercise(
-                id="exercise-squat",
-                name="Barbell Back Squat",
-                equipment="barbell",
-                muscles=["quads", "glutes"],
-            ),
-            "exercise-deadlift": Exercise(
-                id="exercise-deadlift",
-                name="Barbell Deadlift",
-                equipment="barbell",
-                muscles=["back", "hamstrings", "glutes"],
-            ),
-        }
-        if await _is_empty(session, Exercise):
-            session.add_all(exercises.values())
-            await session.flush()
+        await ensure_system_exercises(session)
 
         if await _is_empty(session, WorkoutPlanEntry):
             today_entry = WorkoutPlanEntry(

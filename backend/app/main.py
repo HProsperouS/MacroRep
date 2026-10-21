@@ -15,7 +15,7 @@ from app.coach.agents.checkpoint import checkpointer_lifespan
 from app.coach.router import router as coach_router
 from app.coach.runner import resume_interrupted_check_ins, stop_running_check_ins
 from app.core.config import Settings, get_settings
-from app.core.database import dispose_engine, get_engine
+from app.core.database import dispose_engine, get_engine, get_session_factory
 from app.food.router import router as food_router
 from app.health.router import router as health_router
 from app.profile.router import router as profile_router
@@ -36,6 +36,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.auto_create_schema:
             async with get_engine().begin() as connection:
                 await connection.run_sync(Base.metadata.create_all)
+            # AUTO_CREATE_SCHEMA deliberately bypasses Alembic, so install the
+            # non-demo system catalogue independently of SEED_DEMO_DATA.
+            from app.workout.catalog import ensure_system_exercises
+
+            async with get_session_factory()() as session:
+                await ensure_system_exercises(session)
+                await session.commit()
         if settings.seed_demo_data:
             from app.demo_seed import seed_demo_data
 

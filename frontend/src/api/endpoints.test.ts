@@ -68,7 +68,7 @@ const cases: [string, () => Promise<unknown>, Sent][] = [
   [
     "exercises",
     () => workoutApi.searchExercises({ q: "press", muscle: "Chest", equipment: "barbell" } as never),
-    { method: "get", url: "/exercises", params: { q: "press", muscle: "Chest", equipment: "barbell", limit: 30 } },
+    { method: "get", url: "/exercises", params: { q: "press", muscle: "Chest", equipment: "barbell", limit: 100 } },
   ],
   ["create exercise", () => workoutApi.createExercise(body as never), { method: "post", url: "/exercises", body }],
   ["finish session", () => workoutApi.finishSession(body as never), { method: "post", url: "/workouts/sessions", body }],

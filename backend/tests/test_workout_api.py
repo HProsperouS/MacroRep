@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
+from sqlalchemy import delete, func, select
 
+from app.core.database import get_session_factory
+from app.workout.catalog import SYSTEM_EXERCISES, ensure_system_exercises
+from app.workout.models import Exercise
 from tests.helpers import plan_every_day, register_user
 
 
@@ -29,6 +33,57 @@ def test_search_and_create_exercise(client: TestClient, auth_headers: dict[str, 
     )
     assert created.status_code == 201
     assert created.json()["source"] == "custom"
+
+
+def test_builtin_catalogue_covers_common_movements(client: TestClient, auth_headers: dict[str, str]) -> None:
+    response = client.get("/api/v1/exercises", headers=auth_headers, params={"limit": 100})
+    assert response.status_code == 200
+    library = [exercise for exercise in response.json() if exercise["source"] == "library"]
+    assert len(library) == len(SYSTEM_EXERCISES)
+    assert {exercise["name"] for exercise in library} >= {
+        "Barbell Bench Press",
+        "Lat Pulldown",
+        "Dumbbell Shoulder Press",
+        "Leg Press",
+        "Barbell Romanian Deadlift",
+        "Cable Triceps Pushdown",
+        "Plank",
+    }
+
+
+def test_builtin_catalogue_can_be_filtered(client: TestClient, auth_headers: dict[str, str]) -> None:
+    response = client.get(
+        "/api/v1/exercises",
+        headers=auth_headers,
+        params={"muscle": "chest", "equipment": "dumbbell", "limit": 100},
+    )
+    assert response.status_code == 200
+    exercises = response.json()
+    assert {exercise["name"] for exercise in exercises} >= {
+        "Dumbbell Bench Press",
+        "Incline Dumbbell Bench Press",
+        "Dumbbell Chest Fly",
+    }
+    assert all(exercise["equipment"] == "dumbbell" for exercise in exercises)
+    assert all("chest" in exercise["muscles"] for exercise in exercises)
+
+
+def test_system_catalogue_install_is_idempotent(client: TestClient) -> None:
+    async def reinstall_one() -> tuple[int, int, int]:
+        async with get_session_factory()() as session:
+            await session.execute(delete(Exercise).where(Exercise.id == "exercise-farmer-carry"))
+            await session.commit()
+
+            first = await ensure_system_exercises(session)
+            second = await ensure_system_exercises(session)
+            count = await session.scalar(
+                select(func.count()).select_from(Exercise).where(Exercise.owner_id.is_(None))
+            )
+            await session.commit()
+            return first, second, int(count or 0)
+
+    assert client.portal is not None
+    assert client.portal.call(reinstall_one) == (1, 0, len(SYSTEM_EXERCISES))
 
 
 def test_search_exercises_rejects_invalid_equipment(client: TestClient, auth_headers: dict[str, str]) -> None:
