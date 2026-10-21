@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.profile.repository import ProfileRepository
@@ -83,6 +84,12 @@ async def list_messages(check_in_id: str, actor: ActorDep, service: CoachService
 
 @router.post("/check-ins/{check_in_id}/messages", response_model=CoachMessage)
 async def ask_coach(
-    check_in_id: str, payload: AskCoachInput, actor: ActorDep, service: CoachServiceDep
+    check_in_id: str,
+    payload: AskCoachInput,
+    actor: ActorDep,
+    service: CoachServiceDep,
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> CoachMessage:
-    return await service.ask_coach(check_in_id, payload.text, actor)
+    return await service.ask_coach(
+        check_in_id, payload.text, actor, limit_questions=settings.rate_limits_enabled
+    )

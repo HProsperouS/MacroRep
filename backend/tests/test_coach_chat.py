@@ -242,3 +242,57 @@ def test_a_question_comes_before_its_answer_even_when_saved_at_the_same_instant(
     assert client.portal is not None
     client.portal.call(save)
     assert [m["text"] for m in _messages(client, auth_headers, check_in["id"])] == ["Question", "Answer"]
+
+
+def test_questions_per_user_are_limited_failed_answers_included(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER
+
+    def down(task: AgentTask[Any]) -> dict[str, Any]:
+        raise ModelUnavailableError("rate limited")
+
+    check_in = _current(client, auth_headers)
+    assert (
+        _ask(client, auth_headers, "no-such-check-in", "Why?").status_code == 404
+    )  # not counted: no model call
+    for _ in range(CHAT_QUESTIONS_PER_USER.attempts - 1):
+        assert _ask(client, auth_headers, check_in["id"], "Why?").status_code == 200
+    _use(monkeypatch, RecordingModel(down))
+    assert _ask(client, auth_headers, check_in["id"], "Why?").status_code == 503  # paid for, so counted
+
+    refused = _ask(client, auth_headers, check_in["id"], "Why?")
+
+    assert refused.status_code == 429
+    assert refused.json()["detail"].startswith("That's a lot of questions for now. Try again in")
+    monkeypatch.undo()  # the model works again, for the other user's check-in and question
+    other_user = register_user(client)
+    _week_with_a_proposal(client, other_user)
+    assert _ask(client, other_user, _start(client, other_user, "k").json()["id"], "Why?").status_code == 200
+
+
+def test_switched_off_questions_are_not_limited(client: TestClient, auth_headers: dict[str, str]) -> None:
+    from app.core.config import get_settings
+    from app.main import app
+    from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, user_limiter
+
+    settings = get_settings().model_copy(update={"rate_limits_enabled": False})
+    app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        check_in = _current(client, auth_headers)
+        for _ in range(CHAT_QUESTIONS_PER_USER.attempts + 1):
+            assert _ask(client, auth_headers, check_in["id"], "Why?").status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_settings)
+    assert user_limiter._hits == {}  # noqa: SLF001
+
+
+def test_a_flood_of_sign_ins_cant_reset_a_users_question_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.shared import rate_limit
+
+    monkeypatch.setattr(rate_limit, "_MAX_KEYS", 3)
+    rate_limit.user_limiter.hit(("chat", "user-1"), rate_limit.CHAT_QUESTIONS_PER_USER)
+    for index in range(10):
+        rate_limit.limiter.hit(("login", f"10.0.0.{index}"), rate_limit.LOGINS_PER_ADDRESS)
+
+    assert ("chat", "user-1") in rate_limit.user_limiter._hits  # noqa: SLF001

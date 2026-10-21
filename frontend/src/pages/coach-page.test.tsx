@@ -293,6 +293,23 @@ describe("CoachChat", () => {
     expect(within(screen.getByRole("list", { name: "Conversation" })).queryByText("Why more calories?")).not.toBeInTheDocument()
   })
 
+  it("says when there have been too many questions, without a retry", async () => {
+    api.askCoach.mockRejectedValue(
+      new AxiosError("429", "ERR_BAD_REQUEST", undefined, undefined, {
+        status: 429,
+        data: { detail: "That's a lot of questions for now. Try again in 12 minutes." },
+      } as never),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Try again in 12 minutes.")
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: "Ask the coach" })).toHaveValue("Why more calories?")
+  })
+
   it("looks again for an answer the server saved after the browser gave up", async () => {
     api.askCoach.mockRejectedValue(new AxiosError("timeout", "ECONNABORTED"))
     const user = userEvent.setup()

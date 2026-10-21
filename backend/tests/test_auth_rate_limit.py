@@ -8,8 +8,11 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app.auth import rate_limit
-from app.auth.rate_limit import (
+from app.auth.service import WRONG_CREDENTIALS
+from app.core.config import get_settings
+from app.main import app
+from app.shared import rate_limit
+from app.shared.rate_limit import (
     FAILED_LOGINS_PER_EMAIL,
     FAILED_LOGINS_PER_EMAIL_AND_ADDRESS,
     LOGINS_PER_ADDRESS,
@@ -19,9 +22,6 @@ from app.auth.rate_limit import (
     limiter,
     too_many_message,
 )
-from app.auth.service import WRONG_CREDENTIALS
-from app.core.config import get_settings
-from app.main import app
 
 PASSWORD = "long-enough-pw"
 
@@ -137,7 +137,7 @@ def test_one_address_can_only_sign_up_so_often_refused_attempts_included(client:
 
 
 def test_switched_off_nothing_is_counted(client: TestClient) -> None:
-    settings = get_settings().model_copy(update={"auth_rate_limit_enabled": False})
+    settings = get_settings().model_copy(update={"rate_limits_enabled": False})
     app.dependency_overrides[get_settings] = lambda: settings
     try:
         for _ in range(FAILED_LOGINS_PER_EMAIL_AND_ADDRESS.attempts + 1):

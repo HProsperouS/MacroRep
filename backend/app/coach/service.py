@@ -31,6 +31,7 @@ from app.profile.models import Profile, TargetSource
 from app.profile.repository import ProfileRepository
 from app.profile.service import DEFAULT_TARGETS
 from app.progress.repository import ProgressRepository
+from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, count_attempt, user_limiter
 from app.shared.timezones import local_today, user_zone
 from app.shared.validation import ensure_plausible_calories
 from app.workout.models import WorkoutPlanEntry, WorkoutPlanExercise
@@ -617,13 +618,23 @@ class CoachService:
             for message in await self.repository.list_messages(check_in_id)
         ]
 
-    async def ask_coach(self, check_in_id: str, text: str, actor: ActorContext) -> CoachMessage:
+    async def ask_coach(
+        self, check_in_id: str, text: str, actor: ActorContext, *, limit_questions: bool = True
+    ) -> CoachMessage:
         """Answer a question about the check-in. The question and the answer are stored
-        together, only once there is an answer, so asking again after a failure repeats nothing."""
+        together, only once there is an answer, so asking again after a failure repeats nothing.
+        With ``limit_questions``, each user gets ``CHAT_QUESTIONS_PER_USER`` (then 429)."""
 
         check_in = await self._owned_check_in(check_in_id, actor)
         if check_in.status in (CheckInStatus.RUNNING, CheckInStatus.FAILED):
             raise HTTPException(status.HTTP_409_CONFLICT, CHAT_NOT_READY)
+        # Counted from here on, where the paid model call is made, answered or not.
+        if limit_questions:
+            count_attempt(
+                (("chat", actor.actor_id), CHAT_QUESTIONS_PER_USER),
+                reason="That's a lot of questions for now.",
+                counts=user_limiter,
+            )
 
         history = await self.repository.list_messages(check_in_id, latest=CHAT_HISTORY)
         context = chat_context(

@@ -183,8 +183,8 @@ emails. It is told to:
 - answer briefly, in the language of the question.
 
 `POST /coach/check-ins/{id}/messages` answers once the check-in is ready (409 while it is
-running or after it failed). The question and the answer are stored together only once
-there is an answer, so a failure (503, after one retry of a transient error, within 30 s)
+running or after it failed), up to 30 questions per user an hour (then 429). The question and the answer are stored together only once
+there is an answer, so a failure (503, after one retry of a transient error, within 25 s)
 leaves nothing to repeat. `GET /coach/check-ins/{id}/messages` returns the conversation,
 which the page shows again after a reload. Each answer is logged as `coach chat answered`
 with its topic and run metrics. The rule-based model answers chat too: it turns down

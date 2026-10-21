@@ -54,9 +54,10 @@ def _reset_postgres() -> None:
 def _fresh_rate_limits() -> None:
     """Each test starts with no sign-in or sign-up attempts counted."""
 
-    from app.auth.rate_limit import limiter
+    from app.shared.rate_limit import limiter, user_limiter
 
     limiter.reset()
+    user_limiter.reset()
 
 
 @pytest.fixture

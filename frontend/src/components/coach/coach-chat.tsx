@@ -38,8 +38,13 @@ export function CoachChat({ checkInId, suggestions, className }: CoachChatProps)
       onSuccess: () => setQuestion(null),
       onError: (error) => {
         setFailed(apiErrorMessage(error))
-        // Not ready to answer (409): asking again won't help, so there's nothing to retry.
-        if (isAxiosError(error) && error.response?.status === 409) setQuestion(null)
+        // Not ready to answer (409) or too many questions for now (429): asking again at once
+        // won't help, so there's no retry; the question goes back in the box for later.
+        const status = isAxiosError(error) ? error.response?.status : undefined
+        if (status === 409 || status === 429) {
+          setQuestion(null)
+          setDraft(trimmed)
+        }
       },
     })
   }

@@ -31,10 +31,10 @@ against a common-password list (NIST SP 800-63B), either a small built-in list
 
 ## Known gaps
 
-- **No limit on AI endpoints:** `plan.md` §17 also asks for rate limits on AI
-  endpoints. Coach Chat questions and check-ins each make paid model calls, and
-  a signed-in user can send them as fast as they like (a check-in only one at a
-  time). A per-user cap on chat questions would bound the cost.
+- **Check-ins aren't rate limited:** each makes three paid model calls. Only one
+  runs at a time and none starts while proposals are pending, but a user who
+  rejects everything can start the next straight away. Coach Chat questions are
+  limited (30 per user an hour).
 
 ## Verification pending
 

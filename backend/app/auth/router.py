@@ -18,16 +18,15 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.identity.repository import UserRepository
-
-from .rate_limit import (
+from app.shared.rate_limit import (
     FAILED_LOGINS_PER_EMAIL,
     FAILED_LOGINS_PER_EMAIL_AND_ADDRESS,
     LOGINS_PER_ADDRESS,
     REGISTRATIONS_PER_ADDRESS,
-    Limit,
+    count_attempt,
     limiter,
-    too_many_message,
 )
+
 from .schemas import AccessToken, LoginInput, MeRead, RegisterInput
 from .service import WRONG_CREDENTIALS, AuthService
 
@@ -80,22 +79,6 @@ def _address(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-Check = tuple[tuple[str, str], Limit]
-
-
-def _count_attempt(*checks: Check) -> None:
-    """Refuse with 429 if any check is over its limit; otherwise count this attempt in each.
-    Counted before the attempt runs, so attempts sent at once can't all slip under a limit."""
-
-    wait = max((limiter.retry_after(key, limit) or 0 for key, limit in checks), default=0)
-    if wait:
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS, too_many_message(wait), headers={"Retry-After": str(wait)}
-        )
-    for key, limit in checks:
-        limiter.hit(key, limit)
-
-
 @router.post("/auth/register", response_model=AccessToken, status_code=status.HTTP_201_CREATED)
 async def register(
     payload: RegisterInput,
@@ -104,8 +87,8 @@ async def register(
     service: AuthServiceDep,
     settings: SettingsDep,
 ) -> AccessToken:
-    if settings.auth_rate_limit_enabled:
-        _count_attempt((("register", _address(request)), REGISTRATIONS_PER_ADDRESS))
+    if settings.rate_limits_enabled:
+        count_attempt((("register", _address(request)), REGISTRATIONS_PER_ADDRESS))
     access_token, refresh_token = await service.register(payload)
     _set_refresh_cookie(response, settings, refresh_token)
     return access_token
@@ -119,7 +102,7 @@ async def login(
     service: AuthServiceDep,
     settings: SettingsDep,
 ) -> AccessToken:
-    if not settings.auth_rate_limit_enabled:
+    if not settings.rate_limits_enabled:
         access_token, refresh_token = await service.login(payload)
         _set_refresh_cookie(response, settings, refresh_token)
         return access_token
@@ -129,7 +112,7 @@ async def login(
     anywhere = ("login-failed", email)
     # Every attempt counts as a wrong password until it proves otherwise, and a locked
     # account is refused before its password is checked, even a correct one.
-    _count_attempt(
+    count_attempt(
         (("login", address), LOGINS_PER_ADDRESS),
         (from_here, FAILED_LOGINS_PER_EMAIL_AND_ADDRESS),
         (anywhere, FAILED_LOGINS_PER_EMAIL),

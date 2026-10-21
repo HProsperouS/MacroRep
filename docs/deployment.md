@@ -218,7 +218,7 @@ creating anything. A model provider's API calls would add a per-check-in cost.
 
 Gaps that would matter for real users, tracked in [`follow-ups.md`](follow-ups.md):
 
-- **Sign-in limits count per task, by the connecting address.** `app/auth/rate_limit.py`
+- **Sign-in limits count per task, by the connecting address.** `app/shared/rate_limit.py`
   keeps its counts in memory, so with two tasks an account gets twice the attempts. And
   behind CloudFront and the ALB the connecting address is the ALB's, so every user would
   share one count. The client's own address has to be passed through: have CloudFront send
