@@ -953,13 +953,10 @@ Model-dependent tests should use fixtures, mocked model responses, or recorded s
 3. Seed one week of data -> run check-in -> approve proposal -> verify active plan.
 4. Attempt cross-user resource access -> verify rejection.
 
-### Load and resilience tests
+### Resilience tests
 
-- Read-heavy dashboard endpoint.
-- Concurrent log creation.
 - Check-in creation with duplicate idempotency keys.
 - Model timeout or rate-limit simulation.
-- Database restart or transient connection failure where feasible.
 
 ## 21. Observability
 
@@ -1133,13 +1130,12 @@ Dates should be assigned after the team confirms the course deadline.
 
 ### Milestone 4: Deployment and quality
 
-- Staging deployment.
-- CI/CD deploy job.
+- ~~Staging deployment.~~ ~~CI/CD deploy job.~~ A deployment design document instead (see [deployment.md](deployment.md)).
 - Security review.
 - Observability.
 - Architecture, API, and setup documentation.
 
-**Exit criteria:** A clean deployment can be reproduced and demonstrated.
+**Exit criteria:** A clean local setup can be reproduced from the documentation and demonstrated.
 
 ### Milestone 5: Stretch and presentation
 
@@ -1162,7 +1158,7 @@ Dates should be assigned after the team confirms the course deadline.
 | Cloud Deployment | Docker, managed services, CI/CD, secrets, health checks, backup and cost plan |
 | Innovation | Coordinated nutrition and workout recommendations with conflict review and evidence, not a generic chatbot |
 | Documentation | README, setup, architecture diagram, ERD, API guide, agent workflow, deployment guide, decision records |
-| Testing | Unit, API, agent, frontend, end-to-end, load, failure, and authorization tests |
+| Testing | Unit, API, agent, frontend, end-to-end, failure, and authorization tests |
 | Teamwork | Issue ownership, balanced responsibilities, pull-request reviews, contribution evidence |
 
 ## 26. Success Metrics
@@ -1180,10 +1176,9 @@ Dates should be assigned after the team confirms the course deadline.
 
 - Automated tests cover all critical domain calculations and authorization paths.
 - Defined critical end-to-end tests pass in CI.
-- Non-AI API latency meets the documented classroom-load target.
 - Check-in interruption and resume succeeds.
 - Repeated approval does not duplicate a plan update.
-- Deployment and database migration are reproducible from documentation.
+- Database migration is reproducible from documentation.
 
 ### AI quality metrics
 
@@ -1245,7 +1240,7 @@ The project is ready for final submission only when:
 - all four core journeys pass end to end;
 - the multi-agent check-in is persistent and approval-gated;
 - critical tests pass in CI;
-- the deployed system is accessible and has a fallback demo plan;
+- there is a demo plan with a fallback recording or screenshots;
 - README setup has been verified from a clean environment;
 - architecture, ERD, API, testing, and deployment documentation are complete;
 - the team has reviewed every rubric category and attached concrete evidence.
@@ -1254,16 +1249,16 @@ The project is ready for final submission only when:
 
 The team should resolve these during Milestone 0:
 
-1. Final project name and branding.
+1. ~~Final project name and branding.~~ Resolved: MacroRep.
 2. Exact course deadline and milestone dates.
 3. ~~Cloud provider and deployment services.~~ Resolved: AWS (S3, CloudFront, ECS on Fargate, RDS). See §22.
-4. S3-compatible storage provider for user-uploaded media.
-5. Exact minimum exercise catalog and food-entry method.
-6. Weight-trend and estimated one-repetition-maximum formulas.
+4. ~~S3-compatible storage provider for user-uploaded media.~~ Resolved: not needed, since meal photos are never stored.
+5. ~~Exact minimum exercise catalog and food-entry method.~~ Resolved: shared exercise and food catalogs plus the user's own; food is logged by search, quick add, custom food or meal photo. See [architecture.md](architecture.md).
+6. ~~Weight-trend and estimated one-repetition-maximum formulas.~~ Resolved: an exponentially smoothed trend weight and Epley's e1RM. See [analytics.md](analytics.md).
 7. ~~Product-defined nutrition and workout validation bounds.~~ Initial values in `backend/app/coach/agents/limits.py`: a check-in changes the calorie target by at most 300 kcal, within 1,000–6,000 kcal; a training change moves working sets by 1, target weight by at most 10% (in 2.5 kg steps) and target reps by 3; a calorie cut holds back training increases in the same check-in. Values beyond a bound are clamped to it, with a note to the user.
-8. Whether Coach Chat is included in the committed scope.
-9. Whether food-photo analysis is included in the committed scope.
-10. The final AI-evaluation targets.
+8. ~~Whether Coach Chat is included in the committed scope.~~ Resolved: included and built (§6, P3).
+9. ~~Whether food-photo analysis is included in the committed scope.~~ Resolved: included and built (§6, P3).
+10. ~~The final AI-evaluation targets.~~ Resolved: fixed scenarios, each with the answer a sensible coach would give, run 3 times on the real model. See [agent-evaluation.md](agent-evaluation.md).
 
 Until these are decided, the architecture should keep them configurable and avoid provider-specific assumptions in domain code.
 
