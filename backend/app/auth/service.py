@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.identity.models import User, UserStatus
 from app.identity.repository import UserRepository
+from app.shared.exceptions import Conflict, NotFound, Unauthorized
 
 from .schemas import AccessToken, LoginInput, MeRead, RegisterInput
 from .security import (
@@ -49,7 +49,7 @@ class AuthService:
     async def register(self, payload: RegisterInput) -> tuple[AccessToken, str]:
         email = payload.email.strip().lower()
         if await self.users.get_by_email(email) is not None:
-            raise HTTPException(status.HTTP_409_CONFLICT, "That email is already registered")
+            raise Conflict("That email is already registered")
         user = User(
             name=payload.name.strip(),
             email=email,
@@ -68,7 +68,7 @@ class AuthService:
             await self.session.rollback()
             if "email" not in str(exc.orig).lower():
                 raise
-            raise HTTPException(status.HTTP_409_CONFLICT, "That email is already registered") from None
+            raise Conflict("That email is already registered") from None
         session = self._issue(user)
         await self.session.commit()
         return session
@@ -85,9 +85,9 @@ class AuthService:
         if user is None or user.password_hash is None or not password_matches:
             # One message for both branches, so a wrong address and a wrong
             # password are indistinguishable to the caller.
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, WRONG_CREDENTIALS)
+            raise Unauthorized(WRONG_CREDENTIALS)
         if user.status is not UserStatus.ACTIVE:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")
+            raise Unauthorized("This account is disabled")
         session = self._issue(user)
         await self.session.commit()
         return session
@@ -105,9 +105,9 @@ class AuthService:
         # A rotated-away token no longer matches any row, so replaying an old
         # refresh token lands here as a 401.
         if user is None or user.refresh_expires_at is None or user.refresh_expires_at <= datetime.now(UTC):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token is invalid or expired")
+            raise Unauthorized("Refresh token is invalid or expired")
         if user.status is not UserStatus.ACTIVE:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")
+            raise Unauthorized("This account is disabled")
         session = self._issue(user)
         await self.session.commit()
         return session
@@ -124,5 +124,5 @@ class AuthService:
     async def get_me(self, user_id: str) -> MeRead:
         user = await self.users.get(user_id)
         if user is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+            raise NotFound("User not found")
         return MeRead(id=user.id, name=user.name, email=user.email)

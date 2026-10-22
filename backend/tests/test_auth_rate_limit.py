@@ -5,13 +5,13 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.auth.service import WRONG_CREDENTIALS
 from app.core.config import get_settings
 from app.main import app
 from app.shared import rate_limit
+from app.shared.exceptions import Unauthorized
 from app.shared.rate_limit import (
     FAILED_LOGINS_PER_EMAIL,
     FAILED_LOGINS_PER_EMAIL_AND_ADDRESS,
@@ -112,7 +112,7 @@ def test_attempts_are_counted_before_the_password_is_checked(
 
     async def checking(*_: object) -> None:
         counted.append(len(limiter._hits.get(("login-failed", "alex@example.com from testclient"), ())))  # noqa: SLF001
-        raise HTTPException(401, WRONG_CREDENTIALS)
+        raise Unauthorized(WRONG_CREDENTIALS)
 
     monkeypatch.setattr("app.auth.service.AuthService.login", checking)
     _login(client, "alex@example.com", "wrong-password")

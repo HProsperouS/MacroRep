@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.weight import trend_series
 from app.identity.dependencies import ActorContext
+from app.shared.exceptions import Conflict, NotFound
 
 from .models import WeighIn
 from .repository import WeighInRepository
@@ -22,8 +22,8 @@ def trend_by_date(weigh_ins: list[WeighIn]) -> dict[date, float]:
     return trend_series((row.log_date, float(row.weight_kg)) for row in weigh_ins)
 
 
-def _date_taken(log_date: date) -> HTTPException:
-    return HTTPException(status.HTTP_409_CONFLICT, f"There's already a weigh-in on {log_date.isoformat()}")
+def _date_taken(log_date: date) -> Conflict:
+    return Conflict(f"There's already a weigh-in on {log_date.isoformat()}")
 
 
 class BodyService:
@@ -93,5 +93,5 @@ class BodyService:
     async def _owned(self, weigh_in_id: str, actor: ActorContext) -> WeighIn:
         weigh_in = await self.repository.get_owned(weigh_in_id, actor.actor_id)
         if weigh_in is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Weigh-in not found")
+            raise NotFound("Weigh-in not found")
         return weigh_in

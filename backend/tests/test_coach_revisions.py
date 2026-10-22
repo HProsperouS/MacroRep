@@ -33,7 +33,7 @@ class ScriptedModel:
 
 
 def _use(monkeypatch: pytest.MonkeyPatch, model: Any) -> None:
-    monkeypatch.setattr("app.coach.service.get_coach_model", lambda: model)
+    monkeypatch.setattr("app.coach.factory.get_coach_model", lambda: model)
 
 
 def _current(client: TestClient, headers: dict[str, str]) -> dict:

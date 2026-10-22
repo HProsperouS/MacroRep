@@ -6,11 +6,11 @@ from datetime import date as date_
 from datetime import timedelta
 from typing import cast
 
-from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.nutrition import Nutrients, scale_nutrients
 from app.identity.dependencies import ActorContext
+from app.shared.exceptions import Invalid, NotFound
 from app.shared.validation import MAX_CUSTOM_FOODS_PER_USER, ensure_plausible_calories
 
 from .catalog import POPULAR_FOOD_IDS
@@ -51,8 +51,7 @@ def _servings(food: Food, quantity: float, unit: QuantityUnit) -> float:
         return quantity
     grams_per_serving = _grams_per_serving(food)
     if grams_per_serving is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        raise Invalid(
             f"{food.name} has no serving weight, so it can't be logged in grams",
         )
     return quantity / grams_per_serving
@@ -142,8 +141,7 @@ class FoodService:
 
     async def create_custom_food(self, payload: CreateCustomFoodInput, actor: ActorContext) -> FoodRead:
         if await self.foods.count_custom(actor.actor_id) >= MAX_CUSTOM_FOODS_PER_USER:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            raise Invalid(
                 f"You can create up to {MAX_CUSTOM_FOODS_PER_USER} foods of your own.",
             )
         food = Food(
@@ -172,7 +170,7 @@ class FoodService:
     async def _visible_food(self, food_id: str, actor: ActorContext) -> Food:
         food = await self.foods.get_visible(food_id, actor.actor_id)
         if food is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Food not found")
+            raise NotFound("Food not found")
         return food
 
     async def add_entry(self, payload: CreateFoodEntryInput, actor: ActorContext) -> FoodEntryRead:
@@ -199,12 +197,11 @@ class FoodService:
     ) -> FoodEntryRead:
         entry = await self.entries.get_owned(entry_id, actor.actor_id)
         if entry is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Food log entry not found")
+            raise NotFound("Food log entry not found")
 
         if entry.food_id is not None:
             if payload.entered_values():
-                raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                raise Invalid(
                     "This entry comes from a saved food: change its quantity and the nutrition follows.",
                 )
             if payload.changes_quantity():
@@ -216,8 +213,7 @@ class FoodService:
                 _apply_food_quantity(entry, food, quantity, unit)
         else:
             if payload.changes_quantity():
-                raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                raise Invalid(
                     "This entry has no saved food to scale: edit its calories and macros instead.",
                 )
             for field, value in payload.entered_values().items():
@@ -228,7 +224,7 @@ class FoodService:
                     entry.calories, float(entry.protein), float(entry.carbs), float(entry.fat)
                 )
             except ValueError as exc:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
+                raise Invalid(str(exc)) from None
 
         if payload.date is not None:
             entry.log_date = payload.date
@@ -242,6 +238,6 @@ class FoodService:
     async def remove_entry(self, entry_id: str, actor: ActorContext) -> None:
         entry = await self.entries.get_owned(entry_id, actor.actor_id)
         if entry is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Food log entry not found")
+            raise NotFound("Food log entry not found")
         await self.entries.remove(entry)
         await self.session.commit()

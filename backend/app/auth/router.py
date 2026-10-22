@@ -18,6 +18,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.identity.repository import UserRepository
+from app.shared.exceptions import Unauthorized
 from app.shared.rate_limit import (
     FAILED_LOGINS_PER_EMAIL,
     FAILED_LOGINS_PER_EMAIL_AND_ADDRESS,
@@ -121,7 +122,7 @@ async def login(
         access_token, refresh_token = await service.login(payload)
     except Exception as error:
         # Anything but a wrong password (a disabled account, a server error) wasn't a guess.
-        if not (isinstance(error, HTTPException) and error.detail == WRONG_CREDENTIALS):
+        if not (isinstance(error, Unauthorized) and error.message == WRONG_CREDENTIALS):
             limiter.undo(from_here)
             limiter.undo(anywhere)
         raise

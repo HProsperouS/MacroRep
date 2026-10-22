@@ -1,4 +1,4 @@
-"""Uniform handling of request-validation errors."""
+"""Uniform handling of request-validation errors, and the HTTP form of the services' errors."""
 
 from __future__ import annotations
 
@@ -8,7 +8,27 @@ from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from .exceptions import Conflict, DomainError, Invalid, NotFound, TooMany, Unauthorized, Unavailable
+
 _VALUE_ERROR_PREFIX = "Value error, "
+_STATUS: dict[type[DomainError], int] = {
+    NotFound: status.HTTP_404_NOT_FOUND,
+    Conflict: status.HTTP_409_CONFLICT,
+    Invalid: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    Unauthorized: status.HTTP_401_UNAUTHORIZED,
+    Unavailable: status.HTTP_503_SERVICE_UNAVAILABLE,
+    TooMany: status.HTTP_429_TOO_MANY_REQUESTS,
+}
+
+
+async def domain_error_handler(_: Request, exc: Exception) -> JSONResponse:
+    """A service's refusal as its HTTP status, shaped like FastAPI's own errors: ``{"detail": ...}``."""
+
+    assert isinstance(exc, DomainError)
+    # The nearest listed class, so a subclass (say, of Conflict) is answered as its parent.
+    code = next((_STATUS[cls] for cls in type(exc).__mro__ if cls in _STATUS), status.HTTP_400_BAD_REQUEST)
+    headers = {"Retry-After": str(exc.retry_after)} if isinstance(exc, TooMany) else None
+    return JSONResponse(status_code=code, content={"detail": exc.message}, headers=headers)
 
 
 def _describe(error: dict[str, Any]) -> str:

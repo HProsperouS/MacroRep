@@ -14,7 +14,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from fastapi import HTTPException, status
+from .exceptions import TooMany
 
 
 @dataclass(frozen=True)
@@ -131,11 +131,7 @@ def count_attempt(*checks: Check, reason: str = "Too many attempts.", counts: Ra
 
     wait = max((counts.retry_after(key, limit) or 0 for key, limit in checks), default=0)
     if wait:
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            too_many_message(wait, reason),
-            headers={"Retry-After": str(wait)},
-        )
+        raise TooMany(too_many_message(wait, reason), retry_after=wait)
     for key, limit in checks:
         counts.hit(key, limit)
 

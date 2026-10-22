@@ -6,7 +6,6 @@ from datetime import UTC
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +17,7 @@ from app.analytics.training import (
 )
 from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
+from app.shared.exceptions import Conflict, Invalid, NotFound
 from app.shared.timezones import local_today, user_zone
 from app.shared.validation import MAX_CUSTOM_EXERCISES_PER_USER, MAX_ROUTINES_PER_USER
 
@@ -179,8 +179,7 @@ class WorkoutService:
 
     async def create_exercise(self, payload: CreateExerciseInput, actor: ActorContext) -> ExerciseRead:
         if await self.exercises.count_custom(actor.actor_id) >= MAX_CUSTOM_EXERCISES_PER_USER:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            raise Invalid(
                 f"You can create up to {MAX_CUSTOM_EXERCISES_PER_USER} exercises of your own.",
             )
         exercise = Exercise(
@@ -249,13 +248,13 @@ class WorkoutService:
         for exercise_id in exercise_ids:
             exercise = exercises_by_id.get(exercise_id)
             if exercise is None or (exercise.owner_id is not None and exercise.owner_id != actor.actor_id):
-                raise HTTPException(status.HTTP_404_NOT_FOUND, f"Exercise {exercise_id} not found")
+                raise NotFound(f"Exercise {exercise_id} not found")
         return exercises_by_id
 
     async def _owned_routine(self, actor: ActorContext, routine_id: str) -> WorkoutPlanEntry:
         entry = await self.plans.get(routine_id)
         if entry is None or entry.owner_id != actor.actor_id:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Routine not found")
+            raise NotFound("Routine not found")
         return entry
 
     async def _save_routine_exercises(
@@ -293,8 +292,7 @@ class WorkoutService:
     async def create_routine(self, actor: ActorContext, payload: SaveRoutineInput) -> RoutineRead:
         await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
         if await self.plans.count_for_owner(actor.actor_id) >= MAX_ROUTINES_PER_USER:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            raise Invalid(
                 f"You can keep up to {MAX_ROUTINES_PER_USER} routines. Delete one to add another.",
             )
         entry = WorkoutPlanEntry(owner_id=actor.actor_id, name=payload.name)
@@ -330,9 +328,7 @@ class WorkoutService:
             # Lost a race: a concurrent save for this same day (e.g. a double-submit) hit
             # the unique (owner_id, day_of_week) index, or the routine was deleted meanwhile.
             await self.session.rollback()
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "This day was just changed elsewhere, please retry"
-            ) from None
+            raise Conflict("This day was just changed elsewhere, please retry") from None
         return WeekPlanDay(day_of_week=day_of_week, plan=await self._build_planned_workout(entry, actor))
 
     async def clear_day(self, actor: ActorContext, day_of_week: int) -> None:
@@ -424,7 +420,7 @@ class WorkoutService:
         if plan_id is not None:
             plan_entry = await self.plans.get(plan_id)
             if plan_entry is not None and plan_entry.owner_id != actor.actor_id:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "Workout plan not found")
+                raise NotFound("Workout plan not found")
             if plan_entry is None:
                 # The routine was deleted while the workout was in progress: keep the
                 # workout, just without the link (as deleting a routine does to past ones).
@@ -485,7 +481,7 @@ class WorkoutService:
     async def get_history_detail(self, actor: ActorContext, session_id: str) -> WorkoutDetail:
         workout_session = await self.sessions.get_session(actor.actor_id, session_id)
         if workout_session is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Workout not found")
+            raise NotFound("Workout not found")
         sets = await self.sessions.list_sets(actor.actor_id, [workout_session.id])
         return WorkoutDetail(
             **_history_item(workout_session, sets).model_dump(), exercises=_history_exercises(sets)
@@ -498,7 +494,7 @@ class WorkoutService:
 
         workout_session = await self.sessions.get_session(actor.actor_id, session_id)
         if workout_session is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Workout not found")
+            raise NotFound("Workout not found")
         await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
 
         workout_session.name = payload.name
@@ -512,6 +508,6 @@ class WorkoutService:
     async def delete_session(self, actor: ActorContext, session_id: str) -> None:
         workout_session = await self.sessions.get_session(actor.actor_id, session_id)
         if workout_session is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Workout not found")
+            raise NotFound("Workout not found")
         await self.sessions.delete_session(workout_session)
         await self.session.commit()

@@ -13,13 +13,12 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.database import get_session_factory
-from app.profile.repository import ProfileRepository
-from app.progress.repository import ProgressRepository
 
+from .factory import build_coach_service
 from .models import CheckIn, CheckInStatus
-from .repository import CoachRepository
-from .service import RUN_TIMEOUT_SECONDS, CoachService
+from .service import RUN_TIMEOUT_SECONDS
 
 # Every generation running in this process: the router's background runs and the
 # resumed ones. Strong references also keep a resumed task from being garbage-collected.
@@ -32,9 +31,7 @@ async def generate_check_in(check_in_id: str) -> None:
         _running.add(task)
     try:
         async with get_session_factory()() as session:
-            service = CoachService(
-                session, CoachRepository(session), ProgressRepository(session), ProfileRepository(session)
-            )
+            service = build_coach_service(session, get_settings())
             await service.generate(check_in_id)
     finally:
         if task is not None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +12,7 @@ from app.analytics.energy import ActivityLevel, Sex, age_on, estimate_targets
 from app.body.repository import WeighInRepository
 from app.identity.dependencies import ActorContext
 from app.identity.repository import UserRepository
+from app.shared.exceptions import Conflict, NotFound
 from app.shared.persistence.mixins import utc_now
 from app.shared.timezones import DEFAULT_TIMEZONE, local_today, user_zone
 from app.shared.validation import (
@@ -40,6 +40,8 @@ from .schemas import (
 _NEW_ACCOUNT = timedelta(days=1)
 # Given to a new profile, and used to judge days for a user who has no targets yet.
 DEFAULT_TARGETS = DailyTargets(calories=2200, protein=150, carbs=230, fat=70)
+# Another change to the targets was saved at the same moment and took this version number.
+TARGETS_CHANGED = "Your targets were just changed elsewhere, please retry"
 
 
 def _one_decimal(value: float) -> float:
@@ -114,6 +116,31 @@ def to_daily_targets(target: NutritionTarget) -> DailyTargets:
     )
 
 
+async def record_targets(
+    profiles: ProfileRepository,
+    profile: Profile,
+    previous: NutritionTarget | None,
+    targets: DailyTargets,
+    source: TargetSource,
+    *,
+    proposal_id: str | None = None,
+) -> None:
+    """Add the targets as the version after ``previous``, from the user's today. Shared by every
+    way targets change (the Profile page, the sign-up guide, an applied check-in)."""
+
+    await profiles.add_target_version(
+        profile.user_id,
+        previous=previous,
+        calories=targets.calories,
+        protein=targets.protein,
+        carbs=targets.carbs,
+        fat=targets.fat,
+        effective_date=local_today(user_zone(profile.timezone)),
+        source=source,
+        proposal_id=proposal_id,
+    )
+
+
 class ProfileService:
     def __init__(
         self,
@@ -143,7 +170,7 @@ class ProfileService:
             # A savepoint, so losing the race below undoes only this insert.
             async with self.session.begin_nested():
                 await self.repository.add(profile)
-                await self._add_targets(profile, None, DEFAULT_TARGETS, TargetSource.INITIAL)
+                await record_targets(self.repository, profile, None, DEFAULT_TARGETS, TargetSource.INITIAL)
         except IntegrityError:
             # A new user's first page load asks for several things at once, and another of
             # those requests created the profile first: use that one.
@@ -158,7 +185,7 @@ class ProfileService:
     async def _to_read(self, profile: Profile, actor: ActorContext) -> ProfileRead:
         user = await self.users.get(actor.actor_id)
         if user is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+            raise NotFound("User not found")
         return ProfileRead(
             name=profile.name,
             email=user.email,
@@ -190,9 +217,7 @@ class ProfileService:
 
         profile = await self._get_or_create(actor)
         if not await self.repository.mark_onboarded(profile.user_id, utc_now()):
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Your profile is already set up. Change it on the Profile page."
-            )
+            raise Conflict("Your profile is already set up. Change it on the Profile page.")
         _apply(profile, payload)
         today = local_today(user_zone(profile.timezone))
         try:
@@ -202,9 +227,7 @@ class ProfileService:
         except IntegrityError:
             # A weigh-in or targets change saved at the same moment; nothing here was kept.
             await self.session.rollback()
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Your weight or targets were just changed elsewhere, please retry"
-            ) from None
+            raise Conflict("Your weight or targets were just changed elsewhere, please retry") from None
         await self.session.refresh(profile)
         return await self._to_read(profile, actor)
 
@@ -227,7 +250,7 @@ class ProfileService:
         current = history[-1] if history else None
         if current is not None and to_daily_targets(current) == targets:
             return
-        await self._add_targets(profile, current, targets, TargetSource.MANUAL)
+        await record_targets(self.repository, profile, current, targets, TargetSource.MANUAL)
 
     async def set_timezone(self, payload: TimezoneInput, actor: ActorContext) -> ProfileRead:
         profile = await self._get_or_create(actor)
@@ -254,20 +277,6 @@ class ProfileService:
         if datetime.now(UTC) - created > _NEW_ACCOUNT:
             return
         defaults.effective_date = local_today(user_zone(profile.timezone))
-
-    async def _add_targets(
-        self, profile: Profile, previous: NutritionTarget | None, targets: DailyTargets, source: TargetSource
-    ) -> None:
-        await self.repository.add_target_version(
-            profile.user_id,
-            previous=previous,
-            calories=targets.calories,
-            protein=targets.protein,
-            carbs=targets.carbs,
-            fat=targets.fat,
-            effective_date=local_today(user_zone(profile.timezone)),
-            source=source,
-        )
 
     async def estimate_targets(
         self, payload: EstimateTargetsInput, actor: ActorContext
@@ -298,16 +307,13 @@ class ProfileService:
             or profile.sex is None
             or profile.activity_level is None
         ):
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
+            raise Conflict(
                 "Add your date of birth, sex and activity level to your profile first.",
             )
         today = local_today(user_zone(profile.timezone))
         latest = await self.weigh_ins.latest(profile.user_id, today)
         if latest is None:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Log your weight first: the estimate starts from it."
-            )
+            raise Conflict("Log your weight first: the estimate starts from it.")
         return _estimate(
             float(latest.weight_kg),
             float(profile.height_cm),
@@ -332,14 +338,11 @@ class ProfileService:
         if current is not None and to_daily_targets(current) == stored:
             return stored
         try:
-            await self._add_targets(profile, current, stored, TargetSource.MANUAL)
+            await record_targets(self.repository, profile, current, stored, TargetSource.MANUAL)
             await self.session.commit()
         except IntegrityError:
-            # Another change to the targets was saved at the same moment and took this version number.
             await self.session.rollback()
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Your targets were just changed elsewhere, please retry"
-            ) from None
+            raise Conflict(TARGETS_CHANGED) from None
         return stored
 
     async def target_history(self, actor: ActorContext) -> list[TargetVersionRead]:

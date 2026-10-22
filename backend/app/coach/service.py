@@ -5,49 +5,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import UTC, date, datetime, timedelta
-from typing import Any, cast
-from zoneinfo import ZoneInfo
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import cast
 
-from fastapi import HTTPException, status
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.analytics.nutrition import (
-    DayStatus,
-    average_daily_calories,
-    day_statuses,
-    logging_adherence_percent,
-    logging_completeness,
-    target_gap_kcal,
-    targets_by_date,
-)
-from app.analytics.training import average_rpe, completion_percent, planned_sessions
-from app.analytics.weight import trend_on_or_before
-from app.body.service import trend_by_date
-from app.core.config import get_settings
 from app.identity.dependencies import ActorContext
-from app.profile.models import ExperienceLevel, Profile, TargetSource
 from app.profile.repository import ProfileRepository
-from app.profile.service import DEFAULT_TARGETS
-from app.progress.repository import ProgressRepository
+from app.shared.exceptions import Conflict, Invalid, NotFound, Unavailable
 from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, CHECK_INS_PER_USER, count_attempt, user_limiter
-from app.shared.timezones import local_date, local_today, user_zone
+from app.shared.timezones import local_today, user_zone
 
-# The same bounds as the targets the user sets, so a proposal can't set one they couldn't type in.
-from app.shared.validation import MAX_TARGET_CALORIES, MIN_TARGET_CALORIES, ensure_plausible_calories
-from app.workout.models import WorkoutPlanEntry, WorkoutPlanExercise
-from app.workout.repository import WorkoutPlanRepository
-from app.workout.targets import (
-    TARGET_FIELDS,
-    TargetField,
-    adjust_targets,
-    routine_revision,
-    working_targets,
-)
-
-from .agents import limits
 from .agents.chat import (
     CHAT_HISTORY,
     MAX_CLARIFICATIONS,
@@ -58,11 +30,10 @@ from .agents.chat import (
     proposal_for_chat,
     revise_proposal,
 )
-from .agents.checkpoint import get_checkpointer
 from .agents.graph import run_agents
 from .agents.metrics import RunMetrics, RunOutcome, elapsed_ms
-from .agents.model import CoachModel, get_coach_model
-from .agents.validate import training_change_error
+from .agents.model import CoachModel
+from .apply import ROUTINE_CHANGED, ProposalApplier
 from .models import CheckIn as CheckInModel
 from .models import CheckInStatus, MessageRole, ProposalKind, ProposalStatus
 from .models import CoachMessage as CoachMessageModel
@@ -77,6 +48,7 @@ from .schemas import (
     ProposalChange,
     ProposalDecisionInput,
 )
+from .snapshot import CHECK_IN_WINDOW_DAYS, WeekSnapshot
 
 
 def _to_proposal_read(proposal: ProposalModel) -> Proposal:
@@ -93,16 +65,6 @@ def _to_proposal_read(proposal: ProposalModel) -> Proposal:
     )
 
 
-CHECK_IN_WINDOW_DAYS = 7
-MIN_FOOD_LOG_DAYS = 4
-MIN_WEIGH_INS = 2
-ROUTINE_GONE = (
-    "The routine this change was for no longer has that exercise. Reject it and start a new check-in."
-)
-ROUTINE_CHANGED = (
-    "Your routine changed after this check-in was made, so its proposal is out of date. "
-    "Reject it and start a new check-in."
-)
 # A run that hasn't finished by then is abandoned and marked failed.
 RUN_TIMEOUT_SECONDS = 120
 # A check-in still RUNNING this long after it started was lost (e.g. a restart mid-run).
@@ -149,16 +111,6 @@ RUNNING_PIPELINE: list[dict[str, str]] = [
 logger = logging.getLogger(__name__)
 
 
-async def _forget_run(check_in_id: str) -> None:
-    """Drop a finished run's checkpoints: the check-in row holds the outcome, and nothing
-    resumes a run that ended, so keeping them would only grow the store."""
-
-    try:
-        await get_checkpointer().adelete_thread(check_in_id)
-    except Exception:
-        logger.warning("couldn't delete check-in checkpoints", extra={"check_in_id": check_in_id})
-
-
 def _check_in_count(owner_id: str) -> tuple[str, str]:
     return ("check_in", owner_id)
 
@@ -174,13 +126,36 @@ class CoachService:
         self,
         session: AsyncSession,
         repository: CoachRepository,
-        week_data: ProgressRepository,
         profiles: ProfileRepository,
+        week: WeekSnapshot,
+        applier: ProposalApplier,
+        model: Callable[[], CoachModel],
+        checkpointer: Callable[[], BaseCheckpointSaver[str]],
+        *,
+        rate_limits: bool,
     ) -> None:
+        """``model`` and ``checkpointer`` are called when needed, so a misconfigured model fails
+        that run, and a run uses the checkpointer current then. With ``rate_limits``, each user
+        gets ``CHECK_INS_PER_USER`` check-ins and ``CHAT_QUESTIONS_PER_USER`` questions (then 429);
+        one that fails on our side gives its count back."""
+
         self.session = session
         self.repository = repository
-        self.week_data = week_data
         self.profiles = profiles
+        self.week = week
+        self.applier = applier
+        self.model = model
+        self.checkpointer = checkpointer
+        self.rate_limits = rate_limits
+
+    async def _forget_run(self, check_in_id: str) -> None:
+        """Drop a finished run's checkpoints: the check-in row holds the outcome, and nothing
+        resumes a run that ended, so keeping them would only grow the store."""
+
+        try:
+            await self.checkpointer().adelete_thread(check_in_id)
+        except Exception:
+            logger.warning("couldn't delete check-in checkpoints", extra={"check_in_id": check_in_id})
 
     async def get_current(self, actor: ActorContext) -> CheckIn | None:
         check_in = await self.repository.get_current(actor.actor_id)
@@ -208,19 +183,15 @@ class CoachService:
             check_in_id, status=CheckInStatus.FAILED, failure_reason=reason, pipeline=_failed_pipeline(steps)
         ):
             await self.session.commit()
-            await _forget_run(check_in_id)
+            await self._forget_run(check_in_id)
 
-    async def start_check_in(
-        self, idempotency_key: str, actor: ActorContext, *, limit_check_ins: bool = True
-    ) -> tuple[CheckIn, bool]:
+    async def start_check_in(self, idempotency_key: str, actor: ActorContext) -> tuple[CheckIn, bool]:
         """Create a check-in for the last 7 days; returns it and whether it was newly created.
 
         Idempotent per (user, key): replaying a key returns the check-in it
         originally created instead of generating another one. Only a
         successful creation consumes a key, so a request refused for missing
         data can be retried with the same key once the data is logged.
-        With ``limit_check_ins``, each user gets ``CHECK_INS_PER_USER`` (then 429);
-        a run that fails gives its one back.
         """
 
         existing = await self.repository.get_by_idempotency_key(actor.actor_id, idempotency_key)
@@ -232,15 +203,12 @@ class CoachService:
         if current is not None:
             await self._fail_if_stale(current)
             if current.status == CheckInStatus.RUNNING:
-                raise HTTPException(
-                    status.HTTP_409_CONFLICT, "Your check-in is still being prepared. It'll be ready shortly."
-                )
+                raise Conflict("Your check-in is still being prepared. It'll be ready shortly.")
             if any(
                 proposal.status == ProposalStatus.PENDING
                 for proposal in await self.repository.list_proposals(current.id)
             ):
-                raise HTTPException(
-                    status.HTTP_409_CONFLICT,
+                raise Conflict(
                     "Your current check-in still has proposals to review. Apply or reject them first.",
                 )
 
@@ -250,11 +218,11 @@ class CoachService:
         start = today - timedelta(days=CHECK_IN_WINDOW_DAYS - 1)
         # Checked and frozen now, so a lack of data is refused at once and the proposals,
         # generated afterwards in the background, rest on exactly these numbers.
-        snapshot = await self._snapshot_week(actor.actor_id, profile, start, today, zone)
+        snapshot = await self.week.gather(actor.actor_id, profile, start, today, zone)
         # Counted before the row is written, so starts sent at once can't all slip under the
         # limit, and given back unless the row is written: then no run, and no model calls.
         count_key = _check_in_count(actor.actor_id)
-        if limit_check_ins:
+        if self.rate_limits:
             count_attempt(
                 (count_key, CHECK_INS_PER_USER),
                 reason="That's a lot of check-ins for today.",
@@ -289,7 +257,7 @@ class CoachService:
             await self.session.commit()
             created = True
         finally:
-            if limit_check_ins and not created:
+            if self.rate_limits and not created:
                 user_limiter.undo(count_key)
         return await self._to_read(check_in), True
 
@@ -316,14 +284,14 @@ class CoachService:
         error_name: str | None = None
         started = time.monotonic()
         try:
-            model = get_coach_model()
+            model = self.model()
             metrics.model = model.name
             draft = await asyncio.wait_for(
                 run_agents(
                     snapshot,
                     model,
                     thread_id=check_in_id,
-                    checkpointer=get_checkpointer(),
+                    checkpointer=self.checkpointer(),
                     metrics=metrics,
                 ),
                 timeout=RUN_TIMEOUT_SECONDS,
@@ -351,7 +319,7 @@ class CoachService:
             error_name = type(error).__name__
             # Our failure, not the user's: it doesn't use up one of their check-ins. (Only one
             # runs at a time, so the latest count is this run's.)
-            if get_settings().rate_limits_enabled:
+            if self.rate_limits:
                 user_limiter.undo(_check_in_count(check_in.owner_id))
             await self.session.rollback()
             await self._mark_failed(check_in_id, steps, FAILED_REASON)
@@ -362,123 +330,7 @@ class CoachService:
             # Logged however the run ended, even if marking it failed went wrong too.
             summary = metrics.summary(outcome=outcome, duration_ms=elapsed_ms(started), error=error_name)
             logger.info("check-in run finished", extra={"check_in_id": check_in_id, "run_metrics": summary})
-        await _forget_run(check_in_id)
-
-    async def _snapshot_week(
-        self, owner_id: str, profile: Profile | None, start: date, end: date, zone: ZoneInfo
-    ) -> dict[str, object]:
-        """Gather the week's metrics, refusing with 422 when there's too little data to judge.
-
-        ``end`` is the user's today, in ``zone``.
-        """
-
-        calories_by_date = await self.week_data.daily_calories(owner_id, start, end)
-        history = await self.week_data.weigh_ins_up_to(owner_id, end)
-        weigh_ins_in_window = [row for row in history if row.log_date >= start]
-
-        missing: list[str] = []
-        if len(calories_by_date) < MIN_FOOD_LOG_DAYS:
-            missing.append(
-                f"log food on at least {MIN_FOOD_LOG_DAYS} of the last {CHECK_IN_WINDOW_DAYS} days "
-                f"({len(calories_by_date)} so far)"
-            )
-        if len(weigh_ins_in_window) < MIN_WEIGH_INS:
-            missing.append(f"weigh in at least {MIN_WEIGH_INS} times ({len(weigh_ins_in_window)} so far)")
-        if missing:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                f"Not enough data for a check-in yet: {' and '.join(missing)}.",
-            )
-
-        trends = trend_by_date(history)
-        # A weigh-in from before the window anchors the start; otherwise the
-        # window's own first reading does.
-        trend_start = trend_on_or_before(trends, start)
-        if trend_start is None:
-            trend_start = trends[weigh_ins_in_window[0].log_date]
-        trend_end = trends[weigh_ins_in_window[-1].log_date]
-
-        # Each day is judged against the target in effect that day; proposals start from today's.
-        target_versions = await self.profiles.target_history(owner_id)
-        current_targets = target_versions[-1] if target_versions else None
-        target_by_date = targets_by_date(
-            [(row.effective_date, float(row.calories)) for row in target_versions],
-            start,
-            end,
-            DEFAULT_TARGETS.calories,
-        )
-        target_calories = round(target_by_date[end])
-        # Non-None: the data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days.
-        avg_calories = cast(float, average_daily_calories(calories_by_date))
-        # Judged from when the user started, as on Progress: days before it weren't missed.
-        signed_up = local_date(profile.created_utc, zone) if profile else start
-        logged_from = max(start, await self.week_data.logging_started(owner_id, signed_up))
-        # `end` is today: still being logged, so it's left out of completeness and the target gap.
-        statuses = day_statuses(calories_by_date, logged_from, end, target_by_date, end)
-        completeness = logging_completeness(statuses.values())
-        finished_logged = [
-            (calories_by_date[day], target_by_date[day])
-            for day, day_status in statuses.items()
-            if day_status in (DayStatus.COMPLETE, DayStatus.PARTIAL)
-        ]
-        workouts_done = await self.week_data.workouts_done(owner_id, start, end, zone)
-        # Nor were plan days before there was a plan: the workout agent holds back progress when
-        # completion looks low, so a plan made mid-week mustn't read as missed sessions.
-        training_started = await self.week_data.training_started(owner_id, zone)
-        workouts_planned = (
-            planned_sessions(
-                await self.week_data.plan_weekdays(owner_id),
-                max(start, training_started),
-                end,
-                end,
-                trained_today=await self.week_data.workouts_done(owner_id, end, end, zone) > 0,
-            )
-            if training_started
-            else 0
-        )
-        rpe_entries = await self.week_data.rpe_entries(owner_id, start, end, zone)
-        routines = await self.week_data.scheduled_routines(owner_id)
-        return {
-            "period_start": start.isoformat(),
-            "period_end": end.isoformat(),
-            "avg_calories": round(avg_calories, 1),
-            "target_calories": target_calories,
-            # The targets version the proposals were made against; applying one checks it is still current.
-            "target_version": current_targets.version if current_targets else None,
-            "food_log_days": len(calories_by_date),
-            "adherence_percent": logging_adherence_percent(
-                len(calories_by_date), (end - logged_from).days + 1
-            ),
-            "complete_days": completeness.complete,
-            "partial_days": completeness.partial,
-            "missing_days": completeness.missing,
-            "target_gap_kcal": target_gap_kcal(finished_logged),
-            "weigh_ins": len(weigh_ins_in_window),
-            "weight_change_kg": round(trend_end - trend_start, 2),
-            "goal_rate_kg_per_week": float(profile.weekly_rate_kg) if profile else 0.0,
-            "workouts_done": workouts_done,
-            "workouts_planned": workouts_planned,
-            "completion_percent": completion_percent(workouts_done, workouts_planned),
-            "avg_rpe": average_rpe(rpe for _, rpe in rpe_entries),
-            # What the workout agent may adjust, and how each exercise has been going.
-            "routines": routines,
-            "exercise_trends": await self.week_data.exercise_trends(
-                owner_id,
-                sorted(
-                    {
-                        cast(str, e["exercise_id"])
-                        for r in routines
-                        for e in cast(list[dict[str, object]], r["exercises"])
-                    }
-                ),
-                start,
-                end,
-                zone,
-            ),
-            # A profile not made yet would start as a beginner.
-            "experience_level": (profile.experience_level if profile else ExperienceLevel.BEGINNER).value,
-            "goal": profile.goal.value if profile else "maintain",
-        }
+        await self._forget_run(check_in_id)
 
     async def _to_read(self, check_in: CheckInModel) -> CheckIn:
         proposals = await self.repository.list_proposals(check_in.id)
@@ -500,14 +352,12 @@ class CoachService:
     ) -> Proposal:
         check_in = await self.repository.get_owned(check_in_id, actor.actor_id)
         if check_in is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in not found")
+            raise NotFound("Check-in not found")
         proposal = await self.repository.get_proposal(proposal_id, check_in_id)
         if proposal is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Proposal not found")
+            raise NotFound("Proposal not found")
         if proposal.status != ProposalStatus.PENDING:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, f"Proposal has already been decided ({proposal.status.value})"
-            )
+            raise Conflict(f"Proposal has already been decided ({proposal.status.value})")
 
         if payload.decision == "reject":
             proposal.status = ProposalStatus.REJECTED
@@ -519,8 +369,7 @@ class CoachService:
                 unknown = set(overrides) - {cast(str, change["id"]) for change in proposal.changes}
                 if unknown:
                     # An edit can only adjust a value the proposal actually changes.
-                    raise HTTPException(
-                        status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    raise Invalid(
                         f"Not part of this proposal: {', '.join(sorted(unknown))}",
                     )
                 changes = [
@@ -530,9 +379,9 @@ class CoachService:
                 status_after = ProposalStatus.EDITED
             # Checked before anything is changed, so a refused proposal stays pending.
             if proposal.kind == ProposalKind.NUTRITION:
-                await self._apply_nutrition_targets(actor, check_in, proposal, changes)
+                await self.applier.nutrition(actor, check_in, proposal, changes)
             else:
-                await self._apply_training_changes(actor, check_in, changes)
+                await self.applier.training(actor, check_in, changes)
             proposal.changes = changes
             proposal.status = status_after
 
@@ -543,135 +392,9 @@ class CoachService:
         except StaleDataError:
             # The routine was saved elsewhere (its exercises replaced) while this was applied.
             await self.session.rollback()
-            raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_CHANGED) from None
+            raise Conflict(ROUTINE_CHANGED) from None
         await self.session.refresh(proposal)
         return _to_proposal_read(proposal)
-
-    async def _apply_nutrition_targets(
-        self,
-        actor: ActorContext,
-        check_in: CheckInModel,
-        proposal: ProposalModel,
-        changes: list[dict[str, object]],
-    ) -> None:
-        """Record an accepted calorie change as a new version of the user's targets, from today.
-
-        Raises 409 when the targets changed after the check-in was made, since the proposal
-        was worked out from the old ones, and 422 when the new target is outside the range
-        the app allows or far below what the macros add up to. Either way nothing is changed.
-        """
-
-        calories = next((change["after"] for change in changes if change["id"] == "calories"), None)
-        if calories is None:
-            return
-        target = round(cast(float, calories))
-        profile = await self.profiles.get(actor.actor_id)
-        current = await self.profiles.current_targets(actor.actor_id)
-        if profile is None or current is None:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Set up your profile before applying targets")
-        expected_version = (check_in.input_snapshot or {}).get("target_version")
-        # Check-ins made before targets were versioned have no version to compare.
-        if expected_version is not None and expected_version != current.version:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "Your targets changed after this check-in was made, so its proposal is out of date. "
-                "Reject it and start a new check-in.",
-            )
-        if not MIN_TARGET_CALORIES <= target <= MAX_TARGET_CALORIES:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                f"A daily target of {target:,} kcal is outside the allowed "
-                f"{MIN_TARGET_CALORIES:,}-{MAX_TARGET_CALORIES:,} kcal. Edit it to a value in range.",
-            )
-        protein, carbs, fat = float(current.protein_g), float(current.carbs_g), float(current.fat_g)
-        try:
-            ensure_plausible_calories(target, protein, carbs, fat)
-        except ValueError as error:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
-        try:
-            # Numbered after the targets checked above: a change saved since then is refused, not overwritten.
-            await self.profiles.add_target_version(
-                actor.actor_id,
-                previous=current,
-                calories=target,
-                protein=protein,
-                carbs=carbs,
-                fat=fat,
-                effective_date=local_today(user_zone(profile.timezone)),
-                source=TargetSource.CHECK_IN,
-                proposal_id=proposal.id,
-            )
-        except IntegrityError:
-            await self.session.rollback()
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Your targets were just changed elsewhere, please retry"
-            ) from None
-
-    async def _apply_training_changes(
-        self, actor: ActorContext, check_in: CheckInModel, changes: list[dict[str, object]]
-    ) -> None:
-        """Write accepted training changes to the user's routines, all of them or none.
-
-        Raises 409 when a routine or exercise is gone, or the routine was saved again after
-        the check-in (so the proposal is out of date), and 422 when an edited value is past
-        the limits. Nothing is changed then. Every change is checked against the routine as
-        the check-in saw it, then applied weight and reps first, the number of sets last.
-        """
-
-        plans = WorkoutPlanRepository(self.session)
-        seen = {
-            cast(str, routine["routine_id"]): routine
-            for routine in cast(list[dict[str, Any]], (check_in.input_snapshot or {}).get("routines") or [])
-        }
-        routines: dict[str, WorkoutPlanEntry] = {}
-        exercises: dict[str, list[WorkoutPlanExercise]] = {}
-        planned_changes: dict[str, tuple[WorkoutPlanExercise, list[tuple[TargetField, float]]]] = {}
-        for change in changes:
-            routine_id, exercise_id, field = (
-                change.get("routine_id"),
-                change.get("exercise_id"),
-                change.get("field"),
-            )
-            if (
-                not isinstance(routine_id, str)
-                or not isinstance(exercise_id, str)
-                or field not in TARGET_FIELDS
-            ):
-                raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_CONTENT, "This change can't be applied to a routine."
-                )
-            if routine_id not in routines:
-                routine = await plans.get(routine_id)
-                if routine is None or routine.owner_id != actor.actor_id:
-                    raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_GONE)
-                # Snapshots from before revisions were recorded fall back to the value check below.
-                revision = seen.get(routine_id, {}).get("revision")
-                if revision is not None and revision != routine_revision(routine):
-                    raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_CHANGED)
-                routines[routine_id] = routine
-                exercises[routine_id] = await plans.list_exercises(routine_id)
-            # The first occurrence, as the snapshot described it to the agent.
-            planned = next((pe for pe in exercises[routine_id] if pe.exercise_id == exercise_id), None)
-            if planned is None:
-                raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_GONE)
-            target: TargetField = field
-            before, after = float(cast(float, change["before"])), float(cast(float, change["after"]))
-            current = working_targets(planned.planned_sets)[target]
-            if current is None or abs(current - before) > 1e-9:
-                raise HTTPException(status.HTTP_409_CONFLICT, ROUTINE_CHANGED)
-            error = training_change_error(target, before, after)
-            if error is not None:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"{change['label']}: {error}")
-            planned_changes.setdefault(planned.id, (planned, []))[1].append((target, after))
-
-        for planned, targets in planned_changes.values():
-            sets = list(planned.planned_sets)
-            # Sets last, so a weight change scales the sets the check-in saw, then any are added or dropped.
-            for target, after in sorted(targets, key=lambda item: item[0] == "working_sets"):
-                sets = adjust_targets(sets, target, after, load_step=limits.LOAD_STEP_KG)
-            planned.planned_sets = sets
-        for routine in routines.values():
-            routine.touch()
 
     async def list_messages(self, check_in_id: str, actor: ActorContext) -> list[CoachMessage]:
         await self._owned_check_in(check_in_id, actor)
@@ -685,20 +408,17 @@ class CoachService:
             for message in await self.repository.list_messages(check_in_id)
         ]
 
-    async def ask_coach(
-        self, check_in_id: str, text: str, actor: ActorContext, *, limit_questions: bool = True
-    ) -> CoachMessage:
+    async def ask_coach(self, check_in_id: str, text: str, actor: ActorContext) -> CoachMessage:
         """Answer a question about the check-in. The question and the answer are stored
         together, only once there is an answer, so asking again after a failure repeats nothing.
-        With ``limit_questions``, each user gets ``CHAT_QUESTIONS_PER_USER`` (then 429); a
-        question left unanswered gives its one back."""
+        A question left unanswered gives its count back."""
 
         check_in = await self._owned_check_in(check_in_id, actor)
         if check_in.status in (CheckInStatus.RUNNING, CheckInStatus.FAILED):
-            raise HTTPException(status.HTTP_409_CONFLICT, CHAT_NOT_READY)
+            raise Conflict(CHAT_NOT_READY)
         # Counted from here on, where the paid model call is made.
         count_key = ("chat", actor.actor_id)
-        if limit_questions:
+        if self.rate_limits:
             count_attempt(
                 (count_key, CHAT_QUESTIONS_PER_USER),
                 reason="That's a lot of questions for now.",
@@ -708,7 +428,7 @@ class CoachService:
             return await self._answer(check_in, text, actor)
         except Exception:
             # Our failure, not the user's: it doesn't use up one of their questions.
-            if limit_questions:
+            if self.rate_limits:
                 user_limiter.undo(count_key)
             raise
 
@@ -727,10 +447,10 @@ class CoachService:
         # Nothing is written before the answer; ending the read transaction now frees its
         # connection for the seconds the model takes.
         await self.session.commit()
-        model = get_coach_model()
+        model = self.model()
         answer = await answer_question(model, context, check_in_id)
         if answer is None:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, CHAT_UNAVAILABLE)
+            raise Unavailable(CHAT_UNAVAILABLE)
 
         kind, reply_text = "answer", answer.reply
         if answer.intent in ("adjust_nutrition", "adjust_workout"):
@@ -797,7 +517,7 @@ class CoachService:
             check_in.id,
         )
         if revision is None:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, CHAT_UNAVAILABLE)
+            raise Unavailable(CHAT_UNAVAILABLE)
         if revision.draft is None and not (revision.withdraw and pending is not None):
             return "answer", revision.message
 
@@ -838,5 +558,5 @@ class CoachService:
     async def _owned_check_in(self, check_in_id: str, actor: ActorContext) -> CheckInModel:
         check_in = await self.repository.get_owned(check_in_id, actor.actor_id)
         if check_in is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in not found")
+            raise NotFound("Check-in not found")
         return check_in

@@ -20,7 +20,8 @@ from app.food.router import router as food_router
 from app.health.router import router as health_router
 from app.profile.router import router as profile_router
 from app.progress.router import router as progress_router
-from app.shared.errors import validation_error_handler
+from app.shared.errors import domain_error_handler, validation_error_handler
+from app.shared.exceptions import DomainError
 from app.shared.logging import CorrelationIdMiddleware, configure_logging
 from app.shared.persistence import Base
 from app.shared.request_guard import LimitBodySizeMiddleware, RejectNulBytesMiddleware
@@ -82,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.add_middleware(CorrelationIdMiddleware, header_name=settings.correlation_id_header)
     application.add_exception_handler(RequestValidationError, validation_error_handler)
+    application.add_exception_handler(DomainError, domain_error_handler)
 
     application.include_router(health_router)
     application.include_router(auth_router)

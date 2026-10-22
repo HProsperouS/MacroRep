@@ -642,7 +642,7 @@ def test_a_model_that_cant_be_set_up_fails_the_check_in(
     def broken() -> None:
         raise RuntimeError("bad model settings")
 
-    monkeypatch.setattr("app.coach.service.get_coach_model", broken)
+    monkeypatch.setattr("app.coach.factory.get_coach_model", broken)
     check_in_id = _start(client, headers, "no-model").json()["id"]
 
     assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"

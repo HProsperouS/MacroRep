@@ -10,10 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
-from app.profile.repository import ProfileRepository
-from app.progress.repository import ProgressRepository
 
-from .repository import CoachRepository
+from .factory import build_coach_service
 from .runner import generate_check_in
 from .schemas import AskCoachInput, CheckIn, CoachMessage, Proposal, ProposalDecisionInput
 from .service import CoachService
@@ -21,10 +19,11 @@ from .service import CoachService
 router = APIRouter(prefix="/api/v1/coach", tags=["coach"])
 
 
-def get_coach_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> CoachService:
-    return CoachService(
-        session, CoachRepository(session), ProgressRepository(session), ProfileRepository(session)
-    )
+def get_coach_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> CoachService:
+    return build_coach_service(session, settings)
 
 
 CoachServiceDep = Annotated[CoachService, Depends(get_coach_service)]
@@ -53,14 +52,11 @@ async def start_check_in(
     actor: ActorDep,
     service: CoachServiceDep,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)],
-    settings: Annotated[Settings, Depends(get_settings)],
 ) -> CheckIn:
     """Review the last 7 days. Answers at once with a RUNNING check-in; poll
     ``GET /check-ins/current`` until it leaves RUNNING. Safe to retry with the same Idempotency-Key."""
 
-    check_in, created = await service.start_check_in(
-        idempotency_key, actor, limit_check_ins=settings.rate_limits_enabled
-    )
+    check_in, created = await service.start_check_in(idempotency_key, actor)
     if created:
         background.add_task(generate_check_in, check_in.id)
     else:
@@ -92,8 +88,5 @@ async def ask_coach(
     payload: AskCoachInput,
     actor: ActorDep,
     service: CoachServiceDep,
-    settings: Annotated[Settings, Depends(get_settings)],
 ) -> CoachMessage:
-    return await service.ask_coach(
-        check_in_id, payload.text, actor, limit_questions=settings.rate_limits_enabled
-    )
+    return await service.ask_coach(check_in_id, payload.text, actor)
