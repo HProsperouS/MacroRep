@@ -45,6 +45,7 @@ from .models import CheckIn as CheckInModel
 from .models import CheckInStatus, MessageRole, ProposalKind, ProposalStatus
 from .models import CoachMessage as CoachMessageModel
 from .models import Proposal as ProposalModel
+from .pipeline import gather_step
 from .repository import CoachRepository
 from .schemas import (
     CheckIn,
@@ -106,12 +107,7 @@ INTERRUPTED_REASON = (
     "This check-in was interrupted before it finished. Nothing was changed; start a new one to try again."
 )
 RUNNING_PIPELINE: list[dict[str, str]] = [
-    {
-        "id": "gather",
-        "title": "Gather week's data",
-        "detail": "Food log, workouts, weigh-ins.",
-        "status": "done",
-    },
+    gather_step(),
     {"id": "propose", "title": "Draft proposals", "detail": "Reviewing your week…", "status": "running"},
 ]
 

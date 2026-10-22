@@ -11,10 +11,13 @@ import openai
 import pytest
 from pydantic import ValidationError
 
-from app.coach.agents import model as model_module
+from app.coach.agents import openai_model as openai_module
+from app.coach.agents import provider as provider_module
 from app.coach.agents.graph import run_agents
 from app.coach.agents.metrics import RunMetrics
-from app.coach.agents.model import AgentTask, ModelUnavailableError, OpenAICoachModel, get_coach_model
+from app.coach.agents.model import AgentTask, ModelUnavailableError
+from app.coach.agents.openai_model import OpenAICoachModel
+from app.coach.agents.provider import get_coach_model
 from app.coach.agents.schemas import NutritionAdvice
 from app.core.config import Settings
 
@@ -180,8 +183,8 @@ def test_openai_needs_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_the_configured_provider_is_used_and_the_key_stays_hidden(monkeypatch: pytest.MonkeyPatch) -> None:
     configured = settings(COACH_MODEL_PROVIDER="openai", OPENAI_API_KEY="sk-secret", OPENAI_MODEL="gpt-test")
-    monkeypatch.setattr(model_module, "get_settings", lambda: configured)
-    model_module._openai_model.cache_clear()
+    monkeypatch.setattr(provider_module, "get_settings", lambda: configured)
+    openai_module.cached_openai_model.cache_clear()
 
     model = get_coach_model()
 
@@ -192,13 +195,13 @@ def test_the_configured_provider_is_used_and_the_key_stays_hidden(monkeypatch: p
     assert model.reasoning_effort == "low"  # the default
     assert get_coach_model() is model  # one client, reused
     assert "sk-secret" not in repr(configured)
-    model_module._openai_model.cache_clear()
+    openai_module.cached_openai_model.cache_clear()
 
 
 async def test_a_blank_reasoning_effort_is_not_sent(monkeypatch: pytest.MonkeyPatch) -> None:
     configured = settings(COACH_MODEL_PROVIDER="openai", OPENAI_API_KEY="sk-x", OPENAI_REASONING_EFFORT="")
-    monkeypatch.setattr(model_module, "get_settings", lambda: configured)
-    model_module._openai_model.cache_clear()
+    monkeypatch.setattr(provider_module, "get_settings", lambda: configured)
+    openai_module.cached_openai_model.cache_clear()
     model = get_coach_model()
     assert isinstance(model, OpenAICoachModel)
     client = StubClient()
@@ -206,7 +209,7 @@ async def test_a_blank_reasoning_effort_is_not_sent(monkeypatch: pytest.MonkeyPa
     try:
         await model.generate(task())
     finally:
-        model_module._openai_model.cache_clear()
+        openai_module.cached_openai_model.cache_clear()
     assert client.requests[0]["reasoning_effort"] is openai.omit
 
 

@@ -29,7 +29,8 @@ from typing import Any
 from app.coach.agents.chat import answer_question, chat_context, revise_proposal
 from app.coach.agents.graph import build_graph
 from app.coach.agents.metrics import RunMetrics, elapsed_ms
-from app.coach.agents.model import AgentTask, CoachModel, ModelReply, get_coach_model
+from app.coach.agents.model import AgentTask, CoachModel, ModelReply
+from app.coach.agents.provider import get_coach_model
 from app.coach.agents.revise import ProposalKindName, Revision
 from app.coach.agents.schemas import ChatReply, PhotoEstimate
 from app.coach.agents.vision import estimate_photo

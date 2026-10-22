@@ -108,11 +108,12 @@ failure or drop sets aren't touched (`backend/app/workout/targets.py`).
 
 Agents reach a language model through one interface (`model.py`): `generate(task)` gets
 the agent's role, instructions, context and output schema, and returns raw structured
-output (a JSON object or text), which the caller validates.
+output (a JSON object or text). Every call goes through `ask_agent` (`ask.py`), which
+validates it and counts it in the run's metrics.
 
-`COACH_MODEL_PROVIDER` picks one of two:
+`COACH_MODEL_PROVIDER` picks one of two (`provider.py`):
 
-- **`openai`** (`OpenAICoachModel`): OpenAI's Chat Completions API, model `OPENAI_MODEL`
+- **`openai`** (`OpenAICoachModel`, `openai_model.py`): OpenAI's Chat Completions API, model `OPENAI_MODEL`
   (default `gpt-5.4-mini`) with reasoning effort `OPENAI_REASONING_EFFORT` (default `low`),
   key `OPENAI_API_KEY` (the app refuses to start without one).
   The instructions go as the system message, the context as JSON, and the output schema as
@@ -122,7 +123,7 @@ output (a JSON object or text), which the caller validates.
   (the client itself doesn't retry; one call times out after `OPENAI_TIMEOUT_SECONDS`,
   default 20, so a retry fits in the step's 60 s). A bad key or request fails the run.
   A refusal or a cut-off answer counts as unusable output and is logged.
-- **`fake`** (`FakeCoachModel`, the default): answers in the shape a language model would,
+- **`fake`** (`FakeCoachModel` in `fake_model.py`, the default): answers in the shape a language model would,
   from simple rules, so the whole flow, validation and approval run without an API key.
   Tests, CI and the end-to-end tests always use it:
 

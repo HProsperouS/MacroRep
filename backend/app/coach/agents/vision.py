@@ -7,15 +7,13 @@ photo is never stored: it is sent to the model and dropped.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import time
 
 from app.analytics.nutrition import calories_implausibly_low, macro_calories
 
-from .graph import ask_agent, output_limits
-from .metrics import RunMetrics, RunOutcome, elapsed_ms
-from .model import CoachModel, ModelUnavailableError
+from .ask import ask_with_retry, logged_run, output_limits
+from .metrics import RunMetrics
+from .model import CoachModel
 from .schemas import PhotoEstimate, PhotoItem
 
 logger = logging.getLogger(__name__)
@@ -55,41 +53,31 @@ async def estimate_photo(model: CoachModel, image: str, user_id: str) -> PhotoEs
     Logged as ``food photo estimated`` with the item count and run metrics, never the image."""
 
     metrics = RunMetrics(model=model.name)
-    started = time.monotonic()
-    outcome: RunOutcome = "failed"
-    error_name: str | None = None
-    estimate: PhotoEstimate | None = None
 
-    async def attempts() -> PhotoEstimate | None:
-        for attempt in range(1, PHOTO_ATTEMPTS + 1):
-            try:
-                return await ask_agent(
-                    model, "food_photo", PHOTO_INSTRUCTIONS, {}, PhotoEstimate, metrics, images=(image,)
-                )
-            except ModelUnavailableError:
-                # A retry that would start past half the budget wouldn't finish in time.
-                if attempt == PHOTO_ATTEMPTS or elapsed_ms(started) > PHOTO_TIMEOUT_SECONDS * 500:
-                    raise
-        return None
-
-    try:
-        estimate = await asyncio.wait_for(attempts(), timeout=PHOTO_TIMEOUT_SECONDS)
-        if estimate is not None:
-            estimate = estimate.model_copy(update={"items": [_consistent(item) for item in estimate.items]})
-        outcome = "completed" if estimate else "failed"
-    except Exception as error:
-        outcome = "timed_out" if isinstance(error, TimeoutError) else "failed"
-        error_name = type(error).__name__
-        logger.exception("food photo estimate failed", extra={"user_id": user_id})
-    finally:
-        logger.info(
-            "food photo estimated",
-            extra={
-                "user_id": user_id,
-                "items": len(estimate.items) if estimate else None,
-                "run_metrics": metrics.summary(
-                    outcome=outcome, duration_ms=elapsed_ms(started), error=error_name
-                ),
-            },
+    async def estimate() -> PhotoEstimate | None:
+        found = await ask_with_retry(
+            model,
+            "food_photo",
+            PHOTO_INSTRUCTIONS,
+            {},
+            PhotoEstimate,
+            metrics,
+            attempts=PHOTO_ATTEMPTS,
+            # A retry that would start past half the budget wouldn't finish in time.
+            retry_within_seconds=PHOTO_TIMEOUT_SECONDS / 2,
+            images=(image,),
         )
-    return estimate
+        return (
+            found.model_copy(update={"items": [_consistent(item) for item in found.items]}) if found else None
+        )
+
+    return await logged_run(
+        estimate(),
+        metrics=metrics,
+        timeout_seconds=PHOTO_TIMEOUT_SECONDS,
+        log=logger,
+        event="food photo estimated",
+        failure_event="food photo estimate failed",
+        extra={"user_id": user_id},
+        details=lambda found: {"items": len(found.items) if found else None},
+    )

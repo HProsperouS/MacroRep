@@ -10,7 +10,7 @@ from app.progress.repository import ProgressRepository
 from app.workout.repository import WorkoutPlanRepository
 
 from .agents.checkpoint import get_checkpointer
-from .agents.model import get_coach_model
+from .agents.provider import get_coach_model
 from .apply import ProposalApplier
 from .repository import CoachRepository
 from .service import CoachService

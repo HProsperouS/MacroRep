@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.coach.agents.model import AgentTask, FakeCoachModel, ModelReply
+from app.coach.agents.fake_model import FakeCoachModel
+from app.coach.agents.model import AgentTask, ModelReply
 from evals.agent_eval import (
     CHAT_CASES,
     SCENARIOS,

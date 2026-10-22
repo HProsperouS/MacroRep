@@ -492,7 +492,7 @@ def test_a_failed_generation_is_reported_and_changes_nothing(
     async def broken(*_: object) -> None:
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", broken)
+    monkeypatch.setattr("app.coach.agents.fake_model.FakeCoachModel.generate", broken)
     assert _start(client, headers, "fails").status_code == 201
 
     current = client.get(f"{CHECK_INS}/current", headers=headers).json()
@@ -666,7 +666,7 @@ def test_a_run_that_takes_too_long_is_stopped_and_marked_failed(
     async def slow(*_: object) -> None:
         await asyncio.sleep(1)
 
-    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", slow)
+    monkeypatch.setattr("app.coach.agents.fake_model.FakeCoachModel.generate", slow)
 
     _start(client, headers, "too-slow")
 
@@ -703,7 +703,7 @@ def test_a_retry_after_a_failure_keeps_the_week_number(
     async def broken(*_: object) -> None:
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", broken)
+    monkeypatch.setattr("app.coach.agents.fake_model.FakeCoachModel.generate", broken)
     assert _start(client, headers, "fails").json()["weekLabel"] == "Week 1"
     monkeypatch.undo()
     assert _start(client, headers, "retry").json()["weekLabel"] == "Week 1"
@@ -876,7 +876,7 @@ def test_a_run_stopped_at_shutdown_stays_running_to_be_resumed(
         started.set()
         await asyncio.sleep(30)
 
-    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", slow)
+    monkeypatch.setattr("app.coach.agents.fake_model.FakeCoachModel.generate", slow)
 
     async def run_then_shut_down() -> bool:
         task = asyncio.create_task(generate_check_in(check_in_id))
@@ -1239,8 +1239,8 @@ def test_a_run_failed_as_stale_leaves_no_checkpoints(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.coach.agents.checkpoint import get_checkpointer
+    from app.coach.agents.fake_model import FakeCoachModel
     from app.coach.agents.graph import run_agents
-    from app.coach.agents.model import FakeCoachModel
     from app.coach.models import CheckIn as CheckInRow
     from app.core.database import get_session_factory
 
@@ -1341,7 +1341,7 @@ def test_a_failed_check_in_doesnt_use_one_up(client: TestClient, monkeypatch: py
     async def broken(*_: object) -> None:
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr("app.coach.agents.model.FakeCoachModel.generate", broken)
+    monkeypatch.setattr("app.coach.agents.fake_model.FakeCoachModel.generate", broken)
     for index in range(CHECK_INS_PER_USER.attempts + 1):
         assert _start(client, headers, f"fails-{index}").status_code == 201
         assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"

@@ -339,7 +339,7 @@ def test_a_proposal_decided_while_the_model_worked_is_left_as_decided(
 
 
 def test_ordinary_words_arent_read_as_a_change() -> None:
-    from app.coach.agents.model import _fake_chat
+    from app.coach.agents.fake_model import _fake_chat
 
     context = {
         "question": "Did I have a great week?",

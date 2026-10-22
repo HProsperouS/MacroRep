@@ -8,15 +8,14 @@ is a pending proposal the user applies on its card: the chat never changes anyth
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import time
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from .graph import ask_agent, nutrition_context, output_limits, workout_context
-from .metrics import RunMetrics, RunOutcome, elapsed_ms
-from .model import CoachModel, ModelUnavailableError
+from .ask import ask_with_retry, logged_run, output_limits
+from .graph import nutrition_context, workout_context
+from .metrics import RunMetrics
+from .model import CoachModel
 from .revise import ProposalKindName, Revision, revise
 from .schemas import ChatReply
 
@@ -120,39 +119,16 @@ async def answer_question(
     kept answering outside the schema). Logged as ``coach chat answered``, with run metrics."""
 
     metrics = RunMetrics(model=model.name)
-    started = time.monotonic()
-    outcome: RunOutcome = "failed"
-    error_name: str | None = None
-    reply: ChatReply | None = None
-
-    async def attempts() -> ChatReply | None:
-        for attempt in range(1, CHAT_ATTEMPTS + 1):
-            try:
-                return await ask_agent(model, "chat", CHAT_INSTRUCTIONS, context, ChatReply, metrics)
-            except ModelUnavailableError:
-                if attempt == CHAT_ATTEMPTS:
-                    raise
-        return None
-
-    try:
-        reply = await asyncio.wait_for(attempts(), timeout=CHAT_TIMEOUT_SECONDS)
-        outcome = "completed" if reply else "failed"
-    except Exception as error:
-        outcome = "timed_out" if isinstance(error, TimeoutError) else "failed"
-        error_name = type(error).__name__
-        logger.exception("coach chat failed", extra={"check_in_id": check_in_id})
-    finally:
-        logger.info(
-            "coach chat answered",
-            extra={
-                "check_in_id": check_in_id,
-                "intent": reply.intent if reply else None,
-                "run_metrics": metrics.summary(
-                    outcome=outcome, duration_ms=elapsed_ms(started), error=error_name
-                ),
-            },
-        )
-    return reply
+    return await logged_run(
+        ask_with_retry(model, "chat", CHAT_INSTRUCTIONS, context, ChatReply, metrics, attempts=CHAT_ATTEMPTS),
+        metrics=metrics,
+        timeout_seconds=CHAT_TIMEOUT_SECONDS,
+        log=logger,
+        event="coach chat answered",
+        failure_event="coach chat failed",
+        extra={"check_in_id": check_in_id},
+        details=lambda reply: {"intent": reply.intent if reply else None},
+    )
 
 
 async def revise_proposal(
@@ -168,30 +144,15 @@ async def revise_proposal(
     ``coach chat revised``, with run metrics."""
 
     metrics = RunMetrics(model=model.name)
-    started = time.monotonic()
-    outcome: RunOutcome = "failed"
-    error_name: str | None = None
-    revision: Revision | None = None
-    try:
-        revision = await asyncio.wait_for(
-            revise(model, metrics, kind, snapshot, request, current, other_changes),
-            timeout=REVISION_TIMEOUT_SECONDS,
-        )
-        outcome = "completed"
-    except Exception as error:
-        outcome = "timed_out" if isinstance(error, TimeoutError) else "failed"
-        error_name = type(error).__name__
-        logger.exception("coach chat revision failed", extra={"check_in_id": check_in_id})
-    finally:
-        logger.info(
-            "coach chat revised",
-            extra={
-                "check_in_id": check_in_id,
-                "kind": kind,
-                "revised": bool(revision and revision.draft),
-                "run_metrics": metrics.summary(
-                    outcome=outcome, duration_ms=elapsed_ms(started), error=error_name
-                ),
-            },
-        )
-    return revision
+    return await logged_run(
+        revise(model, metrics, kind, snapshot, request, current, other_changes),
+        metrics=metrics,
+        timeout_seconds=REVISION_TIMEOUT_SECONDS,
+        log=logger,
+        event="coach chat revised",
+        failure_event="coach chat revision failed",
+        extra={"check_in_id": check_in_id, "kind": kind},
+        details=lambda revision: {"revised": bool(revision and revision.draft)},
+        # A revision that changes nothing is still an answer.
+        succeeded=lambda _: True,
+    )

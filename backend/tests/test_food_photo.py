@@ -9,13 +9,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from app.coach.agents.model import (
-    FAKE_PHOTO_ESTIMATE,
-    AgentTask,
-    ModelReply,
-    ModelUnavailableError,
-    _user_content,
-)
+from app.coach.agents.fake_model import FAKE_PHOTO_ESTIMATE
+from app.coach.agents.model import AgentTask, ModelReply, ModelUnavailableError
+from app.coach.agents.openai_model import _user_content
 from app.coach.agents.schemas import PhotoEstimate
 from app.food.photo import MAX_PHOTO_BYTES
 from app.shared.rate_limit import PHOTOS_PER_USER

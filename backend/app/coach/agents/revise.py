@@ -13,15 +13,14 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ..pipeline import ProposalDraft
+from .ask import ask_agent
+from .drafts import nutrition_draft, training_draft
 from .graph import (
     NUTRITION_INSTRUCTIONS,
     REVIEWER_INSTRUCTIONS,
     WORKOUT_INSTRUCTIONS,
-    ask_agent,
     nutrition_context,
-    nutrition_draft,
     reviewer_context,
-    training_draft,
     workout_context,
 )
 from .metrics import RunMetrics

@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import RetryPolicy
 
 from app.coach.agents import graph as graph_module
+from app.coach.agents.fake_model import _FAKE_ANSWERS, FakeCoachModel, _fake_review
 from app.coach.agents.graph import nutrition_context, run_agents, workout_context
 from app.coach.agents.metrics import RunMetrics
-from app.coach.agents.model import AgentTask, FakeCoachModel, ModelReply, ModelUnavailableError, _fake_review
+from app.coach.agents.model import AgentName, AgentTask, ModelReply, ModelUnavailableError
 from app.coach.agents.schemas import ExerciseAdjustment, NutritionAdvice, WorkoutAdvice
 from app.coach.agents.validate import resolve_conflicts, validate_nutrition, validate_workout
 
@@ -113,6 +114,12 @@ def adjust(*adjustments: tuple[str, str, float]) -> dict[str, Any]:
         "headline": "Adjust training",
         "evidence": ["RPE is rising."],
     }
+
+
+def test_the_fake_model_answers_for_every_agent() -> None:
+    """So a new agent can't run on the fake provider (tests, CI, demo) without an answer of its own."""
+
+    assert set(_FAKE_ANSWERS) == set(get_args(AgentName))
 
 
 async def test_each_agent_sees_only_its_own_domain() -> None:

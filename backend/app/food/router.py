@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.coach.agents.model import get_coach_model
+from app.coach.agents.provider import get_coach_model
 from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor

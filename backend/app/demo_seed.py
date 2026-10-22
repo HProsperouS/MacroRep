@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.energy import ActivityLevel, Sex
 from app.auth.security import hash_password
+from app.coach.agents.fake_model import FakeCoachModel
 from app.coach.agents.graph import run_agents
-from app.coach.agents.model import FakeCoachModel
 from app.coach.models import CheckIn, Proposal
 from app.core.database import get_session_factory
 from app.identity.models import User, UserStatus

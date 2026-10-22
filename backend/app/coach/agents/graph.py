@@ -17,56 +17,29 @@ check-in is marked failed. Each step is checkpointed under the check-in's id.
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Mapping
 from dataclasses import asdict
-from typing import Any, TypedDict, TypeVar, get_args, get_origin
+from typing import Any, TypedDict
 
-from annotated_types import MaxLen
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
-from pydantic import BaseModel, ValidationError
 
-from ..pipeline import CheckInDraft, ProposalChangeDraft, ProposalDraft, summarize_week
+from ..pipeline import CheckInDraft, ProposalChangeDraft, ProposalDraft, gather_step, summarize_week
 from . import limits
+from .ask import ask_agent, output_limits
+from .drafts import nutrition_draft, training_draft
 from .metrics import RunMetrics
-from .model import AgentName, AgentTask, CoachModel, ModelUnavailableError
+from .model import CoachModel, ModelUnavailableError
 from .schemas import NutritionAdvice, Review, WorkoutAdvice
-from .validate import ValidAdjustment, find_exercise, resolve_conflicts, validate_nutrition, validate_workout
+from .validate import find_exercise, resolve_conflicts, validate_nutrition, validate_workout
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T", bound=BaseModel)
-
-# One more try after an answer that doesn't parse; past that, retrying rarely helps.
-STRUCTURED_OUTPUT_ATTEMPTS = 2
 MODEL_RETRY = RetryPolicy(max_attempts=3, initial_interval=1.0, retry_on=ModelUnavailableError)
 # Per-node ceiling on one model step, retries included.
 NODE_TIMEOUT_SECONDS = 60
-
-
-def _length_limits(schema: type[BaseModel], owner: str = "") -> list[str]:
-    """The schema's length limits, in words: the model isn't held to them while generating."""
-
-    found: list[str] = []
-    for name, field in schema.model_fields.items():
-        label = f"{owner}{name}"
-        limit = next((m.max_length for m in field.metadata if isinstance(m, MaxLen)), None)
-        if get_origin(field.annotation) is list:
-            if limit is not None:
-                found.append(f"at most {limit} {label} items")
-            [item] = get_args(field.annotation)
-            if isinstance(item, type) and issubclass(item, BaseModel):
-                found += _length_limits(item, f"each {name} item's ")
-        elif limit is not None:
-            found.append(f"{label} under {limit} characters")
-    return found
-
-
-def output_limits(schema: type[BaseModel]) -> str:
-    return f"Stay within these limits: {'; '.join(_length_limits(schema))}."
 
 
 NUTRITION_INSTRUCTIONS = f"""You are the Nutrition agent of a fitness app's weekly check-in.
@@ -125,44 +98,6 @@ class CoachState(TypedDict, total=False):
     workout: dict[str, Any] | None
     review: dict[str, Any] | None
     draft: dict[str, Any]
-
-
-async def ask_agent(
-    model: CoachModel,
-    agent: AgentName,
-    instructions: str,
-    context: Mapping[str, Any],
-    output: type[T],
-    metrics: RunMetrics,
-    images: tuple[str, ...] = (),
-) -> T | None:
-    """The agent's validated answer, or None if it never produced one that fits the schema.
-    Every model call is added to ``metrics``, including one that fails."""
-
-    task = AgentTask(agent=agent, instructions=instructions, context=context, output=output, images=images)
-    for attempt in range(1, STRUCTURED_OUTPUT_ATTEMPTS + 1):
-        started = time.monotonic()
-        try:
-            reply = await model.generate(task)
-        except BaseException as error:  # also a cancelled call, when the step runs out of time
-            metrics.add(agent, started, "error", error=type(error).__name__)
-            raise
-        raw = reply.output
-        try:
-            parsed = output.model_validate_json(raw) if isinstance(raw, str) else output.model_validate(raw)
-        except ValidationError:
-            parsed = None
-            logger.warning("agent output rejected", extra={"agent": agent, "attempt": attempt})
-        metrics.add(
-            agent,
-            started,
-            "invalid" if parsed is None else "valid",
-            input_tokens=reply.input_tokens,
-            output_tokens=reply.output_tokens,
-        )
-        if parsed is not None:
-            return parsed
-    return None
 
 
 def nutrition_context(snapshot: Mapping[str, Any]) -> dict[str, Any]:
@@ -266,68 +201,35 @@ def reviewer_context(
     }
 
 
-def nutrition_draft(
-    advice: NutritionAdvice, current_target: int, new_target: int, note: str
-) -> ProposalDraft:
-    return ProposalDraft(
-        id="nutrition",
-        kind="nutrition",
-        headline=f"Adjust your daily target to {new_target:,} kcal",
-        changes=[
-            ProposalChangeDraft(
-                id="calories",
-                label="Daily calories",
-                unit="kcal",
-                before=current_target,
-                after=new_target,
-                step=limits.CALORIE_STEP,
-            )
-        ],
-        evidence=advice.evidence + ([advice.uncertainty] if advice.uncertainty else []),
-        reviewer_note=note,
-    )
-
-
-def training_draft(advice: WorkoutAdvice, adjustments: list[ValidAdjustment], note: str) -> ProposalDraft:
-    return ProposalDraft(
-        id="training",
-        kind="training",
-        headline=advice.headline,
-        changes=[_training_change(index, adjustment) for index, adjustment in enumerate(adjustments)],
-        evidence=advice.evidence + ([advice.uncertainty] if advice.uncertainty else []),
-        reviewer_note=note,
-    )
-
-
-_FIELD_LABELS = {
-    "working_sets": ("working sets", "sets", 1.0),
-    "target_weight_kg": ("target weight", "kg", limits.LOAD_STEP_KG),
-    "target_reps": ("target reps", "reps", 1.0),
-}
-
-
-def _training_change(index: int, adjustment: ValidAdjustment) -> ProposalChangeDraft:
-    label, unit, step = _FIELD_LABELS[adjustment.field]
-    return ProposalChangeDraft(
-        id=f"training-{index + 1}",
-        label=f"{adjustment.exercise_name} · {label}",
-        unit=unit,
-        before=adjustment.before,
-        after=adjustment.after,
-        step=step,
-        routine_id=adjustment.routine_id,
-        exercise_id=adjustment.exercise_id,
-        field=adjustment.field,
-    )
-
-
 def _finalize(state: CoachState) -> dict[str, Any]:
     snapshot = state["snapshot"]
-    current_target = int(snapshot["target_calories"])
     nutrition = NutritionAdvice.model_validate(state["nutrition"]) if state.get("nutrition") else None
     workout = WorkoutAdvice.model_validate(state["workout"]) if state.get("workout") else None
     review = Review.model_validate(state["review"]) if state.get("review") else None
+    proposals = _decide(snapshot, nutrition, workout, review)
+    summary, stats = summarize_week(snapshot)
+    draft = CheckInDraft(
+        summary=summary,
+        stats=stats,
+        pipeline=_pipeline(nutrition, workout, review, bool(proposals)),
+        suggested_questions=[
+            "Why did you suggest this change?",
+            "What if I keep training the same but eat less?",
+        ],
+        proposals=proposals,
+    )
+    return asdict(draft)
 
+
+def _decide(
+    snapshot: Mapping[str, Any],
+    nutrition: NutritionAdvice | None,
+    workout: WorkoutAdvice | None,
+    review: Review | None,
+) -> list[ProposalDraft]:
+    """The proposals that survive validation, the reviewer and the conflict rule."""
+
+    current_target = int(snapshot["target_calories"])
     new_target, nutrition_notes = validate_nutrition(nutrition, current_target)
     adjustments, workout_notes = validate_workout(workout, snapshot.get("routines") or [])
     # The reviewer is advisory: it can hold a proposal back, but validation still applies to
@@ -351,16 +253,17 @@ def _finalize(state: CoachState) -> dict[str, Any]:
         proposals.append(
             training_draft(workout, adjustments, " ".join([review_note, *workout_notes, *conflict_notes]))
         )
+    return proposals
 
-    summary, stats = summarize_week(snapshot)
+
+def _pipeline(
+    nutrition: NutritionAdvice | None, workout: WorkoutAdvice | None, review: Review | None, proposed: bool
+) -> list[dict[str, str]]:
+    """The steps shown on the check-in, as they ended."""
+
     conflicts = sum(1 for finding in review.findings if finding.severity == "conflict") if review else 0
-    pipeline = [
-        {
-            "id": "gather",
-            "title": "Gather week's data",
-            "detail": "Food log, workouts, weigh-ins.",
-            "status": "done",
-        },
+    return [
+        gather_step(),
         _agent_step("nutrition", "Nutrition agent", nutrition.headline if nutrition else None),
         _agent_step("workout", "Workout agent", workout.headline if workout else None),
         {
@@ -376,21 +279,10 @@ def _finalize(state: CoachState) -> dict[str, Any]:
         {
             "id": "decide",
             "title": "Your decision",
-            "detail": "Apply, edit or reject below." if proposals else "Nothing to change this week.",
-            "status": "waiting" if proposals else "done",
+            "detail": "Apply, edit or reject below." if proposed else "Nothing to change this week.",
+            "status": "waiting" if proposed else "done",
         },
     ]
-    draft = CheckInDraft(
-        summary=summary,
-        stats=stats,
-        pipeline=pipeline,
-        suggested_questions=[
-            "Why did you suggest this change?",
-            "What if I keep training the same but eat less?",
-        ],
-        proposals=proposals,
-    )
-    return _draft_to_dict(draft)
 
 
 def _agent_step(step_id: str, title: str, headline: str | None) -> dict[str, str]:
@@ -402,10 +294,6 @@ def _agent_step(step_id: str, title: str, headline: str | None) -> dict[str, str
             "status": "failed",
         }
     return {"id": step_id, "title": title, "detail": headline, "status": "done"}
-
-
-def _draft_to_dict(draft: CheckInDraft) -> dict[str, Any]:
-    return asdict(draft)
 
 
 def draft_from_dict(data: Mapping[str, Any]) -> CheckInDraft:

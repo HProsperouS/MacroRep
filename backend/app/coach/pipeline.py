@@ -11,6 +11,19 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+
+def gather_step() -> dict[str, str]:
+    """The first step of every check-in, done before any agent runs. A new dict each time, as
+    each check-in's pipeline is its own."""
+
+    return {
+        "id": "gather",
+        "title": "Gather week's data",
+        "detail": "Food log, workouts, weigh-ins.",
+        "status": "done",
+    }
+
+
 # A week's total shortfall below this is within normal day-to-day noise.
 _NOTABLE_WEEKLY_GAP_KCAL = 500
 
