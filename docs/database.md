@@ -108,8 +108,6 @@ erDiagram
         string id PK "a routine"
         string owner_id FK
         string name
-        string week_label
-        int estimated_minutes
     }
     workout_plan_exercises {
         string id PK
@@ -268,6 +266,7 @@ Applied in this order (`backend/migrations/versions`):
 | `c4f9b2e8a6d3` | Drops training days per week: the weekly schedule says which days the user trains |
 | `d5a1c7e3f9b4` | Drops the user's equipment, which nothing used (exercises keep theirs) |
 | `e6c2a8f4b1d7` | Installs the common built-in exercise catalog without replacing existing rows |
+| `f7d3b9a5c1e8` | Drops a routine's week label and typed-in time (the time is worked out from its sets) |
 
 Run `uv run alembic upgrade head` from `backend/`. CI runs every migration on PostgreSQL,
 then downgrades and upgrades again.

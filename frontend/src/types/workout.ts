@@ -97,7 +97,7 @@ export type StrengthHighlight = {
 export type PlannedWorkout = {
   id: string
   name: string
-  weekLabel: string
+  /** Worked out by the server from the sets and rests. */
   estimatedMinutes: number
   exercises: PlannedExercise[]
   highlight?: StrengthHighlight
@@ -182,8 +182,6 @@ export type PlanExerciseInput = {
 
 export type SaveRoutineInput = {
   name: string
-  weekLabel: string
-  estimatedMinutes: number
   exercises: PlanExerciseInput[]
 }
 

@@ -115,7 +115,8 @@ def test_changing_the_target_today_does_not_rewrite_earlier_days(client: TestCli
         "yesterday's 2000 kcal is still judged against yesterday's 2000 target"
     )
     assert after["targetCalories"] == 2500
-    assert [day["targetCalories"] for day in after["days"]] == [2000] * 6 + [2500]
+    # From the first day logged (2 days ago): the account is new.
+    assert [day["targetCalories"] for day in after["days"]] == [2000] * 2 + [2500]
 
     progress = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()
     assert progress["logging"]["targetAdherencePercent"] == 100.0

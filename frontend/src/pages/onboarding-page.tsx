@@ -43,7 +43,7 @@ type OnboardingValues = z.output<typeof onboardingSchema>
 const STEPS: { title: string; description: string; fields: FieldPath<OnboardingFormInput>[] }[] = [
   {
     title: "About you",
-    description: "These estimate how much you burn a day, and your weight starts the trend your coach follows.",
+    description: "These estimate your starting targets, and your weight starts the trend your coach follows.",
     fields: ["name", "dateOfBirth", "sex", "heightCm", "weightKg"],
   },
   { title: "Your goal", description: "Your coach sets calorie targets towards it.", fields: ["goal", "weeklyRate"] },
@@ -255,7 +255,7 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
                         value={field.value}
                         onChange={(value) => {
                           field.onChange(value)
-                          // Maintaining doesn't use the rate, and its field is disabled: a rate typed in
+                          // Maintaining doesn't use the rate, and its field is hidden: a rate typed in
                           // for another goal mustn't block Continue with an error the user can't see.
                           if (value === "maintain") {
                             setValue("weeklyRate", "0.5")

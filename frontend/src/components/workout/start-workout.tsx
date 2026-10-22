@@ -1,9 +1,8 @@
 import { Dumbbell, Play, Plus } from "lucide-react"
 
 import { QueryError } from "@/components/layout/query-error"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { WEEKDAY_LABELS, type PlannedWorkout, type Routine } from "@/types/workout"
 
@@ -29,11 +28,6 @@ export function StartWorkout({ plan, planPending, planError, onRetryPlan, onStar
         <CardHeader>
           <CardTitle>Today’s plan</CardTitle>
           {plan ? <CardDescription>{plan.name}</CardDescription> : null}
-          {plan ? (
-            <CardAction>
-              <Badge variant="outline">{plan.weekLabel}</Badge>
-            </CardAction>
-          ) : null}
         </CardHeader>
         <CardContent>
           {planError ? (

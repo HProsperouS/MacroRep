@@ -298,8 +298,6 @@ def test_get_week_plan_includes_todays_seeded_day(client: TestClient, auth_heade
 def _routine_payload(name: str = "Leg day", exercise_id: str = "exercise-squat") -> dict:
     return {
         "name": name,
-        "weekLabel": "Week 1",
-        "estimatedMinutes": 45,
         "exercises": [
             {
                 "exerciseId": exercise_id,
@@ -321,6 +319,8 @@ def test_create_update_and_delete_a_routine(client: TestClient) -> None:
     assert routine["name"] == "Leg day"
     assert routine["scheduledDays"] == []
     assert len(routine["exercises"][0]["sets"]) == 2
+    # Worked out from the sets: 2 x 45s, with one 120s rest between them.
+    assert routine["estimatedMinutes"] == 4
 
     payload = {**_routine_payload("Leg day v2"), "exercises": _routine_payload()["exercises"][:1]}
     payload["exercises"][0]["sets"] = [{"kind": "working", "targetWeightKg": 90, "targetReps": 3}]

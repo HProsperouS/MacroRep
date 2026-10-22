@@ -15,5 +15,5 @@ export function plannedExercise(id: string, name: string): PlannedExercise {
 }
 
 export function routine(id: string, name: string, scheduledDays: number[] = [], exercises: PlannedExercise[] = [plannedExercise("bench", "Bench Press")]): Routine {
-  return { id, name, weekLabel: "Week 1", estimatedMinutes: 45, exercises, scheduledDays }
+  return { id, name, estimatedMinutes: 45, exercises, scheduledDays }
 }

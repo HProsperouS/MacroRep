@@ -16,7 +16,7 @@ import type { PlannedWorkout, StrengthHighlight } from "@/types/workout"
 export type ActiveWorkout = WorkoutClock & {
   session: SessionState
   /** Display context from the plan; null for an empty workout. */
-  plan: { weekLabel: string; highlight?: StrengthHighlight } | null
+  plan: { highlight?: StrengthHighlight } | null
 }
 
 type StoredWorkout = ActiveWorkout & { v: 1 }
@@ -86,7 +86,7 @@ export function beginWorkout(plan: PlannedWorkout | null) {
     startedAt: Date.now(),
     pausedAt: null,
     pausedMs: 0,
-    plan: plan ? { weekLabel: plan.weekLabel, highlight: plan.highlight } : null,
+    plan: plan ? { highlight: plan.highlight } : null,
   })
 }
 

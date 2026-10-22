@@ -5,7 +5,6 @@ import type { PlannedWorkout } from "@/types/workout"
 const plan: PlannedWorkout = {
   id: "plan-1",
   name: "Push day",
-  weekLabel: "Week 1",
   estimatedMinutes: 45,
   exercises: [
     {

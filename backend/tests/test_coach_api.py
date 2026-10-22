@@ -769,8 +769,6 @@ def test_logged_training_leads_to_a_training_proposal_for_the_scheduled_routine(
         headers=headers,
         json={
             "name": "Push",
-            "weekLabel": "Week 1",
-            "estimatedMinutes": 45,
             "exercises": [
                 {
                     "exerciseId": "exercise-bench-press",
@@ -903,8 +901,6 @@ def test_the_snapshot_counts_working_sets_only(client: TestClient) -> None:
         headers=headers,
         json={
             "name": "Push",
-            "weekLabel": "Week 1",
-            "estimatedMinutes": 45,
             "exercises": [
                 {
                     "exerciseId": "exercise-bench-press",
@@ -981,8 +977,6 @@ def _training_check_in(client: TestClient, headers: dict[str, str]) -> tuple[dic
         headers=headers,
         json={
             "name": "Push",
-            "weekLabel": "Week 1",
-            "estimatedMinutes": 45,
             "exercises": [
                 {
                     "exerciseId": "exercise-bench-press",
@@ -1059,8 +1053,6 @@ def test_a_training_proposal_is_refused_once_the_routine_changed(client: TestCli
     routine, check_in = _training_check_in(client, headers)
     edited = {
         "name": "Push",
-        "weekLabel": "Week 1",
-        "estimatedMinutes": 45,
         "exercises": [
             {
                 "exerciseId": "exercise-bench-press",
@@ -1189,8 +1181,6 @@ def test_a_routine_saved_again_after_the_check_in_is_out_of_date_even_with_the_s
     # Still 100 kg at the top, but now 5 x 3: not the routine the proposal was made for.
     resaved = {
         "name": "Push",
-        "weekLabel": "Week 1",
-        "estimatedMinutes": 45,
         "exercises": [
             {
                 "exerciseId": "exercise-bench-press",

@@ -7,7 +7,7 @@ test("logs a workout and finds it in history", async ({ page }) => {
 
   await page.getByRole("button", { name: "Add exercises" }).click()
   const picker = page.getByRole("dialog", { name: "Add exercises" })
-  await picker.getByRole("button", { name: /Barbell Bench Press/ }).click()
+  await picker.getByRole("button", { name: /^Barbell Bench Press/ }).click()
   await picker.getByRole("button", { name: "Add 1 exercise" }).click()
 
   for (const set of [1, 2, 3]) {

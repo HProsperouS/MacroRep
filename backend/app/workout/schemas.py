@@ -10,7 +10,6 @@ from app.shared.schema import CamelModel, validate_choice
 from app.shared.validation import (
     CLOCK_SKEW,
     MAX_EXERCISES_PER_WORKOUT,
-    MAX_LABEL_LENGTH,
     MAX_MUSCLES_PER_EXERCISE,
     MAX_NAME_LENGTH,
     MAX_REPS,
@@ -91,7 +90,7 @@ class StrengthHighlight(CamelModel):
 class PlannedWorkout(CamelModel):
     id: str
     name: str
-    week_label: str
+    # Worked out from the sets and rests (app.analytics.training.estimated_minutes).
     estimated_minutes: int
     exercises: list[PlannedExercise]
     highlight: StrengthHighlight | None = None
@@ -188,8 +187,6 @@ class PlanExerciseInput(CamelModel):
 
 class SaveRoutineInput(CamelModel):
     name: PlainText = Field(min_length=1, max_length=MAX_NAME_LENGTH)
-    week_label: PlainText = Field(min_length=1, max_length=MAX_LABEL_LENGTH)
-    estimated_minutes: int = Field(ge=1, le=600)
     exercises: list[PlanExerciseInput] = Field(min_length=1, max_length=MAX_EXERCISES_PER_WORKOUT)
 
 

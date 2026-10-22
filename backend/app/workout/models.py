@@ -64,8 +64,6 @@ class WorkoutPlanEntry(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    week_label: Mapped[str] = mapped_column(String(64), nullable=False)
-    estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class WorkoutScheduleDay(Base):

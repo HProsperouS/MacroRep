@@ -18,6 +18,9 @@ import { formatNumber, formatSigned } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { PROGRESS_RANGES, type ProgressRange, type ProgressResponse } from "@/types/progress"
 
+/** When maintaining, a weekly change within this much either way is holding steady. */
+const MAINTAIN_TOLERANCE_KG = 0.25
+
 function parseRange(value: string | null): ProgressRange {
   return PROGRESS_RANGES.find((range) => range === value) ?? "1M"
 }
@@ -79,8 +82,10 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
     [volume.weeks],
   )
   const rate = weight.ratePerWeekKg
-  // Null with no rate yet: then neither on pace nor behind.
-  const onPace = rate == null ? null : weight.goalRatePerWeekKg < 0 ? rate <= weight.goalRatePerWeekKg * 0.8 : rate >= weight.goalRatePerWeekKg * 0.8
+  const goalRate = weight.goalRatePerWeekKg
+  // Null with no rate yet: then neither on pace nor behind. Holding steady allows a little either way.
+  const onPace =
+    rate == null ? null : goalRate === 0 ? Math.abs(rate) <= MAINTAIN_TOLERANCE_KG : goalRate < 0 ? rate <= goalRate * 0.8 : rate >= goalRate * 0.8
 
   return (
     <>
@@ -95,7 +100,7 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
               onPace == null ? (
                 "Needs a week of weigh-ins"
               ) : (
-                <span className={onPace ? "text-primary" : "text-carbs"}>Goal {formatSigned(weight.goalRatePerWeekKg, 2)} kg / wk</span>
+                <span className={onPace ? "text-primary" : "text-carbs"}>{goalRate === 0 ? "Goal: hold steady" : `Goal ${formatSigned(goalRate, 2)} kg / wk`}</span>
               )
             }
           />
@@ -114,7 +119,7 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
           <Stat
             label="Workouts"
             value={`${data.workouts.done} / ${data.workouts.planned}`}
-            hint={data.workouts.completionPercent != null ? `${formatNumber(data.workouts.completionPercent, 0)}% of planned` : "No plan set"}
+            hint={data.workouts.completionPercent != null ? `${formatNumber(data.workouts.completionPercent, 0)}% of planned` : "Nothing planned yet"}
           />
           <Stat
             label="Volume"

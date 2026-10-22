@@ -15,9 +15,8 @@ import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
 import { formatNumber, toNumber } from "@/lib/format"
 import { WEEKDAY_LABELS, type Exercise, type PlannedWorkout, type SaveRoutineInput, type SetKind } from "@/types/workout"
 
-/** What the server accepts for a routine; blank fields take a default (time, rest) or mean no target. */
+/** What the server accepts for a routine; blank fields take a default (rest) or mean no target. */
 const LIMITS = {
-  minutes: { min: 1, max: 600, whole: true },
   rest: { min: 0, max: 600, whole: true },
   weight: { min: 0, max: 1_000, whole: false },
   reps: { min: 1, max: 100, whole: true },
@@ -45,11 +44,9 @@ type EditorExercise = {
 }
 
 function fromRoutine(plan: PlannedWorkout | null) {
-  if (!plan) return { name: "New routine", weekLabel: "Week 1", estimatedMinutes: "45", exercises: [] as EditorExercise[] }
+  if (!plan) return { name: "New routine", exercises: [] as EditorExercise[] }
   return {
     name: plan.name,
-    weekLabel: plan.weekLabel,
-    estimatedMinutes: String(plan.estimatedMinutes),
     exercises: plan.exercises.map((exercise, index) => ({
       instanceId: `${exercise.id}-${index}`,
       exerciseId: exercise.id,
@@ -88,8 +85,6 @@ export function RoutineEditor({ routine, scheduledDays = [], submitting, deletin
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [initial] = useState(() => fromRoutine(routine))
   const [name, setName] = useState(initial.name)
-  const [weekLabel, setWeekLabel] = useState(initial.weekLabel)
-  const [estimatedMinutes, setEstimatedMinutes] = useState(initial.estimatedMinutes)
   const [exercises, setExercises] = useState<EditorExercise[]>(initial.exercises)
   const [pickerOpen, setPickerOpen] = useState(false)
 
@@ -150,8 +145,6 @@ export function RoutineEditor({ routine, scheduledDays = [], submitting, deletin
   function submit() {
     const input: SaveRoutineInput = {
       name: name.trim(),
-      weekLabel: weekLabel.trim() || "Week 1",
-      estimatedMinutes: toNumber(estimatedMinutes) ?? 45,
       exercises: exercises.map((exercise) => ({
         exerciseId: exercise.exerciseId,
         restSeconds: toNumber(exercise.restSeconds) ?? 90,
@@ -167,10 +160,7 @@ export function RoutineEditor({ routine, scheduledDays = [], submitting, deletin
 
   // A name is required: it is how the routine is picked in the week schedule.
   const nameMissing = name.trim() === ""
-  const minutesError = rangeError(estimatedMinutes, LIMITS.minutes)
-  const outOfRange =
-    minutesError !== undefined ||
-    exercises.some(
+  const outOfRange = exercises.some(
       (exercise) =>
         rangeError(exercise.restSeconds, LIMITS.rest) !== undefined ||
         exercise.sets.some((set) => rangeError(set.targetWeightKg, LIMITS.weight) !== undefined || rangeError(set.targetReps, LIMITS.reps) !== undefined),
@@ -179,18 +169,8 @@ export function RoutineEditor({ routine, scheduledDays = [], submitting, deletin
 
   return (
     <div className="flex flex-col gap-4">
-      <FieldGroup className="grid gap-4 sm:grid-cols-3">
+      <FieldGroup className="sm:max-w-sm">
         <TextField id="routine-name" label="Name" value={name} maxLength={60} error={nameMissing ? "Give the routine a name" : undefined} onChange={(event) => setName(event.target.value)} />
-        <TextField id="routine-week-label" label="Week label" value={weekLabel} maxLength={64} onChange={(event) => setWeekLabel(event.target.value)} />
-        <TextField
-          id="routine-minutes"
-          label="Estimated time"
-          unit="min"
-          inputMode="numeric"
-          value={estimatedMinutes}
-          error={minutesError}
-          onChange={(event) => setEstimatedMinutes(event.target.value)}
-        />
       </FieldGroup>
 
       {exercises.length === 0 ? (

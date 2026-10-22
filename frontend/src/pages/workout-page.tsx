@@ -32,14 +32,14 @@ export default function WorkoutPage() {
   const workout = useTodayWorkout()
   const routines = useRoutines()
   const active = useActiveWorkout()
-  const [finished, setFinished] = useState<{ summary: WorkoutSummaryData; weekLabel?: string } | null>(null)
+  const [finished, setFinished] = useState<WorkoutSummaryData | null>(null)
 
   if (active) {
     return (
       <WorkoutSession
         active={active}
         onFinished={(summary) => {
-          setFinished({ summary, weekLabel: active.plan?.weekLabel })
+          setFinished(summary)
           clearActiveWorkout()
         }}
       />
@@ -49,8 +49,8 @@ export default function WorkoutPage() {
   if (finished) {
     return (
       <>
-        <PageHeader eyebrow={finished.weekLabel ?? "Workout"} title="Nice work" />
-        <WorkoutSummary summary={finished.summary} />
+        <PageHeader eyebrow="Workout" title="Nice work" />
+        <WorkoutSummary summary={finished} />
       </>
     )
   }
@@ -158,7 +158,7 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
   return (
     <>
       <PageHeader
-        eyebrow={plan ? `Workout in progress · ${plan.weekLabel}` : "Workout in progress"}
+        eyebrow="Workout in progress"
         title={state.name}
         actions={
           paused ? (

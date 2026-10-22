@@ -129,12 +129,7 @@ async def seed_demo_data() -> None:
         await ensure_system_exercises(session)
 
         if await _is_empty(session, WorkoutPlanEntry):
-            today_entry = WorkoutPlanEntry(
-                owner_id=DEMO_USER_ID,
-                name="Push day",
-                week_label="Week 1",
-                estimated_minutes=50,
-            )
+            today_entry = WorkoutPlanEntry(owner_id=DEMO_USER_ID, name="Push day")
             session.add(today_entry)
             await session.flush()
             session.add(

@@ -28,8 +28,6 @@ describe("RoutineEditor", () => {
 
     expect(onSave).toHaveBeenCalledWith({
       name: "Push A",
-      weekLabel: "Week 1",
-      estimatedMinutes: 45,
       exercises: [
         {
           exerciseId: "bench",
@@ -58,8 +56,8 @@ describe("RoutineEditor", () => {
   })
 
   it.each([
-    ["Estimated time", "700", "1–600"],
-    ["Estimated time", "1.5", "Whole number"],
+    ["Rest between sets", "700", "0–600"],
+    ["Rest between sets", "1.5", "Whole number"],
     ["Rest between sets", "lots", "Enter a number"],
   ])("won't save %s of %s, which the server would refuse", async (label, value, message) => {
     const { user, onSave } = renderEditor(routine("r1", "Push"))

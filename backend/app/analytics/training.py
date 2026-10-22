@@ -53,6 +53,27 @@ def volume_kg(sets: Iterable[tuple[float, int]]) -> float:
     return sum(float(weight_kg) * reps for weight_kg, reps in sets)
 
 
+# Roughly how long one set takes to set up and do, rest aside.
+SET_SECONDS = 45
+
+
+def estimated_minutes(exercises: Iterable[tuple[int, int]]) -> int:
+    """About how many minutes a workout of (set count, rest seconds) exercises takes.
+
+    Every set takes ``SET_SECONDS`` and is followed by its exercise's rest, except
+    the workout's last set: there's nothing left to rest for. Rounded up, and at
+    least a minute.
+    """
+
+    seconds = 0
+    last_rest = 0
+    for set_count, rest_seconds in exercises:
+        if set_count > 0:
+            seconds += set_count * (SET_SECONDS + rest_seconds)
+            last_rest = rest_seconds
+    return max(1, -(-(seconds - last_rest) // 60))
+
+
 def week_start(day: date) -> date:
     """The Monday of the ISO week containing ``day``."""
 

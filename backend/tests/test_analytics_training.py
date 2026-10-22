@@ -9,6 +9,7 @@ from app.analytics.training import (
     average_rpe_by_week,
     best_estimated_one_rep_max,
     completion_percent,
+    estimated_minutes,
     estimated_one_rep_max,
     is_personal_record,
     percent_change,
@@ -140,3 +141,16 @@ def test_completion_percent(done: int, planned: int, expected: float | None) -> 
 )
 def test_percent_change(before: float, after: float, expected: float | None) -> None:
     assert percent_change(before, after) == expected
+
+
+@pytest.mark.parametrize(
+    ("exercises", "expected"),
+    [
+        ([(3, 120)], 7),  # 3 x 45s + 2 rests of 120s = 375s, rounded up
+        ([(3, 90), (2, 60)], 10),  # every set rests but the workout's last: 405s + 150s
+        ([(1, 0)], 1),  # never less than a minute
+        ([(2, 60), (0, 300)], 3),  # an exercise with no sets adds nothing, nor its rest
+    ],
+)
+def test_estimated_minutes(exercises: list[tuple[int, int]], expected: int) -> None:
+    assert estimated_minutes(exercises) == expected

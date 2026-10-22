@@ -3,7 +3,7 @@ import { Dumbbell } from "lucide-react"
 import { QueryError } from "@/components/layout/query-error"
 import { StartWorkoutButton } from "@/components/workout/start-workout-button"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useTodayWorkout } from "@/hooks/use-workout"
 
@@ -58,9 +58,6 @@ export function PlannedWorkoutCard() {
     <Card>
       <CardHeader>
         <CardTitle>Planned workout</CardTitle>
-        <CardAction>
-          <Badge variant="outline">{plan.weekLabel}</Badge>
-        </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex items-center gap-3.5">

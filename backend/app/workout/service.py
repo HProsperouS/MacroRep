@@ -10,7 +10,12 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.training import best_estimated_one_rep_max, is_personal_record, volume_kg
+from app.analytics.training import (
+    best_estimated_one_rep_max,
+    estimated_minutes,
+    is_personal_record,
+    volume_kg,
+)
 from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
 from app.shared.timezones import local_today, user_zone
@@ -290,12 +295,7 @@ class WorkoutService:
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"You can keep up to {MAX_ROUTINES_PER_USER} routines. Delete one to add another.",
             )
-        entry = WorkoutPlanEntry(
-            owner_id=actor.actor_id,
-            name=payload.name,
-            week_label=payload.week_label,
-            estimated_minutes=payload.estimated_minutes,
-        )
+        entry = WorkoutPlanEntry(owner_id=actor.actor_id, name=payload.name)
         await self.plans.add(entry)
         await self._save_routine_exercises(entry, payload)
         await self.session.commit()
@@ -307,8 +307,6 @@ class WorkoutService:
         entry = await self._owned_routine(actor, routine_id)
         await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
         entry.name = payload.name
-        entry.week_label = payload.week_label
-        entry.estimated_minutes = payload.estimated_minutes
         entry.touch()
         await self._save_routine_exercises(entry, payload)
         await self.session.commit()
@@ -413,8 +411,9 @@ class WorkoutService:
         return PlannedWorkout(
             id=plan_entry.id,
             name=plan_entry.name,
-            week_label=plan_entry.week_label,
-            estimated_minutes=plan_entry.estimated_minutes,
+            estimated_minutes=estimated_minutes(
+                (len(exercise.sets), exercise.rest_seconds) for exercise in exercises
+            ),
             exercises=exercises,
         )
 

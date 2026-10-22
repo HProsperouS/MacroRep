@@ -141,7 +141,8 @@ def test_progress_rejects_bad_range(client: TestClient, auth_headers: dict[str, 
 def test_daily_calories(client: TestClient, auth_headers: dict[str, str]) -> None:
     response = client.get("/api/v1/nutrition/daily-calories", headers=auth_headers, params={"days": 7})
     assert response.status_code == 200
-    assert len(response.json()["days"]) == 7
+    # A new account has nothing before today: days before signing up weren't missed.
+    assert [day["status"] for day in response.json()["days"]] == ["in-progress"]
 
 
 def _set_calorie_target(client: TestClient, headers: dict[str, str], calories: int) -> None:
@@ -204,10 +205,8 @@ def test_daily_calories_label_each_day_and_total_the_gap(client: TestClient) -> 
     body = client.get("/api/v1/nutrition/daily-calories", headers=headers, params={"days": 7}).json()
     assert body["targetCalories"] == 2000
     assert body["targetGapKcal"] == -1900
+    # From the first day logged (3 days ago), as Progress counts: the account is new.
     assert [day["status"] for day in body["days"]] == [
-        "missing",
-        "missing",
-        "missing",
         "partial",
         "complete",
         "complete",

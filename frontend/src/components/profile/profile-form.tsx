@@ -27,6 +27,8 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
     control,
     register,
     handleSubmit,
+    setValue,
+    clearErrors,
     formState: { errors, isDirty },
   } = useForm<ProfileInput, unknown, ProfileValues>({
     resolver: zodResolver(profileSchema),
@@ -49,7 +51,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
       <FieldGroup>
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField id="profile-name" label="Name" autoComplete="name" error={errors.name?.message} disabled={submitting} {...register("name")} />
-          <TextField id="profile-email" label="Email" value={profile.email} readOnly disabled description="Managed by your sign-in provider" />
+          <TextField id="profile-email" label="Email" value={profile.email} readOnly disabled description="Used to sign in" />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -66,7 +68,21 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
           <Controller
             control={control}
             name="goal"
-            render={({ field }) => <GoalChoice value={field.value} onChange={field.onChange} disabled={submitting} />}
+            render={({ field }) => (
+              <GoalChoice
+                value={field.value}
+                onChange={(value) => {
+                  field.onChange(value)
+                  // Maintaining hides the rate: one typed in for another goal mustn't block
+                  // saving with an error the user can't see.
+                  if (value === "maintain") {
+                    setValue("weeklyRate", "0.5")
+                    clearErrors("weeklyRate")
+                  }
+                }}
+                disabled={submitting}
+              />
+            )}
           />
           <FieldDescription>Your coach adjusts your calorie target towards it.</FieldDescription>
         </FieldSet>
@@ -93,7 +109,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
             render={({ field }) => <ActivityChoice id="profile-activity" value={field.value} onChange={field.onChange} disabled={submitting} />}
           />
           <FieldError errors={[errors.activityLevel]} />
-          <FieldDescription>With your age, sex, height and weight, it estimates how much you burn a day.</FieldDescription>
+          <FieldDescription>Used with your age, sex, height and weight to estimate your targets.</FieldDescription>
         </FieldSet>
       </FieldGroup>
 
@@ -128,11 +144,11 @@ function RateField({ control, ...props }: RateFieldProps) {
 
 type RateInputProps = Omit<RateFieldProps, "control"> & { goal: Goal | undefined; rateRaw: unknown }
 
-/** The weekly rate for a goal, with a caution beyond the usual rates. */
+/** The weekly rate for a goal, with a caution beyond the usual rates. Maintaining has none to ask. */
 export function RateInput({ goal, rateRaw, error, disabled, register }: RateInputProps) {
-  const maintain = goal === "maintain"
+  if (goal === "maintain") return null
   const rate = toNumber(rateRaw)
-  const usualMax = maintain || goal === undefined ? undefined : USUAL_MAX_RATE_KG[goal]
+  const usualMax = goal === undefined ? undefined : USUAL_MAX_RATE_KG[goal]
   const aboveUsual = usualMax !== undefined && rate !== undefined && rate > usualMax && !error
 
   return (
@@ -142,9 +158,9 @@ export function RateInput({ goal, rateRaw, error, disabled, register }: RateInpu
         label={goal === "gain" ? "Gain per week" : "Loss per week"}
         unit="kg"
         inputMode="decimal"
-        description={maintain ? "Not used when maintaining" : "0.25–0.5 kg is sustainable for most people"}
-        error={maintain ? undefined : error}
-        disabled={disabled || maintain}
+        description="0.25–0.5 kg is sustainable for most people"
+        error={error}
+        disabled={disabled}
         {...register}
       />
       {aboveUsual ? (

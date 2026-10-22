@@ -71,7 +71,7 @@ class ProgressRepository:
 
     async def logging_started(self, owner_id: str, signed_up: date_) -> date_:
         """The day logging is judged from: sign-up, or an earlier day the user backfilled.
-        Days before it weren't missed (Progress and the check-in both use it)."""
+        Days before it weren't missed (Progress, Home and the check-in use it)."""
 
         first: date_ | None = await self.session.scalar(
             select(func.min(FoodEntry.log_date)).where(FoodEntry.owner_id == owner_id)

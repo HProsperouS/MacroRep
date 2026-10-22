@@ -83,12 +83,14 @@ describe("ProfilePage", () => {
     expect(toast.success).toHaveBeenCalledWith("Profile saved")
   })
 
-  it("sends no rate when maintaining", async () => {
+  it("asks for no rate when maintaining, even after an invalid one for another goal", async () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole("radio", { name: "Maintain" }))
-    expect(screen.getByLabelText("Loss per week")).toBeDisabled()
+    await user.clear(await screen.findByLabelText("Loss per week"))
+    await user.type(screen.getByLabelText("Loss per week"), "abc")
+    await user.click(screen.getByRole("radio", { name: "Maintain" }))
+    expect(screen.queryByLabelText("Loss per week")).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Save profile" }))
 
     await waitFor(() => expect(profileApi.updateProfile).toHaveBeenCalledWith(expect.objectContaining({ goal: "maintain", weeklyRateKg: 0 })))

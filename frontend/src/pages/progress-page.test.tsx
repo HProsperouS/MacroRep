@@ -80,7 +80,7 @@ describe("ProgressPage", () => {
     // The chart's and the list's.
     await waitFor(() => expect(screen.getAllByText("No weigh-ins in this period.")).toHaveLength(2))
     expect(screen.getByText("Logged days within ±10%")).toBeInTheDocument()
-    expect(screen.getByText("No plan set")).toBeInTheDocument()
+    expect(screen.getByText("Nothing planned yet")).toBeInTheDocument()
     // Weigh-ins don't cover a week yet: no rate, and no verdict against the goal.
     expect(screen.getByText("Rate").parentElement).toHaveTextContent(/^Rate—Needs a week of weigh-ins$/)
     // Nothing finished yet: a dash, not 0%.
@@ -88,6 +88,20 @@ describe("ProgressPage", () => {
     expect(screen.getByText("No RPE logged this week yet")).toBeInTheDocument()
     expect(screen.getByText(/Log a few working sets/)).toBeInTheDocument()
     expect(screen.getByText("No check-ins in this period.")).toBeInTheDocument()
+  })
+
+  it.each([
+    [0.2, "text-primary"],
+    [-0.2, "text-primary"],
+    [0.4, "text-carbs"],
+    [-0.4, "text-carbs"],
+  ])("when maintaining, judges a rate of %s kg / wk by how steady it is", async (ratePerWeekKg, className) => {
+    api.getProgress.mockResolvedValue(
+      progressResponse({ weight: { ...progressResponse().weight, ratePerWeekKg, goalRatePerWeekKg: 0 } }),
+    )
+    renderPage()
+
+    expect(await screen.findByText("Goal: hold steady")).toHaveClass(className)
   })
 
   it("keeps the chosen range in the URL", async () => {

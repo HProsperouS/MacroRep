@@ -251,8 +251,13 @@ class ProgressService:
 
     async def get_daily_calories(self, actor: ActorContext, days: int) -> DailyCaloriesResponse:
         profile = await self.profiles.get(actor.actor_id)
-        today = local_today(user_zone(profile.timezone if profile else None))
-        start = today - timedelta(days=days - 1)
+        zone = user_zone(profile.timezone if profile else None)
+        today = local_today(zone)
+        # Days before the user started weren't missed, so they aren't shown (as on Progress).
+        signed_up = local_date(profile.created_utc, zone) if profile else today
+        start = max(
+            today - timedelta(days=days - 1), await self.repository.logging_started(actor.actor_id, signed_up)
+        )
         calories_by_date = await self.repository.daily_calories(actor.actor_id, start, today)
         target_by_date = targets_by_date(
             await self.profiles.calorie_target_versions(actor.actor_id),

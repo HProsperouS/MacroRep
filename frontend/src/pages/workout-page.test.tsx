@@ -16,7 +16,6 @@ vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)"
 const plan: PlannedWorkout = {
   id: "plan-1",
   name: "Push day",
-  weekLabel: "Week 1",
   estimatedMinutes: 45,
   exercises: [
     {

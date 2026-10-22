@@ -42,6 +42,10 @@ those in the period) cover a week: at least two, 7 days apart counting both.
 One weigh-in gives no change, and two a day or two apart turn day-to-day swings
 in water and food into a weekly rate several times too big.
 
+The Progress page marks the rate on pace when it reaches 80% of the goal rate
+in the goal's direction. When maintaining (a goal rate of 0), it is on pace
+within ±0.25 kg a week either way.
+
 ## Nutrition — `analytics/nutrition.py`
 
 ### Portion scaling
@@ -116,12 +120,12 @@ target gap (kcal) = Σ (intake − calorie target) over finished logged days
 
 Negative means under target. Unlogged days add nothing. Partial days count at
 their logged intake, so a week with light days shows as a real shortfall. The
-Home card shows it for the last 7 days, the check-in for its 7-day window, and
-the Progress page as an average per logged day.
+Home card shows it for the last 7 days (from when the user started, as above),
+the check-in for its 7-day window, and the Progress page as an average per
+logged day.
 
-**Limitation:** every day is judged against the **current** calorie target,
-not the target in effect that day, because targets aren't versioned yet.
-Changing the target re-labels past days.
+Every day is judged against the calorie target **in effect that day**: targets
+are versioned, so changing the target today doesn't re-label past days.
 
 ## Starting targets — `analytics/energy.py`
 
@@ -193,9 +197,7 @@ which is still in progress and would otherwise read as a drop every Monday.
 It has no value when the earlier week had no volume.
 
 The dashed line on the weekly volume chart is the **average** of the weeks
-shown. The API also has a `targetTonnes` field, currently always null,
-reserved for a real weekly volume goal (e.g. derived from the workout plan);
-the chart switches to it automatically once it is populated.
+shown.
 
 ### Average RPE
 
@@ -229,6 +231,17 @@ completion (%) = workouts done ÷ planned × 100
   to train.
 - Not capped at 100%: training more often than planned is reported as such.
   No value when nothing was planned.
+
+### Routine time
+
+```
+seconds = Σ sets × (45 + the exercise's rest) − the last exercise's rest
+minutes = seconds ÷ 60, rounded up, at least 1
+```
+
+Each set takes about 45 seconds to set up and do, then its rest, except the
+workout's last set. It is a rough guide shown as "~N min", worked out each time
+from the routine rather than typed in.
 
 ## Limitations
 

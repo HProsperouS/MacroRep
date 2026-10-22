@@ -51,8 +51,6 @@ def plan_every_day(client: TestClient, headers: dict[str, str]) -> None:
         headers=headers,
         json={
             "name": "Full body",
-            "weekLabel": "Week 1",
-            "estimatedMinutes": 45,
             "exercises": [
                 {
                     "exerciseId": "exercise-squat",
