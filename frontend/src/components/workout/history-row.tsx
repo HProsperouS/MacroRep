@@ -5,12 +5,12 @@ import { toast } from "sonner"
 
 import { apiErrorMessage } from "@/api/client"
 import { QueryError } from "@/components/layout/query-error"
-import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
+import { ConfirmOverlay } from "@/components/layout/confirm-overlay"
+import type { OverlayLayout } from "@/components/layout/responsive-overlay"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Spinner } from "@/components/ui/spinner"
 import { WorkoutEditForm } from "@/components/workout/workout-edit-form"
-import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
+import { useOverlayLayout } from "@/hooks/use-media-query"
 import { useDeleteWorkout, useUpdateWorkout, useWorkoutDetail } from "@/hooks/use-workout"
 import { formatDuration, formatNumber } from "@/lib/format"
 import { toEditable } from "@/lib/workout-edit"
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils"
 import type { HistoryExercise, UpdateWorkoutInput, WorkoutHistoryItem } from "@/types/workout"
 
 export function HistoryRow({ workout }: { workout: WorkoutHistoryItem }) {
-  const isDesktop = useMediaQuery(DESKTOP_QUERY)
+  const overlayLayout = useOverlayLayout()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<OverlayLayout | null>(null)
@@ -90,7 +90,7 @@ export function HistoryRow({ workout }: { workout: WorkoutHistoryItem }) {
                   <Pencil data-icon="inline-start" />
                   Edit
                 </Button>
-                <Button variant="outline" className="h-10 text-destructive" onClick={() => setConfirmDelete(isDesktop ? "dialog" : "drawer")}>
+                <Button variant="outline" className="h-10 text-destructive" onClick={() => setConfirmDelete(overlayLayout)}>
                   <Trash2 data-icon="inline-start" />
                   Delete
                 </Button>
@@ -106,23 +106,16 @@ export function HistoryRow({ workout }: { workout: WorkoutHistoryItem }) {
         </div>
       ) : null}
 
-      <ResponsiveOverlay
-        open={confirmDelete !== null}
-        onOpenChange={(next) => (next ? undefined : setConfirmDelete(null))}
-        layout={confirmDelete ?? "dialog"}
+      <ConfirmOverlay
+        layout={confirmDelete}
+        onClose={() => setConfirmDelete(null)}
         title="Delete this workout?"
         description={`“${workout.name}” and its sets will be removed from your history and progress. This can’t be undone.`}
-      >
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="outline" className="h-10" onClick={() => setConfirmDelete(null)} disabled={remove.isPending}>
-            Cancel
-          </Button>
-          <Button variant="destructive" className="h-10" onClick={deleteWorkout} disabled={remove.isPending}>
-            {remove.isPending ? <Spinner data-icon="inline-start" /> : null}
-            Delete workout
-          </Button>
-        </div>
-      </ResponsiveOverlay>
+        confirmLabel="Delete workout"
+        destructive
+        pending={remove.isPending}
+        onConfirm={deleteWorkout}
+      />
     </li>
   )
 }

@@ -2,9 +2,10 @@ import type { ReactNode } from "react"
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
+import type { OverlayLayout } from "@/hooks/use-media-query"
 import { cn } from "@/lib/utils"
 
-export type OverlayLayout = "dialog" | "drawer"
+export type { OverlayLayout }
 
 type ResponsiveOverlayProps = {
   open: boolean

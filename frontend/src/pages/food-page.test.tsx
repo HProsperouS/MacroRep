@@ -23,7 +23,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@/api/food-api", () => ({ foodApi: api }))
 // jsdom can't decode or draw images; the resizing is the browser's job.
 vi.mock("@/lib/photo", () => ({ photoToDataUrl: vi.fn().mockResolvedValue("data:image/jpeg;base64,AA==") }))
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true }))
+vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
 
 const chicken: Food = {
   id: "f-chicken",

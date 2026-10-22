@@ -1,8 +1,7 @@
 import { ArrowUp, Sparkles } from "lucide-react"
-import { isAxiosError } from "axios"
 import { useState, type FormEvent } from "react"
 
-import { apiErrorMessage } from "@/api/client"
+import { apiErrorMessage, apiErrorStatus } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -41,7 +40,7 @@ export function CoachChat({ checkInId, suggestions, className }: CoachChatProps)
         setFailed(apiErrorMessage(error))
         // Not ready to answer (409) or too many questions for now (429): asking again at once
         // won't help, so there's no retry; the question goes back in the box for later.
-        const status = isAxiosError(error) ? error.response?.status : undefined
+        const status = apiErrorStatus(error)
         if (status === 409 || status === 429) {
           setQuestion(null)
           setDraft(trimmed)

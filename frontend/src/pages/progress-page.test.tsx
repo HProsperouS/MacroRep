@@ -17,7 +17,7 @@ const api = vi.hoisted(() => ({
   deleteWeighIn: vi.fn(),
 }))
 vi.mock("@/api/progress-api", () => ({ progressApi: api }))
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true }))
+vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
 
 const weighIns: WeighIn[] = [
   { id: "w2", date: "2026-10-19", weightKg: 80, trendKg: 80.5 },

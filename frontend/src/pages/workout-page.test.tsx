@@ -11,7 +11,7 @@ import type { PlannedWorkout } from "@/types/workout"
 const api = vi.hoisted(() => ({ getToday: vi.fn(), finishSession: vi.fn() }))
 vi.mock("@/api/workout-api", () => ({ workoutApi: api }))
 // Desktop layout: the mobile drawer needs browser layout APIs jsdom lacks.
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true }))
+vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
 
 const plan: PlannedWorkout = {
   id: "plan-1",

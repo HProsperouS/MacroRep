@@ -19,7 +19,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { useCurrentCheckIn, useDecideProposal, useStartCheckIn } from "@/hooks/use-coach"
-import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
+import { useOverlayLayout } from "@/hooks/use-media-query"
 import { appliedDescription } from "@/lib/coach-messages"
 import type { CheckIn, Proposal, ProposalDecisionInput } from "@/types/coach"
 
@@ -119,7 +119,7 @@ function FailedView({ checkIn }: { checkIn: CheckIn }) {
 type Editing = { proposal: Proposal; layout: OverlayLayout } | null
 
 function CheckInView({ checkIn }: { checkIn: CheckIn }) {
-  const isDesktop = useMediaQuery(DESKTOP_QUERY)
+  const overlayLayout = useOverlayLayout()
   const decide = useDecideProposal(checkIn.id)
   const [editing, setEditing] = useState<Editing>(null)
 
@@ -213,7 +213,7 @@ function CheckInView({ checkIn }: { checkIn: CheckIn }) {
               busy={busyId === proposal.id}
               onApply={() => run(proposal, { decision: "apply" })}
               onReject={() => run(proposal, { decision: "reject" })}
-              onEdit={() => setEditing({ proposal, layout: isDesktop ? "dialog" : "drawer" })}
+              onEdit={() => setEditing({ proposal, layout: overlayLayout })}
             />
           ))}
         </div>

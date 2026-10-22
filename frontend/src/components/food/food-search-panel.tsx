@@ -1,9 +1,9 @@
-import { Camera, RotateCw, Search, SearchX, Zap } from "lucide-react"
+import { Camera, Search, SearchX, Zap } from "lucide-react"
 import { useState, type Ref } from "react"
 
 import { MealPicker } from "@/components/food/meal-picker"
+import { QueryError } from "@/components/layout/query-error"
 import { ServingEditor } from "@/components/food/serving-editor"
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
@@ -11,7 +11,6 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
-import { apiErrorMessage } from "@/api/client"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { useFoodSearch, useFoodSuggestions } from "@/hooks/use-food-log"
 import { formatNumber } from "@/lib/format"
@@ -107,6 +106,7 @@ export function FoodSearchPanel({
           isError={shown.isError}
           error={shown.error}
           isStale={!browsing && search.isPlaceholderData}
+          retrying={shown.isFetching}
           onRetry={() => void shown.refetch()}
           onSelect={setSelected}
           onQuickAdd={onQuickAdd}
@@ -140,25 +140,17 @@ type SearchResultsProps = {
   isError: boolean
   error: unknown
   isStale: boolean
+  retrying: boolean
   onRetry: () => void
   onSelect: (food: Food) => void
   onQuickAdd: () => void
   onCreateCustom: (name?: string) => void
 }
 
-function SearchResults({ query, groups, isPending, isError, error, isStale, onRetry, onSelect, onQuickAdd, onCreateCustom }: SearchResultsProps) {
+function SearchResults({ query, groups, isPending, isError, error, isStale, retrying, onRetry, onSelect, onQuickAdd, onCreateCustom }: SearchResultsProps) {
   if (isError) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>{query ? "Search isn’t available" : "Couldn’t load suggestions"}</AlertTitle>
-        <AlertDescription>{apiErrorMessage(error)}</AlertDescription>
-        <AlertAction>
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            <RotateCw data-icon="inline-start" />
-            Retry
-          </Button>
-        </AlertAction>
-      </Alert>
+      <QueryError title={query ? "Search isn’t available" : "Couldn’t load suggestions"} error={error} onRetry={onRetry} retrying={retrying} />
     )
   }
 

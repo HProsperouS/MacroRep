@@ -37,6 +37,21 @@ export const profileSchema = z.object({
   activityLevel: z.enum(ACTIVITY_LEVELS, { required_error: "Choose how active you are" }),
 })
 
+/** The rate a new form starts with, in kg a week. */
+export const DEFAULT_WEEKLY_RATE = "0.5"
+
+/** After the goal changes. Maintaining hides the rate, so one typed in for another goal mustn't
+ * block the form with an error the user can't see: it goes back to the default. */
+export function resetRateIfMaintaining(
+  goal: Goal,
+  setValue: (name: "weeklyRate", value: string) => void,
+  clearErrors: (name: "weeklyRate") => void,
+) {
+  if (goal !== "maintain") return
+  setValue("weeklyRate", DEFAULT_WEEKLY_RATE)
+  clearErrors("weeklyRate")
+}
+
 /** The weekly rate as stored: negative when losing, zero when maintaining. */
 export function signedRate(goal: Goal, rate: number) {
   return goal === "maintain" ? 0 : goal === "lose" ? -rate : rate

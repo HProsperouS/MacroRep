@@ -19,7 +19,7 @@ const api = vi.hoisted(() => ({
   listMessages: vi.fn(),
 }))
 vi.mock("@/api/coach-api", () => ({ coachApi: api }))
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true }))
+vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
 
 function checkIn(overrides: Partial<CheckIn> = {}): CheckIn {
   return {

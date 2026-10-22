@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { apiErrorMessage } from "@/api/client"
+import { ConfirmOverlay } from "@/components/layout/confirm-overlay"
 import { PageHeader } from "@/components/layout/page-header"
 import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
 import { ExerciseCard } from "@/components/workout/exercise-card"
@@ -18,7 +19,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { useActiveWorkout } from "@/hooks/use-active-workout"
-import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
+import { DESKTOP_QUERY, useMediaQuery, useOverlayLayout } from "@/hooks/use-media-query"
 import { useFinishWorkout, useRoutines, useTodayWorkout } from "@/hooks/use-workout"
 import { beginWorkout, clearActiveWorkout, pauseWorkout, resumeWorkout, updateActiveSession, type ActiveWorkout } from "@/lib/active-workout-store"
 import { savedTimes } from "@/lib/workout-clock"
@@ -95,6 +96,7 @@ type WorkoutSessionProps = {
 /** Every change goes through the persisted store, so leaving the page or reloading keeps progress. */
 function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
+  const overlayLayout = useOverlayLayout()
   const { session: state, plan } = active
   const paused = active.pausedAt !== null
   const [pickerLayout, setPickerLayout] = useState<OverlayLayout | null>(null)
@@ -107,7 +109,7 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
   const percentDone = totals.total > 0 ? (totals.done / totals.total) * 100 : 0
 
   function openConfirm(kind: "finish" | "discard") {
-    setConfirm({ kind, layout: isDesktop ? "dialog" : "drawer" })
+    setConfirm({ kind, layout: overlayLayout })
   }
 
   function requestFinish() {
@@ -138,7 +140,7 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
 
   function openPicker() {
     setPickerKey((key) => key + 1)
-    setPickerLayout(isDesktop ? "dialog" : "drawer")
+    setPickerLayout(overlayLayout)
   }
 
   function addExercises(exercises: Exercise[]) {
@@ -277,40 +279,26 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
         </>
       )}
 
-      <ResponsiveOverlay
-        open={confirm?.kind === "finish"}
-        onOpenChange={(open) => (open ? undefined : setConfirm(null))}
-        layout={confirm?.layout ?? "dialog"}
+      <ConfirmOverlay
+        layout={confirm?.kind === "finish" ? confirm.layout : null}
+        onClose={() => setConfirm(null)}
         title="Finish with sets left?"
         description={`${remainingSets} planned set${remainingSets === 1 ? " isn’t" : "s aren’t"} ticked. Only completed sets will be saved.`}
-      >
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="outline" className="h-10" onClick={() => setConfirm(null)} disabled={finish.isPending}>
-            Keep going
-          </Button>
-          <Button className="h-10" onClick={submitFinish} disabled={finish.isPending}>
-            {finish.isPending ? <Spinner data-icon="inline-start" /> : null}
-            Finish anyway
-          </Button>
-        </div>
-      </ResponsiveOverlay>
+        cancelLabel="Keep going"
+        confirmLabel="Finish anyway"
+        pending={finish.isPending}
+        onConfirm={submitFinish}
+      />
 
-      <ResponsiveOverlay
-        open={confirm?.kind === "discard"}
-        onOpenChange={(open) => (open ? undefined : setConfirm(null))}
-        layout={confirm?.layout ?? "dialog"}
+      <ConfirmOverlay
+        layout={confirm?.kind === "discard" ? confirm.layout : null}
+        onClose={() => setConfirm(null)}
         title="Discard this workout?"
         description="Nothing from this session will be saved. This can’t be undone."
-      >
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="outline" className="h-10" onClick={() => setConfirm(null)}>
-            Cancel
-          </Button>
-          <Button variant="destructive" className="h-10" onClick={discard}>
-            Discard
-          </Button>
-        </div>
-      </ResponsiveOverlay>
+        confirmLabel="Discard"
+        destructive
+        onConfirm={discard}
+      />
 
       <ResponsiveOverlay
         open={pickerLayout !== null}

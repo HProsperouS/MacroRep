@@ -14,7 +14,7 @@ import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/respo
 import { WeighInForm } from "@/components/progress/weigh-in-form"
 import { StartWorkoutButton } from "@/components/workout/start-workout-button"
 import { useFoodLog } from "@/hooks/use-food-log"
-import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
+import { DESKTOP_QUERY, useMediaQuery, useOverlayLayout } from "@/hooks/use-media-query"
 import { useAddWeighIn, useProgress } from "@/hooks/use-progress"
 import { useTodayWorkout } from "@/hooks/use-workout"
 import { groupEntries } from "@/lib/food-log"
@@ -26,6 +26,7 @@ const MEAL_DEADLINES: Partial<Record<MealType, number>> = { breakfast: 10, lunch
 
 export default function HomePage() {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
+  const overlayLayout = useOverlayLayout()
   const [today] = useState(() => new Date())
   const [weighInLayout, setWeighInLayout] = useState<OverlayLayout | null>(null)
   const [checkInDismissed, setCheckInDismissed] = useState(false)
@@ -56,7 +57,7 @@ export default function HomePage() {
     })
   }
 
-  const openWeighIn = () => setWeighInLayout(isDesktop ? "dialog" : "drawer")
+  const openWeighIn = () => setWeighInLayout(overlayLayout)
 
   const actionCards = (
     <>

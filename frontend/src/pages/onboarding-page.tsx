@@ -1,13 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useQueryClient } from "@tanstack/react-query"
-import { isAxiosError } from "axios"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Controller, useForm, useWatch, type Control, type FieldPath, type UseFormRegisterReturn } from "react-hook-form"
 import { Navigate, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { z } from "zod"
 
-import { apiErrorMessage } from "@/api/client"
+import { apiErrorMessage, apiErrorStatus } from "@/api/client"
 import { profileKeys } from "@/api/query-keys"
 import { QueryError } from "@/components/layout/query-error"
 import { ActivityChoice, ExperienceChoice, GoalChoice, SexChoice } from "@/components/profile/profile-choices"
@@ -23,7 +22,7 @@ import { useNutritionTargets } from "@/hooks/use-food-log"
 import { useCompleteOnboarding, useEstimateTargets, useProfile, useSyncTimezone } from "@/hooks/use-profile"
 import { toDayKey } from "@/lib/dates"
 import { formatNumber, toNumber } from "@/lib/format"
-import { bodyWeightKg, checkTargetCalories, profileSchema, signedRate, targetsFields, toUpdateProfileInput } from "@/lib/profile-schemas"
+import { DEFAULT_WEEKLY_RATE, bodyWeightKg, checkTargetCalories, profileSchema, resetRateIfMaintaining, signedRate, targetsFields, toUpdateProfileInput } from "@/lib/profile-schemas"
 import type { DailyTargets } from "@/types/food"
 import { EXPERIENCE_LEVELS, GOALS, type EstimateTargetsInput, type Profile, type TargetEstimate } from "@/types/profile"
 
@@ -109,7 +108,7 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
       dateOfBirth: "",
       heightCm: "",
       weightKg: "",
-      weeklyRate: "0.5",
+      weeklyRate: DEFAULT_WEEKLY_RATE,
       calories: targets ? String(targets.calories) : "",
       protein: targets ? String(targets.protein) : "",
       carbs: targets ? String(targets.carbs) : "",
@@ -154,7 +153,7 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
         onError: async (error) => {
           // A 409 is either the guide already finished (e.g. in another tab), when the fresh
           // profile opens the app, or a clash with another change, which is worth saying.
-          if (isAxiosError(error) && error.response?.status === 409) {
+          if (apiErrorStatus(error) === 409) {
             await queryClient.refetchQueries({ queryKey: profileKeys.all })
             if (queryClient.getQueryData<Profile>(profileKeys.all)?.onboarded) return
           }
@@ -255,12 +254,7 @@ function Guide({ profile, targets }: { profile: Profile; targets: DailyTargets |
                         value={field.value}
                         onChange={(value) => {
                           field.onChange(value)
-                          // Maintaining doesn't use the rate, and its field is hidden: a rate typed in
-                          // for another goal mustn't block Continue with an error the user can't see.
-                          if (value === "maintain") {
-                            setValue("weeklyRate", "0.5")
-                            clearErrors("weeklyRate")
-                          }
+                          resetRateIfMaintaining(value, setValue, clearErrors)
                         }}
                       />
                     )}

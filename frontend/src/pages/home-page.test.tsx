@@ -20,7 +20,7 @@ vi.mock("@/api/food-api", () => ({ foodApi }))
 vi.mock("@/api/progress-api", () => ({ progressApi }))
 vi.mock("@/api/workout-api", () => ({ workoutApi }))
 vi.mock("@/api/coach-api", () => ({ coachApi }))
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true }))
+vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
 
 const lunch: FoodEntry = { id: "e1", meal: "lunch", name: "Chicken rice", amountLabel: "1 plate", source: "quick-add", calories: 600, protein: 25, carbs: 80, fat: 20 }
 

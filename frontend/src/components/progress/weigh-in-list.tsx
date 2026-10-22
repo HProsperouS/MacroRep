@@ -10,7 +10,7 @@ import { WeighInForm } from "@/components/progress/weigh-in-form"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
+import { useOverlayLayout } from "@/hooks/use-media-query"
 import { useAddWeighIn, useDeleteWeighIn, useUpdateWeighIn, useWeighIns } from "@/hooks/use-progress"
 import { toDayKey } from "@/lib/dates"
 import { formatNumber } from "@/lib/format"
@@ -27,7 +27,7 @@ type WeighInListProps = {
 }
 
 export function WeighInList({ from, to, className }: WeighInListProps) {
-  const isDesktop = useMediaQuery(DESKTOP_QUERY)
+  const overlayLayout = useOverlayLayout()
   const earliest = toDayKey(subDays(parseISO(to), MAX_DAYS - 1))
   const clamped = from < earliest
   const weighIns = useWeighIns(clamped ? earliest : from, to)
@@ -88,7 +88,7 @@ export function WeighInList({ from, to, className }: WeighInListProps) {
         {clamped ? <CardDescription>Latest 12 months</CardDescription> : null}
         <CardAction className="flex items-center gap-3">
           {weighIns.data ? <span className="text-xs text-muted-foreground">{weighIns.data.length} logged</span> : null}
-          <Button variant="outline" className="h-10" onClick={() => setAdding(isDesktop ? "dialog" : "drawer")}>
+          <Button variant="outline" className="h-10" onClick={() => setAdding(overlayLayout)}>
             <Plus data-icon="inline-start" />
             Add weigh-in
           </Button>
@@ -123,7 +123,7 @@ export function WeighInList({ from, to, className }: WeighInListProps) {
                       className="text-muted-foreground"
                       aria-label={`Edit weigh-in on ${dayLabel(weighIn.date)}`}
                       disabled={deleting}
-                      onClick={() => setEditing({ weighIn, layout: isDesktop ? "dialog" : "drawer" })}
+                      onClick={() => setEditing({ weighIn, layout: overlayLayout })}
                     >
                       <Pencil />
                     </Button>

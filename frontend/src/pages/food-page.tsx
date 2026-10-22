@@ -1,5 +1,5 @@
 import { addDays, format, isToday, isYesterday, parseISO } from "date-fns"
-import { Camera, ChevronLeft, ChevronRight, RotateCw, Search, Zap } from "lucide-react"
+import { Camera, ChevronLeft, ChevronRight, Search, Zap } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -15,8 +15,8 @@ import { PhotoReview } from "@/components/food/photo-review"
 import type { QuickAddDraft, QuickAddResult } from "@/components/food/quick-add-form"
 import { DayPickerButton } from "@/components/layout/day-picker-button"
 import { PageHeader } from "@/components/layout/page-header"
+import { QueryError } from "@/components/layout/query-error"
 import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
@@ -30,7 +30,7 @@ import {
   useRemoveFoodEntry,
   useUpdateFoodEntry,
 } from "@/hooks/use-food-log"
-import { DESKTOP_QUERY, useMediaQuery } from "@/hooks/use-media-query"
+import { DESKTOP_QUERY, useMediaQuery, useOverlayLayout } from "@/hooks/use-media-query"
 import { amountLabelFor } from "@/hooks/use-serving-amount"
 import { EMPTY_ENTRIES, groupEntries, mealForTime } from "@/lib/food-log"
 import { formatNumber } from "@/lib/format"
@@ -52,6 +52,7 @@ function dayTitle(date: Date) {
 
 export default function FoodPage() {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
+  const overlayLayout = useOverlayLayout()
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const [date, setDate] = useState(() => new Date())
@@ -82,7 +83,7 @@ export default function FoodPage() {
 
   function openManual(tab: ManualEntryTab, draft?: QuickAddDraft) {
     setSearchOpen(false)
-    setManual((prev) => ({ open: true, tab, draft, draftKey: prev.draftKey + 1, layout: isDesktop ? "dialog" : "drawer" }))
+    setManual((prev) => ({ open: true, tab, draft, draftKey: prev.draftKey + 1, layout: overlayLayout }))
   }
 
   function scanPhoto() {
@@ -92,7 +93,7 @@ export default function FoodPage() {
 
   function photoChosen(file: File | undefined) {
     if (!file) return
-    setPhotoLayout(isDesktop ? "dialog" : "drawer")
+    setPhotoLayout(overlayLayout)
     photo.mutate(file)
   }
 
@@ -212,16 +213,7 @@ export default function FoodPage() {
       <div className="grid items-start gap-4 lg:grid-cols-12 lg:gap-6">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-7">
           {foodLog.isError ? (
-            <Alert variant="destructive">
-              <AlertTitle>Couldn’t load your food log</AlertTitle>
-              <AlertDescription>{apiErrorMessage(foodLog.error)}</AlertDescription>
-              <AlertAction>
-                <Button variant="outline" size="sm" onClick={() => void foodLog.refetch()}>
-                  <RotateCw data-icon="inline-start" />
-                  Retry
-                </Button>
-              </AlertAction>
-            </Alert>
+            <QueryError title="Couldn’t load your food log" error={foodLog.error} onRetry={() => void foodLog.refetch()} retrying={foodLog.isFetching} />
           ) : null}
 
           {foodLog.isPending || targets.isPending ? (
@@ -257,7 +249,7 @@ export default function FoodPage() {
                   meal={mealType}
                   entries={byMeal[mealType]}
                   onAdd={focusSearchFor}
-                  onEdit={(entry) => setEditing({ entry, layout: isDesktop ? "dialog" : "drawer" })}
+                  onEdit={(entry) => setEditing({ entry, layout: overlayLayout })}
                   onRemove={handleRemove}
                 />
               ))}

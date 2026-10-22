@@ -109,6 +109,11 @@ apiClient.interceptors.response.use(
   },
 )
 
+/** The HTTP status the server answered a failed request with, if it answered at all. */
+export function apiErrorStatus(error: unknown) {
+  return error instanceof AxiosError ? error.response?.status : undefined
+}
+
 export function apiErrorMessage(error: unknown) {
   if (error instanceof AxiosError) {
     const payload = error.response?.data as { detail?: unknown; message?: unknown } | undefined

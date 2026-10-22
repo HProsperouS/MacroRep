@@ -19,7 +19,7 @@ const api = vi.hoisted(() => ({
   searchExercises: vi.fn().mockResolvedValue([]),
 }))
 vi.mock("@/api/workout-api", () => ({ workoutApi: api }))
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true }))
+vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
 
 const push = routine("r-push", "Push", [0, 4])
 const pull = routine("r-pull", "Pull", [2])

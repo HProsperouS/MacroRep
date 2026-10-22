@@ -1,11 +1,11 @@
 import { format, parseISO } from "date-fns"
-import { Check, Plus, RotateCw, Search, SearchX } from "lucide-react"
+import { Check, Plus, Search, SearchX } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
 import { apiErrorMessage } from "@/api/client"
 import { CreateExerciseForm } from "@/components/workout/create-exercise-form"
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { QueryError } from "@/components/layout/query-error"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
@@ -131,16 +131,7 @@ export function ExercisePicker({ onAdd }: ExercisePickerProps) {
       </div>
 
       {search.isError ? (
-        <Alert variant="destructive">
-          <AlertTitle>Couldn’t load exercises</AlertTitle>
-          <AlertDescription>{apiErrorMessage(search.error)}</AlertDescription>
-          <AlertAction>
-            <Button variant="outline" size="sm" onClick={() => void search.refetch()}>
-              <RotateCw data-icon="inline-start" />
-              Retry
-            </Button>
-          </AlertAction>
-        </Alert>
+        <QueryError title="Couldn’t load exercises" error={search.error} onRetry={() => void search.refetch()} retrying={search.isFetching} />
       ) : search.isPending ? (
         <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading exercises">
           {[0, 1, 2, 3, 4].map((key) => (

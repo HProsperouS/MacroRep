@@ -10,7 +10,7 @@ import { FieldDescription, FieldError, FieldGroup, FieldLegend, FieldSet } from 
 import { Spinner } from "@/components/ui/spinner"
 import { toDayKey } from "@/lib/dates"
 import { toNumber } from "@/lib/format"
-import { profileSchema, toUpdateProfileInput } from "@/lib/profile-schemas"
+import { profileSchema, resetRateIfMaintaining, toUpdateProfileInput } from "@/lib/profile-schemas"
 import type { Goal, Profile, UpdateProfileInput } from "@/types/profile"
 
 type ProfileInput = z.input<typeof profileSchema>
@@ -73,12 +73,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
                 value={field.value}
                 onChange={(value) => {
                   field.onChange(value)
-                  // Maintaining hides the rate: one typed in for another goal mustn't block
-                  // saving with an error the user can't see.
-                  if (value === "maintain") {
-                    setValue("weeklyRate", "0.5")
-                    clearErrors("weeklyRate")
-                  }
+                  resetRateIfMaintaining(value, setValue, clearErrors)
                 }}
                 disabled={submitting}
               />
