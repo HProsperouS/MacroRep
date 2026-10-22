@@ -6,51 +6,21 @@ from datetime import UTC, date, datetime, time, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import plan_every_day
+from tests.helpers import (
+    CHECK_INS,
+    GUIDE,
+    ONBOARDING,
+    decide,
+    iso_days_ago,
+    log_meal,
+    plan_every_day,
+    ready_check_in,
+    start_check_in,
+    training_check_in,
+    week_with_a_proposal,
+    weigh_in,
+)
 from tests.helpers import register_user as _new_user
-
-CHECK_INS = "/api/v1/coach/check-ins"
-
-
-def _log_food(client: TestClient, headers: dict[str, str], days_ago: int, calories: int = 2000) -> None:
-    response = client.post(
-        "/api/v1/food-log/entries",
-        headers=headers,
-        json={
-            "date": (date.today() - timedelta(days=days_ago)).isoformat(),
-            "meal": "lunch",
-            "name": "Test meal",
-            "amountLabel": "1 plate",
-            "source": "quick-add",
-            "calories": calories,
-            "protein": 100,
-            "carbs": 200,
-            "fat": 60,
-        },
-    )
-    assert response.status_code == 201
-
-
-def _weigh_in(client: TestClient, headers: dict[str, str], days_ago: int, weight_kg: float) -> None:
-    response = client.post(
-        "/api/v1/body/weigh-ins",
-        headers=headers,
-        json={"date": (date.today() - timedelta(days=days_ago)).isoformat(), "weightKg": weight_kg},
-    )
-    assert response.status_code == 201
-
-
-def _start(client: TestClient, headers: dict[str, str], key: str):
-    return client.post(CHECK_INS, headers={**headers, "Idempotency-Key": key})
-
-
-def _ready(client: TestClient, headers: dict[str, str]) -> dict:
-    """The current check-in once generated. The test client runs the background
-    generation before the POST returns, so it has always finished by now."""
-
-    check_in = client.get(f"{CHECK_INS}/current", headers=headers).json()
-    assert check_in["status"] not in ("running", "failed"), check_in
-    return dict(check_in)
 
 
 def test_current_check_in_seeded(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -66,11 +36,7 @@ def test_decide_and_ask(client: TestClient, auth_headers: dict[str, str]) -> Non
     check_in = client.get("/api/v1/coach/check-ins/current", headers=auth_headers).json()
     proposal_id = check_in["proposals"][0]["id"]
 
-    decision = client.post(
-        f"/api/v1/coach/check-ins/{check_in['id']}/proposals/{proposal_id}/decision",
-        headers=auth_headers,
-        json={"decision": "apply"},
-    )
+    decision = decide(client, auth_headers, check_in, {"decision": "apply"}, proposal_id)
     assert decision.status_code == 200
     assert decision.json()["status"] == "applied"
 
@@ -83,11 +49,7 @@ def test_decide_and_ask(client: TestClient, auth_headers: dict[str, str]) -> Non
     assert reply.json()["role"] == "coach"
 
     # Deciding an already-decided proposal again must be rejected, not silently overwritten.
-    redecision = client.post(
-        f"/api/v1/coach/check-ins/{check_in['id']}/proposals/{proposal_id}/decision",
-        headers=auth_headers,
-        json={"decision": "reject"},
-    )
+    redecision = decide(client, auth_headers, check_in, {"decision": "reject"}, proposal_id)
     assert redecision.status_code == 409
 
 
@@ -98,10 +60,10 @@ def test_start_check_in_requires_an_idempotency_key(client: TestClient) -> None:
 
 def test_start_check_in_refuses_without_enough_data(client: TestClient) -> None:
     headers = _new_user(client)
-    _log_food(client, headers, days_ago=0)
-    _weigh_in(client, headers, days_ago=0, weight_kg=80)
+    log_meal(client, headers, days_ago=0)
+    weigh_in(client, headers, days_ago=0, weight_kg=80)
 
-    refused = _start(client, headers, "too-early")
+    refused = start_check_in(client, headers, "too-early")
     assert refused.status_code == 422
     assert "log food on at least 4" in refused.json()["detail"]
     assert "weigh in at least 2" in refused.json()["detail"]
@@ -109,34 +71,34 @@ def test_start_check_in_refuses_without_enough_data(client: TestClient) -> None:
 
     # A refusal doesn't consume the key: once the data exists, the same key succeeds.
     for days_ago in (1, 2, 3):
-        _log_food(client, headers, days_ago=days_ago)
-    _weigh_in(client, headers, days_ago=3, weight_kg=80.2)
-    assert _start(client, headers, "too-early").status_code == 201
+        log_meal(client, headers, days_ago=days_ago)
+    weigh_in(client, headers, days_ago=3, weight_kg=80.2)
+    assert start_check_in(client, headers, "too-early").status_code == 201
 
 
 def test_replaying_an_idempotency_key_returns_the_same_check_in(client: TestClient) -> None:
     headers = _new_user(client)
     for days_ago in range(4):
-        _log_food(client, headers, days_ago=days_ago)
-    _weigh_in(client, headers, days_ago=5, weight_kg=80)
-    _weigh_in(client, headers, days_ago=0, weight_kg=80)
+        log_meal(client, headers, days_ago=days_ago)
+    weigh_in(client, headers, days_ago=5, weight_kg=80)
+    weigh_in(client, headers, days_ago=0, weight_kg=80)
 
-    first = _start(client, headers, "week-1")
+    first = start_check_in(client, headers, "week-1")
     assert first.status_code == 201
     assert first.json()["status"] == "running"  # generated in the background, after this answer
-    check_in = _ready(client, headers)
+    check_in = ready_check_in(client, headers)
     assert check_in["id"] == first.json()["id"]
     assert check_in["weekLabel"] == "Week 1"
     # 4/7 days logged is below the placeholder pipeline's adherence bar, so no proposals.
     assert check_in["proposals"] == []
     assert check_in["status"] == "reviewed"
 
-    replay = _start(client, headers, "week-1")
+    replay = start_check_in(client, headers, "week-1")
     assert replay.status_code == 200
     assert replay.json() == check_in
 
     # A different key is a different request: nothing is pending, so a new check-in is made.
-    second = _start(client, headers, "week-2")
+    second = start_check_in(client, headers, "week-2")
     assert second.status_code == 201
     assert second.json()["id"] != check_in["id"]
     assert second.json()["weekLabel"] == "Week 2"
@@ -147,23 +109,19 @@ def test_idempotency_keys_are_scoped_per_user(client: TestClient) -> None:
     for _ in range(2):
         headers = _new_user(client)
         for days_ago in range(4):
-            _log_food(client, headers, days_ago=days_ago)
-        _weigh_in(client, headers, days_ago=4, weight_kg=70)
-        _weigh_in(client, headers, days_ago=0, weight_kg=70)
-        response = _start(client, headers, "shared-key")
+            log_meal(client, headers, days_ago=days_ago)
+        weigh_in(client, headers, days_ago=4, weight_kg=70)
+        weigh_in(client, headers, days_ago=0, weight_kg=70)
+        response = start_check_in(client, headers, "shared-key")
         assert response.status_code == 201
         ids.append(response.json()["id"])
     assert ids[0] != ids[1]
 
 
 def _check_in_with_a_proposal(client: TestClient, headers: dict[str, str]) -> dict:
-    # Every day logged and the trend off a maintain goal: the placeholder proposes a calorie change.
-    for days_ago in range(7):
-        _log_food(client, headers, days_ago=days_ago)
-    _weigh_in(client, headers, days_ago=6, weight_kg=80)
-    _weigh_in(client, headers, days_ago=0, weight_kg=78)
-    _start(client, headers, "with-proposal")
-    check_in = _ready(client, headers)
+    week_with_a_proposal(client, headers)
+    start_check_in(client, headers, "with-proposal")
+    check_in = ready_check_in(client, headers)
     assert len(check_in["proposals"]) == 1
     return dict(check_in)
 
@@ -188,22 +146,12 @@ def _check_in_with_a_proposal(client: TestClient, headers: dict[str, str]) -> di
 def test_proposal_decisions_are_validated(client: TestClient, body: dict, expected: int) -> None:
     headers = _new_user(client)
     check_in = _check_in_with_a_proposal(client, headers)
-    proposal_id = check_in["proposals"][0]["id"]
-    response = client.post(
-        f"{CHECK_INS}/{check_in['id']}/proposals/{proposal_id}/decision", headers=headers, json=body
-    )
+    response = decide(client, headers, check_in, body)
     assert response.status_code == expected, response.text
 
 
 def _targets(client: TestClient, headers: dict[str, str]) -> dict:
     return dict(client.get("/api/v1/nutrition/targets", headers=headers).json())
-
-
-def _decide(client: TestClient, headers: dict[str, str], check_in: dict, body: dict):
-    proposal_id = check_in["proposals"][0]["id"]
-    return client.post(
-        f"{CHECK_INS}/{check_in['id']}/proposals/{proposal_id}/decision", headers=headers, json=body
-    )
 
 
 def test_applying_a_nutrition_proposal_updates_the_daily_calorie_target(client: TestClient) -> None:
@@ -212,7 +160,7 @@ def test_applying_a_nutrition_proposal_updates_the_daily_calorie_target(client: 
     proposed = check_in["proposals"][0]["changes"][0]["after"]
     before = _targets(client, headers)
 
-    assert _decide(client, headers, check_in, {"decision": "apply"}).status_code == 200
+    assert decide(client, headers, check_in, {"decision": "apply"}).status_code == 200
 
     after = _targets(client, headers)
     assert after["calories"] == round(proposed)
@@ -225,7 +173,7 @@ def test_editing_a_nutrition_proposal_applies_the_edited_value(client: TestClien
     headers = _new_user(client)
     check_in = _check_in_with_a_proposal(client, headers)
 
-    response = _decide(
+    response = decide(
         client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 2050}]}
     )
 
@@ -239,7 +187,7 @@ def test_rejecting_a_nutrition_proposal_leaves_the_target_alone(client: TestClie
     check_in = _check_in_with_a_proposal(client, headers)
     before = _targets(client, headers)
 
-    assert _decide(client, headers, check_in, {"decision": "reject"}).status_code == 200
+    assert decide(client, headers, check_in, {"decision": "reject"}).status_code == 200
 
     assert _targets(client, headers) == before
 
@@ -252,7 +200,7 @@ def test_an_out_of_range_target_is_refused_and_the_proposal_stays_pending(
     check_in = _check_in_with_a_proposal(client, headers)
     before = _targets(client, headers)
 
-    response = _decide(
+    response = decide(
         client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": calories}]}
     )
 
@@ -261,7 +209,7 @@ def test_an_out_of_range_target_is_refused_and_the_proposal_stays_pending(
     assert _targets(client, headers) == before
     # Still pending, so the user can edit it into range instead of being stuck.
     assert (
-        _decide(
+        decide(
             client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 2000}]}
         ).status_code
         == 200
@@ -281,7 +229,7 @@ def test_a_target_far_below_the_macros_is_refused(client: TestClient) -> None:
     )
     check_in = _check_in_with_a_proposal(client, headers)
 
-    response = _decide(
+    response = decide(
         client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 1500}]}
     )
 
@@ -309,13 +257,13 @@ def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
     )
     assert targets.status_code == 200
     for days_ago in (0, 1, 3, 4, 5, 6):
-        _log_food(client, headers, days_ago=days_ago)
+        log_meal(client, headers, days_ago=days_ago)
     # A light day, logged under half the 2000 kcal target: still counted as eaten.
     light_day = client.post(
         "/api/v1/food-log/entries",
         headers=headers,
         json={
-            "date": (date.today() - timedelta(days=2)).isoformat(),
+            "date": iso_days_ago(2),
             "meal": "lunch",
             "name": "Soup",
             "amountLabel": "1 bowl",
@@ -327,11 +275,11 @@ def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
         },
     )
     assert light_day.status_code == 201
-    _weigh_in(client, headers, days_ago=6, weight_kg=80)
-    _weigh_in(client, headers, days_ago=0, weight_kg=80)
+    weigh_in(client, headers, days_ago=6, weight_kg=80)
+    weigh_in(client, headers, days_ago=0, weight_kg=80)
 
-    _start(client, headers, "gap")
-    check_in = _ready(client, headers)
+    start_check_in(client, headers, "gap")
+    check_in = ready_check_in(client, headers)
     stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
     assert stats["Vs target"] == "-1,400 kcal"
     assert "1,400 kcal under target" in check_in["summary"]
@@ -364,14 +312,14 @@ def test_check_in_reports_completion_and_effort(client: TestClient) -> None:
     headers = _new_user(client)
     plan_every_day(client, headers)
     for days_ago in range(4):
-        _log_food(client, headers, days_ago=days_ago)
-    _weigh_in(client, headers, days_ago=6, weight_kg=80)
-    _weigh_in(client, headers, days_ago=0, weight_kg=80)
+        log_meal(client, headers, days_ago=days_ago)
+    weigh_in(client, headers, days_ago=6, weight_kg=80)
+    weigh_in(client, headers, days_ago=0, weight_kg=80)
     _log_workout(client, headers, days_ago=1, rpe=8)
     _log_workout(client, headers, days_ago=5, rpe=9)  # training began then, though the routine is new
 
-    _start(client, headers, "effort")
-    check_in = _ready(client, headers)
+    start_check_in(client, headers, "effort")
+    check_in = ready_check_in(client, headers)
     stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
     # 5 finished plan days since training began; today isn't due until trained.
     assert stats["Workouts"] == "2/5 (40%)"
@@ -382,13 +330,13 @@ def test_check_in_reports_completion_and_effort(client: TestClient) -> None:
 def test_check_in_without_rpe_or_a_plan(client: TestClient) -> None:
     headers = _new_user(client)
     for days_ago in range(4):
-        _log_food(client, headers, days_ago=days_ago)
-    _weigh_in(client, headers, days_ago=6, weight_kg=80)
-    _weigh_in(client, headers, days_ago=0, weight_kg=80)
+        log_meal(client, headers, days_ago=days_ago)
+    weigh_in(client, headers, days_ago=6, weight_kg=80)
+    weigh_in(client, headers, days_ago=0, weight_kg=80)
     _log_workout(client, headers, days_ago=1, rpe=None)
 
-    _start(client, headers, "no-rpe")
-    check_in = _ready(client, headers)
+    start_check_in(client, headers, "no-rpe")
+    check_in = ready_check_in(client, headers)
     stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
     assert stats["Workouts"] == "1/0"
     assert stats["Avg RPE"] == "—"
@@ -397,40 +345,23 @@ def test_check_in_without_rpe_or_a_plan(client: TestClient) -> None:
 
 def test_pending_proposals_block_a_new_check_in(client: TestClient) -> None:
     headers = _new_user(client)
-    # Every day logged (100% adherence) and the trend dropping 0.2 kg against a
-    # maintain goal: enough for the placeholder pipeline to propose a change.
-    for days_ago in range(7):
-        _log_food(client, headers, days_ago=days_ago)
-    _weigh_in(client, headers, days_ago=6, weight_kg=80)
-    _weigh_in(client, headers, days_ago=0, weight_kg=78)
+    week_with_a_proposal(client, headers)
 
-    first = _start(client, headers, "with-proposal")
+    first = start_check_in(client, headers, "with-proposal")
     assert first.status_code == 201
-    check_in = _ready(client, headers)
+    check_in = ready_check_in(client, headers)
     assert check_in["status"] == "needs-review"
     assert len(check_in["proposals"]) == 1
 
-    blocked = _start(client, headers, "another-key")
+    blocked = start_check_in(client, headers, "another-key")
     assert blocked.status_code == 409
 
     # Replaying the original key is still fine: it's a read, not a new check-in.
-    assert _start(client, headers, "with-proposal").status_code == 200
+    assert start_check_in(client, headers, "with-proposal").status_code == 200
 
-    proposal_id = check_in["proposals"][0]["id"]
-    decided = client.post(
-        f"{CHECK_INS}/{check_in['id']}/proposals/{proposal_id}/decision",
-        headers=headers,
-        json={"decision": "reject"},
-    )
+    decided = decide(client, headers, check_in, {"decision": "reject"})
     assert decided.status_code == 200
-    assert _start(client, headers, "another-key").status_code == 201
-
-
-def _week_with_a_proposal(client: TestClient, headers: dict[str, str]) -> None:
-    for days_ago in range(7):
-        _log_food(client, headers, days_ago=days_ago)
-    _weigh_in(client, headers, days_ago=6, weight_kg=80)
-    _weigh_in(client, headers, days_ago=0, weight_kg=78)
+    assert start_check_in(client, headers, "another-key").status_code == 201
 
 
 def _run_metrics(caplog: pytest.LogCaptureFixture, check_in_id: str) -> dict:
@@ -446,15 +377,15 @@ def _run_metrics(caplog: pytest.LogCaptureFixture, check_in_id: str) -> dict:
 
 def test_a_check_in_is_generated_in_the_background(client: TestClient) -> None:
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
-    started = _start(client, headers, "bg")
+    started = start_check_in(client, headers, "bg")
     assert started.status_code == 201
     assert started.json()["status"] == "running"
     assert started.json()["proposals"] == []
     assert [step["status"] for step in started.json()["pipeline"]] == ["done", "running"]
 
-    ready = _ready(client, headers)
+    ready = ready_check_in(client, headers)
     assert ready["status"] == "needs-review"
     assert len(ready["proposals"]) == 1
     assert ready["failureReason"] is None
@@ -462,9 +393,9 @@ def test_a_check_in_is_generated_in_the_background(client: TestClient) -> None:
 
 def test_a_run_records_how_it_went(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
     with caplog.at_level("INFO", logger="app.coach.service"):
-        check_in_id = _start(client, headers, "metrics").json()["id"]
+        check_in_id = start_check_in(client, headers, "metrics").json()["id"]
 
     metrics = _run_metrics(caplog, check_in_id)
     assert (metrics["outcome"], metrics["error"], metrics["model"], metrics["resumed"]) == (
@@ -486,14 +417,14 @@ def test_a_failed_generation_is_reported_and_changes_nothing(
 ) -> None:
     caplog.set_level("INFO", logger="app.coach.service")
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
     targets_before = _targets(client, headers)
 
     async def broken(*_: object) -> None:
         raise RuntimeError("model unavailable")
 
     monkeypatch.setattr("app.coach.agents.fake_model.FakeCoachModel.generate", broken)
-    assert _start(client, headers, "fails").status_code == 201
+    assert start_check_in(client, headers, "fails").status_code == 201
 
     current = client.get(f"{CHECK_INS}/current", headers=headers).json()
     assert current["status"] == "failed"
@@ -510,8 +441,8 @@ def test_a_failed_generation_is_reported_and_changes_nothing(
 
     # A failed check-in doesn't block the next one.
     monkeypatch.undo()
-    assert _start(client, headers, "retry").status_code == 201
-    assert _ready(client, headers)["status"] == "needs-review"
+    assert start_check_in(client, headers, "retry").status_code == 201
+    assert ready_check_in(client, headers)["status"] == "needs-review"
 
 
 def _backdate_check_in(client: TestClient, check_in_id: str, minutes: int) -> None:
@@ -537,15 +468,15 @@ def test_a_running_check_in_blocks_another_until_it_is_lost(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def never_runs(_: str) -> None:  # as if the server restarted before the run began
         return None
 
     monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
-    check_in_id = _start(client, headers, "lost").json()["id"]
+    check_in_id = start_check_in(client, headers, "lost").json()["id"]
 
-    blocked = _start(client, headers, "second")
+    blocked = start_check_in(client, headers, "second")
     assert blocked.status_code == 409
     assert "still being prepared" in blocked.json()["detail"]
 
@@ -555,7 +486,7 @@ def test_a_running_check_in_blocks_another_until_it_is_lost(
     assert "interrupted" in current["failureReason"]
 
     monkeypatch.undo()
-    assert _start(client, headers, "after-lost").status_code == 201
+    assert start_check_in(client, headers, "after-lost").status_code == 201
 
 
 def test_running_the_generation_twice_does_not_duplicate_proposals(client: TestClient) -> None:
@@ -567,7 +498,7 @@ def test_running_the_generation_twice_does_not_duplicate_proposals(client: TestC
     assert client.portal is not None
     client.portal.call(generate_check_in, check_in["id"])
 
-    assert len(_ready(client, headers)["proposals"]) == 1
+    assert len(ready_check_in(client, headers)["proposals"]) == 1
 
 
 def test_an_edited_proposal_keeps_what_was_proposed_and_when_it_was_decided(client: TestClient) -> None:
@@ -576,7 +507,7 @@ def test_an_edited_proposal_keeps_what_was_proposed_and_when_it_was_decided(clie
     proposed = check_in["proposals"][0]["changes"][0]["after"]
     assert check_in["proposals"][0]["decidedAt"] is None
 
-    decided = _decide(
+    decided = decide(
         client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 2050}]}
     ).json()
 
@@ -584,7 +515,7 @@ def test_an_edited_proposal_keeps_what_was_proposed_and_when_it_was_decided(clie
     assert decided["proposedChanges"][0]["after"] == proposed
     assert decided["decidedAt"] is not None
     assert decided["decidedAt"].endswith(("Z", "+00:00"))
-    stored = _ready(client, headers)["proposals"][0]
+    stored = ready_check_in(client, headers)["proposals"][0]
     assert stored["proposedChanges"][0]["after"] == proposed
 
 
@@ -594,13 +525,13 @@ def test_a_run_that_outlived_the_stale_sweep_does_not_bring_its_check_in_back(
     from app.coach.runner import generate_check_in
 
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def never_runs(_: str) -> None:
         return None
 
     monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
-    check_in_id = _start(client, headers, "slow").json()["id"]
+    check_in_id = start_check_in(client, headers, "slow").json()["id"]
     _backdate_check_in(client, check_in_id, minutes=11)
     assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"
 
@@ -620,13 +551,13 @@ def test_a_run_whose_check_in_moved_on_meanwhile_is_logged_as_discarded(
 
     caplog.set_level("INFO", logger="app.coach.service")
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def already_moved_on(*_: object, **__: object) -> bool:
         return False  # as when the stale sweep failed it, or another run finished it, mid-run
 
     monkeypatch.setattr(CoachRepository, "finish_run", already_moved_on)
-    check_in_id = _start(client, headers, "moved-on").json()["id"]
+    check_in_id = start_check_in(client, headers, "moved-on").json()["id"]
 
     metrics = _run_metrics(caplog, check_in_id)
     assert (metrics["outcome"], metrics["calls"]) == ("discarded", 3)
@@ -637,13 +568,13 @@ def test_a_model_that_cant_be_set_up_fails_the_check_in(
 ) -> None:
     caplog.set_level("INFO", logger="app.coach.service")
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     def broken() -> None:
         raise RuntimeError("bad model settings")
 
     monkeypatch.setattr("app.coach.factory.get_coach_model", broken)
-    check_in_id = _start(client, headers, "no-model").json()["id"]
+    check_in_id = start_check_in(client, headers, "no-model").json()["id"]
 
     assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"
     metrics = _run_metrics(caplog, check_in_id)
@@ -660,7 +591,7 @@ def test_a_run_that_takes_too_long_is_stopped_and_marked_failed(
 ) -> None:
     caplog.set_level("INFO", logger="app.coach.service")
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
     monkeypatch.setattr("app.coach.service.RUN_TIMEOUT_SECONDS", 0.2)
 
     async def slow(*_: object) -> None:
@@ -668,7 +599,7 @@ def test_a_run_that_takes_too_long_is_stopped_and_marked_failed(
 
     monkeypatch.setattr("app.coach.agents.fake_model.FakeCoachModel.generate", slow)
 
-    _start(client, headers, "too-slow")
+    start_check_in(client, headers, "too-slow")
 
     current = client.get(f"{CHECK_INS}/current", headers=headers).json()
     assert current["status"] == "failed"
@@ -681,13 +612,13 @@ def test_an_error_while_saving_the_proposals_marks_the_check_in_failed(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def broken(*_: object) -> None:
         raise RuntimeError("database went away")
 
     monkeypatch.setattr("app.coach.repository.CoachRepository.add_proposals", broken)
-    _start(client, headers, "save-fails")
+    start_check_in(client, headers, "save-fails")
 
     current = client.get(f"{CHECK_INS}/current", headers=headers).json()
     assert current["status"] == "failed", "never left stuck as running"
@@ -698,31 +629,31 @@ def test_a_retry_after_a_failure_keeps_the_week_number(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def broken(*_: object) -> None:
         raise RuntimeError("model unavailable")
 
     monkeypatch.setattr("app.coach.agents.fake_model.FakeCoachModel.generate", broken)
-    assert _start(client, headers, "fails").json()["weekLabel"] == "Week 1"
+    assert start_check_in(client, headers, "fails").json()["weekLabel"] == "Week 1"
     monkeypatch.undo()
-    assert _start(client, headers, "retry").json()["weekLabel"] == "Week 1"
+    assert start_check_in(client, headers, "retry").json()["weekLabel"] == "Week 1"
 
 
 def test_replaying_the_key_of_a_lost_run_reports_it_failed(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def never_runs(_: str) -> None:
         return None
 
     monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
-    check_in_id = _start(client, headers, "lost").json()["id"]
+    check_in_id = start_check_in(client, headers, "lost").json()["id"]
     _backdate_check_in(client, check_in_id, minutes=11)
 
-    replay = _start(client, headers, "lost")
+    replay = start_check_in(client, headers, "lost")
     assert replay.status_code == 200
     assert replay.json()["status"] == "failed"
 
@@ -731,65 +662,22 @@ def test_a_refused_apply_records_no_decision_time(client: TestClient) -> None:
     headers = _new_user(client)
     check_in = _check_in_with_a_proposal(client, headers)
 
-    refused = _decide(
+    refused = decide(
         client, headers, check_in, {"decision": "apply", "changes": [{"id": "calories", "after": 999}]}
     )
     assert refused.status_code == 422
 
-    proposal = _ready(client, headers)["proposals"][0]
+    proposal = ready_check_in(client, headers)["proposals"][0]
     assert proposal["status"] == "pending"
     assert proposal["decidedAt"] is None
 
 
-def _log_bench(
-    client: TestClient, headers: dict[str, str], days_ago: int, weight_kg: float, rpe: float
-) -> None:
-    started = datetime.combine(date.today() - timedelta(days=days_ago), time(12, 0), tzinfo=UTC)
-    sets = [{"kind": "working", "weightKg": weight_kg, "reps": 5, "rpe": rpe}] * 3
-    response = client.post(
-        "/api/v1/workouts/sessions",
-        headers=headers,
-        json={
-            "planId": None,
-            "name": "Push",
-            "startedAt": started.isoformat(),
-            "finishedAt": (started + timedelta(hours=1)).isoformat(),
-            "exercises": [
-                {"exerciseId": "exercise-bench-press", "name": "Barbell Bench Press", "sets": sets}
-            ],
-        },
-    )
-    assert response.status_code == 201
-
-
 def test_logged_training_leads_to_a_training_proposal_for_the_scheduled_routine(client: TestClient) -> None:
     headers = _new_user(client)
-    routine = client.post(
-        "/api/v1/workouts/routines",
-        headers=headers,
-        json={
-            "name": "Push",
-            "exercises": [
-                {
-                    "exerciseId": "exercise-bench-press",
-                    "restSeconds": 120,
-                    "sets": [{"kind": "working", "targetWeightKg": 100, "targetReps": 5}] * 3,
-                }
-            ],
-        },
-    ).json()
-    for day in range(7):
-        client.put(f"/api/v1/workouts/plan/{day}", headers=headers, json={"routineId": routine["id"]})
-    _week_with_a_proposal(client, headers)
     # Strength has slipped while effort climbed to RPE 9.5: time to ease off.
-    _log_bench(client, headers, days_ago=14, weight_kg=100, rpe=8)
-    _log_bench(client, headers, days_ago=2, weight_kg=95, rpe=9.5)
-    _log_bench(client, headers, days_ago=1, weight_kg=95, rpe=9.5)
+    routine, check_in = training_check_in(client, headers)
 
-    _start(client, headers, "training")
-    check_in = _ready(client, headers)
-
-    training = next(p for p in check_in["proposals"] if p["kind"] == "training")
+    [training] = check_in["proposals"]
     change = training["changes"][0]
     assert change["label"] == "Barbell Bench Press · target weight"
     assert (change["before"], change["after"], change["unit"]) == (100.0, 95.0, "kg")
@@ -827,13 +715,13 @@ def test_a_run_resumed_long_after_it_began_is_failed_not_finished(
     from app.coach.runner import generate_check_in
 
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def never_runs(_: str) -> None:
         return None
 
     monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
-    check_in_id = _start(client, headers, "old").json()["id"]
+    check_in_id = start_check_in(client, headers, "old").json()["id"]
     _backdate_check_in(client, check_in_id, minutes=60)
 
     assert client.portal is not None
@@ -862,13 +750,13 @@ def test_a_run_stopped_at_shutdown_stays_running_to_be_resumed(
     from app.coach.runner import generate_check_in, stop_running_check_ins
 
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def never_runs(_: str) -> None:
         return None
 
     monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
-    check_in_id = _start(client, headers, "shutdown").json()["id"]
+    check_in_id = start_check_in(client, headers, "shutdown").json()["id"]
 
     started = asyncio.Event()
 
@@ -969,43 +857,11 @@ def _routine_sets(client: TestClient, headers: dict[str, str], routine_id: str) 
     ]
 
 
-def _training_check_in(client: TestClient, headers: dict[str, str]) -> tuple[dict, dict]:
-    """A routine (warm-up + 3 x 100 kg x 5 bench) and a check-in proposing to ease it to 95 kg."""
-
-    routine = client.post(
-        "/api/v1/workouts/routines",
-        headers=headers,
-        json={
-            "name": "Push",
-            "exercises": [
-                {
-                    "exerciseId": "exercise-bench-press",
-                    "restSeconds": 120,
-                    "sets": [
-                        {"kind": "warmup", "targetWeightKg": 40, "targetReps": 10},
-                        *[{"kind": "working", "targetWeightKg": 100, "targetReps": 5}] * 3,
-                    ],
-                }
-            ],
-        },
-    ).json()
-    for day in range(7):
-        client.put(f"/api/v1/workouts/plan/{day}", headers=headers, json={"routineId": routine["id"]})
-    _week_with_a_proposal(client, headers)
-    _log_bench(client, headers, days_ago=14, weight_kg=100, rpe=8)
-    _log_bench(client, headers, days_ago=2, weight_kg=95, rpe=9.5)
-    _log_bench(client, headers, days_ago=1, weight_kg=95, rpe=9.5)
-    _start(client, headers, "training")
-    check_in = _ready(client, headers)
-    training = next(p for p in check_in["proposals"] if p["kind"] == "training")
-    return routine, {**check_in, "proposals": [training]}
-
-
 def test_applying_a_training_proposal_updates_the_routine(client: TestClient) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
 
-    decided = _decide(client, headers, check_in, {"decision": "apply"})
+    decided = decide(client, headers, check_in, {"decision": "apply"})
 
     assert decided.status_code == 200, decided.text
     assert decided.json()["status"] == "applied"
@@ -1020,10 +876,10 @@ def test_applying_a_training_proposal_updates_the_routine(client: TestClient) ->
 
 def test_an_edited_training_value_within_the_limits_is_applied(client: TestClient) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     change_id = check_in["proposals"][0]["changes"][0]["id"]
 
-    decided = _decide(
+    decided = decide(
         client, headers, check_in, {"decision": "apply", "changes": [{"id": change_id, "after": 92.5}]}
     )
 
@@ -1034,23 +890,23 @@ def test_an_edited_training_value_within_the_limits_is_applied(client: TestClien
 
 def test_an_edited_training_value_past_the_limits_is_refused(client: TestClient) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     change_id = check_in["proposals"][0]["changes"][0]["id"]
     before = _routine_sets(client, headers, routine["id"])
 
-    refused = _decide(
+    refused = decide(
         client, headers, check_in, {"decision": "apply", "changes": [{"id": change_id, "after": 85}]}
     )
 
     assert refused.status_code == 422
     assert "at most 10%" in refused.json()["detail"]
     assert _routine_sets(client, headers, routine["id"]) == before
-    assert _ready(client, headers)["proposals"][0]["status"] == "pending"
+    assert ready_check_in(client, headers)["proposals"][0]["status"] == "pending"
 
 
 def test_a_training_proposal_is_refused_once_the_routine_changed(client: TestClient) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     edited = {
         "name": "Push",
         "exercises": [
@@ -1063,7 +919,7 @@ def test_a_training_proposal_is_refused_once_the_routine_changed(client: TestCli
     }
     client.put(f"/api/v1/workouts/routines/{routine['id']}", headers=headers, json=edited)
 
-    refused = _decide(client, headers, check_in, {"decision": "apply"})
+    refused = decide(client, headers, check_in, {"decision": "apply"})
 
     assert refused.status_code == 409
     assert "out of date" in refused.json()["detail"]
@@ -1072,21 +928,21 @@ def test_a_training_proposal_is_refused_once_the_routine_changed(client: TestCli
 
 def test_a_training_proposal_for_a_deleted_routine_is_refused(client: TestClient) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     client.delete(f"/api/v1/workouts/routines/{routine['id']}", headers=headers)
 
-    refused = _decide(client, headers, check_in, {"decision": "apply"})
+    refused = decide(client, headers, check_in, {"decision": "apply"})
 
     assert refused.status_code == 409
-    assert _decide(client, headers, check_in, {"decision": "reject"}).status_code == 200
+    assert decide(client, headers, check_in, {"decision": "reject"}).status_code == 200
 
 
 def test_rejecting_a_training_proposal_leaves_the_routine_alone(client: TestClient) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     before = _routine_sets(client, headers, routine["id"])
 
-    assert _decide(client, headers, check_in, {"decision": "reject"}).status_code == 200
+    assert decide(client, headers, check_in, {"decision": "reject"}).status_code == 200
     assert _routine_sets(client, headers, routine["id"]) == before
 
 
@@ -1127,7 +983,7 @@ def _training_change(change_id: str, routine_id: str, field: str, before: float,
 
 def test_set_and_rep_changes_build_on_each_other(client: TestClient) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     _rewrite_proposal_changes(
         client,
         check_in["proposals"][0]["id"],
@@ -1137,7 +993,7 @@ def test_set_and_rep_changes_build_on_each_other(client: TestClient) -> None:
         ],
     )
 
-    assert _decide(client, headers, check_in, {"decision": "apply"}).status_code == 200
+    assert decide(client, headers, check_in, {"decision": "apply"}).status_code == 200
     assert _routine_sets(client, headers, routine["id"]) == [
         {"kind": "warmup", "w": 40.0, "r": 10},
         *[{"kind": "working", "w": 100.0, "r": 6}] * 4,
@@ -1146,7 +1002,7 @@ def test_set_and_rep_changes_build_on_each_other(client: TestClient) -> None:
 
 def test_one_change_out_of_limits_means_none_are_applied(client: TestClient) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     before = _routine_sets(client, headers, routine["id"])
     _rewrite_proposal_changes(
         client,
@@ -1157,7 +1013,7 @@ def test_one_change_out_of_limits_means_none_are_applied(client: TestClient) -> 
         ],
     )
 
-    refused = _decide(client, headers, check_in, {"decision": "apply"})
+    refused = decide(client, headers, check_in, {"decision": "apply"})
 
     assert refused.status_code == 422
     assert "at most 3" in refused.json()["detail"]
@@ -1166,18 +1022,18 @@ def test_one_change_out_of_limits_means_none_are_applied(client: TestClient) -> 
 
 def test_a_change_without_a_routine_reference_is_refused(client: TestClient) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     broken = {**_training_change("training-1", routine["id"], "target_reps", 5, 6), "routine_id": None}
     _rewrite_proposal_changes(client, check_in["proposals"][0]["id"], [broken])
 
-    assert _decide(client, headers, check_in, {"decision": "apply"}).status_code == 422
+    assert decide(client, headers, check_in, {"decision": "apply"}).status_code == 422
 
 
 def test_a_routine_saved_again_after_the_check_in_is_out_of_date_even_with_the_same_top_weight(
     client: TestClient,
 ) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     # Still 100 kg at the top, but now 5 x 3: not the routine the proposal was made for.
     resaved = {
         "name": "Push",
@@ -1191,7 +1047,7 @@ def test_a_routine_saved_again_after_the_check_in_is_out_of_date_even_with_the_s
     }
     client.put(f"/api/v1/workouts/routines/{routine['id']}", headers=headers, json=resaved)
 
-    refused = _decide(client, headers, check_in, {"decision": "apply"})
+    refused = decide(client, headers, check_in, {"decision": "apply"})
 
     assert refused.status_code == 409
     assert [s["w"] for s in _routine_sets(client, headers, routine["id"])] == [100.0] * 5
@@ -1201,7 +1057,7 @@ def test_dropping_a_set_and_lowering_the_weight_together_check_against_the_origi
     client: TestClient,
 ) -> None:
     headers = _new_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
     _rewrite_proposal_changes(
         client,
         check_in["proposals"][0]["id"],
@@ -1211,7 +1067,7 @@ def test_dropping_a_set_and_lowering_the_weight_together_check_against_the_origi
         ],
     )
 
-    decided = _decide(client, headers, check_in, {"decision": "apply"})
+    decided = decide(client, headers, check_in, {"decision": "apply"})
 
     assert decided.status_code == 200, decided.text
     assert _routine_sets(client, headers, routine["id"]) == [
@@ -1228,9 +1084,9 @@ def _leave_running(
     async def never_runs(_: str) -> None:
         return None
 
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
     monkeypatch.setattr("app.coach.router.generate_check_in", never_runs)
-    check_in_id = str(_start(client, headers, key).json()["id"])
+    check_in_id = str(start_check_in(client, headers, key).json()["id"])
     monkeypatch.undo()
     return check_in_id
 
@@ -1300,15 +1156,11 @@ def test_startup_takes_over_only_runs_whose_owner_must_be_gone(
 def _start_and_reject(client: TestClient, headers: dict[str, str], key: str):
     """Start a check-in and reject what it proposes, so the next one may start."""
 
-    response = _start(client, headers, key)
+    response = start_check_in(client, headers, key)
     if response.status_code == 201:
-        check_in = _ready(client, headers)
+        check_in = ready_check_in(client, headers)
         for proposal in check_in["proposals"]:
-            client.post(
-                f"{CHECK_INS}/{check_in['id']}/proposals/{proposal['id']}/decision",
-                headers=headers,
-                json={"decision": "reject"},
-            )
+            decide(client, headers, check_in, {"decision": "reject"}, proposal["id"])
     return response
 
 
@@ -1316,34 +1168,34 @@ def test_check_ins_per_user_are_limited(client: TestClient) -> None:
     from app.shared.rate_limit import CHECK_INS_PER_USER
 
     headers = _new_user(client)
-    assert _start(client, headers, "too-early").status_code == 422  # not counted: no model call
-    _week_with_a_proposal(client, headers)
+    assert start_check_in(client, headers, "too-early").status_code == 422  # not counted: no model call
+    week_with_a_proposal(client, headers)
     for index in range(CHECK_INS_PER_USER.attempts):
         assert _start_and_reject(client, headers, f"k{index}").status_code == 201
-    assert _start(client, headers, "k0").status_code == 200, "a replay is a read, still allowed"
+    assert start_check_in(client, headers, "k0").status_code == 200, "a replay is a read, still allowed"
 
-    refused = _start(client, headers, "one-more")
+    refused = start_check_in(client, headers, "one-more")
 
     assert refused.status_code == 429
     assert refused.json()["detail"] == "That's a lot of check-ins for today. Try again in 24 hours."
     assert refused.headers["Retry-After"]
     other_user = _new_user(client)
-    _week_with_a_proposal(client, other_user)
-    assert _start(client, other_user, "k0").status_code == 201
+    week_with_a_proposal(client, other_user)
+    assert start_check_in(client, other_user, "k0").status_code == 201
 
 
 def test_a_failed_check_in_doesnt_use_one_up(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from app.shared.rate_limit import CHECK_INS_PER_USER, user_limiter
 
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def broken(*_: object) -> None:
         raise RuntimeError("model unavailable")
 
     monkeypatch.setattr("app.coach.agents.fake_model.FakeCoachModel.generate", broken)
     for index in range(CHECK_INS_PER_USER.attempts + 1):
-        assert _start(client, headers, f"fails-{index}").status_code == 201
+        assert start_check_in(client, headers, f"fails-{index}").status_code == 201
         assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"
 
     assert all(not hits for key, hits in user_limiter._hits.items() if key[0] == "check_in")  # noqa: SLF001
@@ -1355,14 +1207,14 @@ def test_a_check_in_that_couldnt_be_saved_doesnt_use_one_up(
     from app.shared.rate_limit import user_limiter
 
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
     async def broken(*_: object) -> None:
         raise RuntimeError("database went away")
 
     monkeypatch.setattr("app.coach.repository.CoachRepository.add_check_in", broken)
     with pytest.raises(RuntimeError):
-        _start(client, headers, "not-saved")
+        start_check_in(client, headers, "not-saved")
 
     assert all(not hits for key, hits in user_limiter._hits.items() if key[0] == "check_in")  # noqa: SLF001
 
@@ -1373,7 +1225,7 @@ def test_switched_off_check_ins_are_not_limited(client: TestClient) -> None:
     from app.shared.rate_limit import CHECK_INS_PER_USER, user_limiter
 
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
     settings = get_settings().model_copy(update={"rate_limits_enabled": False})
     app.dependency_overrides[get_settings] = lambda: settings
     try:
@@ -1385,16 +1237,14 @@ def test_switched_off_check_ins_are_not_limited(client: TestClient) -> None:
 
 
 def test_the_snapshot_records_the_users_training_experience(client: TestClient) -> None:
-    from tests.test_onboarding import GUIDE, ONBOARDING
-
     headers = _new_user(client)
     assert (
         client.post(ONBOARDING, headers=headers, json={**GUIDE, "experienceLevel": "advanced"}).status_code
         == 200
     )
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
 
-    check_in_id = _start(client, headers, "experience").json()["id"]
+    check_in_id = start_check_in(client, headers, "experience").json()["id"]
 
     assert _check_in_row(client, check_in_id).input_snapshot["experience_level"] == "advanced"  # type: ignore[attr-defined]
 
@@ -1402,10 +1252,10 @@ def test_the_snapshot_records_the_users_training_experience(client: TestClient) 
 def test_a_plan_made_mid_week_isnt_read_as_missed_sessions(client: TestClient) -> None:
     # The workout agent holds progress back when completion looks low.
     headers = _new_user(client)
-    _week_with_a_proposal(client, headers)
+    week_with_a_proposal(client, headers)
     plan_every_day(client, headers)  # made today, with nothing logged before it
 
-    check_in_id = _start(client, headers, "mid-week").json()["id"]
+    check_in_id = start_check_in(client, headers, "mid-week").json()["id"]
 
     snapshot = _check_in_row(client, check_in_id).input_snapshot  # type: ignore[attr-defined]
     assert (snapshot["workouts_planned"], snapshot["completion_percent"]) == (0, None)

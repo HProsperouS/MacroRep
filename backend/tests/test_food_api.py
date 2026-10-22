@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 import pytest
@@ -10,34 +10,10 @@ from sqlalchemy import delete, func, select
 from app.core.database import get_session_factory
 from app.food.catalog import SYSTEM_FOODS, ensure_system_foods
 from app.food.models import Food
-from tests.helpers import register_user
+from tests.helpers import CHICKEN, EGG, iso_days_ago, log_food, quick_add, register_user
+from tests.helpers import FOOD_ENTRIES as ENTRIES
 
-ENTRIES = "/api/v1/food-log/entries"
 TODAY = date.today().isoformat()
-
-# Seeded catalog foods (see app/demo_seed.py), nutrition per serving.
-EGG = "food-egg"  # 1 piece (50 g): 78 kcal, 6.3 P, 0.6 C, 5.3 F
-CHICKEN = "food-chicken-breast"  # 100 g: 165 kcal, 31 P, 0 C, 3.6 F
-
-
-def _log_food(client: TestClient, headers: dict[str, str], **fields: Any) -> dict[str, Any]:
-    response = client.post(ENTRIES, headers=headers, json={"date": TODAY, "meal": "lunch", **fields})
-    assert response.status_code == 201, response.text
-    return dict(response.json())
-
-
-def _quick_add(client: TestClient, headers: dict[str, str]) -> dict[str, Any]:
-    return _log_food(
-        client,
-        headers,
-        name="Hawker lunch",
-        amountLabel="Quick add",
-        source="quick-add",
-        calories=650,
-        protein=30,
-        carbs=80,
-        fat=20,
-    )
 
 
 def _nutrition(entry: dict[str, Any]) -> tuple[Any, ...]:
@@ -223,7 +199,7 @@ def test_custom_foods_per_user_are_capped(
 
 
 def test_logging_a_saved_food_derives_everything_from_the_food(client: TestClient) -> None:
-    entry = _log_food(client, register_user(client), foodId=EGG, quantity=2, quantityUnit="serving")
+    entry = log_food(client, register_user(client), foodId=EGG, quantity=2, quantityUnit="serving")
     assert entry["name"] == "Egg, whole"
     assert entry["amountLabel"] == "2 piece · 100 g"
     assert entry["source"] == "database"
@@ -233,7 +209,7 @@ def test_logging_a_saved_food_derives_everything_from_the_food(client: TestClien
 
 def test_logging_by_grams_converts_through_the_serving_weight(client: TestClient) -> None:
     # 50 g of a 100 g serving = 0.5 servings; 82.5 kcal rounds half up to 83, like the preview.
-    entry = _log_food(client, register_user(client), foodId=CHICKEN, quantity=50, quantityUnit="g")
+    entry = log_food(client, register_user(client), foodId=CHICKEN, quantity=50, quantityUnit="g")
     assert entry["amountLabel"] == "50 g"
     assert _nutrition(entry) == (83, 15.5, 0.0, 1.8)
 
@@ -299,7 +275,7 @@ def test_another_users_custom_food_is_not_visible(client: TestClient) -> None:
 
 def test_changing_the_quantity_rescales_the_entry(client: TestClient) -> None:
     headers = register_user(client)
-    entry = _log_food(client, headers, foodId=EGG, quantity=2, quantityUnit="serving")
+    entry = log_food(client, headers, foodId=EGG, quantity=2, quantityUnit="serving")
 
     three = client.patch(f"{ENTRIES}/{entry['id']}", headers=headers, json={"quantity": 3})
     assert three.status_code == 200
@@ -317,8 +293,8 @@ def test_changing_the_quantity_rescales_the_entry(client: TestClient) -> None:
 
 def test_an_entry_can_move_meal_and_day(client: TestClient) -> None:
     headers = register_user(client)
-    entry = _log_food(client, headers, foodId=EGG, quantity=1)
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    entry = log_food(client, headers, foodId=EGG, quantity=1)
+    yesterday = iso_days_ago(1)
 
     moved = client.patch(
         f"{ENTRIES}/{entry['id']}", headers=headers, json={"meal": "dinner", "date": yesterday}
@@ -336,7 +312,7 @@ def test_an_entry_can_move_meal_and_day(client: TestClient) -> None:
 
 def test_a_quick_add_is_edited_value_by_value(client: TestClient) -> None:
     headers = register_user(client)
-    entry = _quick_add(client, headers)
+    entry = quick_add(client, headers)
 
     edited = client.patch(
         f"{ENTRIES}/{entry['id']}", headers=headers, json={"name": "Chicken rice", "calories": 700}
@@ -352,14 +328,14 @@ def test_a_quick_add_is_edited_value_by_value(client: TestClient) -> None:
 
 def test_a_saved_foods_nutrition_cant_be_overwritten_directly(client: TestClient) -> None:
     headers = register_user(client)
-    entry = _log_food(client, headers, foodId=EGG, quantity=1)
+    entry = log_food(client, headers, foodId=EGG, quantity=1)
     response = client.patch(f"{ENTRIES}/{entry['id']}", headers=headers, json={"calories": 10})
     assert response.status_code == 422
 
 
 def test_another_users_entry_cannot_be_edited(client: TestClient) -> None:
     owner = register_user(client)
-    entry = _quick_add(client, owner)
+    entry = quick_add(client, owner)
     intruder = register_user(client)
     response = client.patch(f"{ENTRIES}/{entry['id']}", headers=intruder, json={"calories": 1})
     assert response.status_code == 404

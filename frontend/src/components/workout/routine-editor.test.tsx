@@ -6,7 +6,7 @@ import { RoutineEditor } from "@/components/workout/routine-editor"
 import { plannedExercise, routine } from "@/test/routines"
 import type { Routine } from "@/types/workout"
 
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
+vi.mock("@/hooks/use-media-query")
 // The exercise picker talks to the API; these tests don't open it.
 vi.mock("@/components/workout/exercise-picker", () => ({ ExercisePicker: () => null }))
 

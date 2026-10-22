@@ -1,17 +1,16 @@
 import { act, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { beginWorkout, clearActiveWorkout, getActiveWorkout } from "@/lib/active-workout-store"
 import WorkoutPage from "@/pages/workout-page"
-import { renderWithQuery } from "@/test/render"
+import { renderPage } from "@/test/render"
 import type { PlannedWorkout } from "@/types/workout"
 
 const api = vi.hoisted(() => ({ getToday: vi.fn(), finishSession: vi.fn() }))
 vi.mock("@/api/workout-api", () => ({ workoutApi: api }))
 // Desktop layout: the mobile drawer needs browser layout APIs jsdom lacks.
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
+vi.mock("@/hooks/use-media-query")
 
 const plan: PlannedWorkout = {
   id: "plan-1",
@@ -29,14 +28,6 @@ const plan: PlannedWorkout = {
   ],
 }
 
-function renderPage() {
-  return renderWithQuery(
-    <MemoryRouter>
-      <WorkoutPage />
-    </MemoryRouter>,
-  )
-}
-
 beforeEach(() => {
   clearActiveWorkout()
   api.getToday.mockResolvedValue(plan)
@@ -47,7 +38,7 @@ describe("WorkoutPage pausing", () => {
   it("pauses to a stopped screen and resumes to the same sets", async () => {
     const user = userEvent.setup()
     act(() => beginWorkout(plan))
-    renderPage()
+    renderPage(<WorkoutPage />)
 
     await user.click(screen.getByRole("button", { name: "Complete Bench Press set 1" }))
     await user.click(screen.getByRole("button", { name: "Pause" }))
@@ -69,7 +60,7 @@ describe("WorkoutPage pausing", () => {
     vi.setSystemTime(new Date("2026-10-19T10:00:00Z"))
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) })
     act(() => beginWorkout(plan))
-    renderPage()
+    renderPage(<WorkoutPage />)
 
     await user.click(screen.getByRole("button", { name: "Complete Bench Press set 1" }))
     vi.setSystemTime(new Date("2026-10-19T10:10:00Z"))
@@ -91,11 +82,11 @@ describe("WorkoutPage pausing", () => {
   it("keeps a paused workout paused after a reload", async () => {
     act(() => beginWorkout(plan))
     const user = userEvent.setup()
-    const view = renderPage()
+    const view = renderPage(<WorkoutPage />)
     await user.click(screen.getByRole("button", { name: "Pause" }))
     view.unmount()
 
-    renderPage()
+    renderPage(<WorkoutPage />)
     expect(screen.getByText("Workout paused")).toBeInTheDocument()
   })
 })

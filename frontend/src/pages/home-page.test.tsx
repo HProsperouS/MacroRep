@@ -1,6 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter } from "react-router-dom"
 import { toast } from "sonner"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -8,7 +7,7 @@ import { nutritionProposal } from "@/components/coach/proposal-fixtures"
 import { clearActiveWorkout, getActiveWorkout } from "@/lib/active-workout-store"
 import HomePage from "@/pages/home-page"
 import { progressResponse } from "@/test/progress"
-import { renderWithQuery } from "@/test/render"
+import { renderPage } from "@/test/render"
 import { plannedExercise, routine } from "@/test/routines"
 import type { FoodEntry } from "@/types/food"
 
@@ -20,20 +19,12 @@ vi.mock("@/api/food-api", () => ({ foodApi }))
 vi.mock("@/api/progress-api", () => ({ progressApi }))
 vi.mock("@/api/workout-api", () => ({ workoutApi }))
 vi.mock("@/api/coach-api", () => ({ coachApi }))
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
+vi.mock("@/hooks/use-media-query")
 
 const lunch: FoodEntry = { id: "e1", meal: "lunch", name: "Chicken rice", amountLabel: "1 plate", source: "quick-add", calories: 600, protein: 25, carbs: 80, fat: 20 }
 
 const plan = {
   ...routine("r-push", "Push day", [], ["bench", "ohp", "dips", "flies"].map((id) => plannedExercise(id, id.toUpperCase()))),
-}
-
-function renderPage() {
-  return renderWithQuery(
-    <MemoryRouter>
-      <HomePage />
-    </MemoryRouter>,
-  )
 }
 
 beforeEach(() => {
@@ -63,7 +54,7 @@ afterEach(() => {
 
 describe("HomePage", () => {
   it("summarises today's nutrition, weight trend and planned workout", async () => {
-    renderPage()
+    renderPage(<HomePage />)
 
     expect(await screen.findByText("1,600")).toBeInTheDocument()
     expect(screen.getByText("kcal left")).toBeInTheDocument()
@@ -83,7 +74,7 @@ describe("HomePage", () => {
       ...response,
       weight: { ...response.weight, points: response.weight.points.map((point) => ({ ...point, scaleKg: null, trendKg: null })), currentTrendKg: null, ratePerWeekKg: null },
     })
-    renderPage()
+    renderPage(<HomePage />)
 
     const card = (await screen.findByText("Trend weight")).closest("[data-slot=card]") as HTMLElement
     expect(await within(card).findByText("—")).toBeInTheDocument()
@@ -92,7 +83,7 @@ describe("HomePage", () => {
   })
 
   it("nudges for a missed meal and a missing weigh-in", async () => {
-    renderPage()
+    renderPage(<HomePage />)
 
     expect(await screen.findByText("Breakfast not logged")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Log Breakfast" })).toHaveAttribute("href", "/food")
@@ -102,7 +93,7 @@ describe("HomePage", () => {
   it("adds today's weigh-in from the nudge", async () => {
     progressApi.addWeighIn.mockResolvedValue({ date: "2026-10-20", scaleKg: 79.8, trendKg: 80.3 })
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) })
-    renderPage()
+    renderPage(<HomePage />)
 
     await user.click(await screen.findByRole("button", { name: "Add today’s weigh-in" }))
     const dialog = await screen.findByRole("dialog", { name: "Add weigh-in" })
@@ -117,7 +108,7 @@ describe("HomePage", () => {
 
   it("rejects an implausible weight", async () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) })
-    renderPage()
+    renderPage(<HomePage />)
 
     await user.click(await screen.findByRole("button", { name: "Add today’s weigh-in" }))
     const dialog = await screen.findByRole("dialog", { name: "Add weigh-in" })
@@ -130,7 +121,7 @@ describe("HomePage", () => {
 
   it("shows a waiting check-in until it's put off", async () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) })
-    renderPage()
+    renderPage(<HomePage />)
 
     expect(await screen.findByText(/has 1 proposed change\./)).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Review changes" })).toHaveAttribute("href", "/coach")
@@ -140,7 +131,7 @@ describe("HomePage", () => {
 
   it("starts today's planned workout", async () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) })
-    renderPage()
+    renderPage(<HomePage />)
 
     await screen.findByText("Push day")
     await user.click(screen.getAllByRole("button", { name: "Start workout" })[0])
@@ -149,7 +140,7 @@ describe("HomePage", () => {
 
   it("says when it's a rest day", async () => {
     workoutApi.getToday.mockResolvedValue(null)
-    renderPage()
+    renderPage(<HomePage />)
     expect(await screen.findByText("Rest day — no session planned.")).toBeInTheDocument()
   })
 
@@ -158,7 +149,7 @@ describe("HomePage", () => {
     progressApi.getProgress.mockRejectedValue(new Error("down"))
     progressApi.getDailyCalories.mockRejectedValue(new Error("down"))
     workoutApi.getToday.mockRejectedValue(new Error("down"))
-    renderPage()
+    renderPage(<HomePage />)
 
     expect(await screen.findByText("Couldn’t load today’s nutrition")).toBeInTheDocument()
     expect(await screen.findByText("Couldn’t load your weight trend")).toBeInTheDocument()

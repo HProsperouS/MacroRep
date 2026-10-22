@@ -15,6 +15,7 @@ from app.coach.agents.openai_model import _user_content
 from app.coach.agents.schemas import PhotoEstimate
 from app.food.photo import MAX_PHOTO_BYTES
 from app.shared.rate_limit import PHOTOS_PER_USER
+from tests.fakes import ScriptedModel, use_model
 from tests.helpers import register_user
 
 PHOTOS = "/api/v1/food/photo-estimates"
@@ -25,24 +26,6 @@ WEBP = b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 200
 
 def data_url(kind: str, data: bytes) -> str:
     return f"data:image/{kind};base64,{base64.b64encode(data).decode()}"
-
-
-class RecordingModel:
-    name = "recording"
-
-    def __init__(self, answer: dict[str, Any] | Exception) -> None:
-        self.answer = answer
-        self.tasks: list[AgentTask[Any]] = []
-
-    async def generate(self, task: AgentTask[Any]) -> ModelReply:
-        self.tasks.append(task)
-        if isinstance(self.answer, Exception):
-            raise self.answer
-        return ModelReply(self.answer)
-
-
-def _use(monkeypatch: pytest.MonkeyPatch, model: Any) -> None:
-    monkeypatch.setattr("app.food.router.get_coach_model", lambda: model)
 
 
 @pytest.mark.parametrize(("kind", "data"), [("jpeg", JPEG), ("png", PNG), ("webp", WEBP)])
@@ -93,8 +76,8 @@ def test_only_reasonable_images_are_accepted(client: TestClient, image: str, rea
 def test_the_model_sees_the_photo_and_nothing_about_the_user(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    model = RecordingModel({"items": [], "note": "No food here."})
-    _use(monkeypatch, model)
+    model = ScriptedModel(food_photo={"items": [], "note": "No food here."})
+    use_model(monkeypatch, model)
     headers = register_user(client)
     image = data_url("jpeg", JPEG)
 
@@ -117,7 +100,7 @@ def test_calories_far_below_the_macros_are_raised_to_match(
         "carbs": 0,
         "fat": 30,
     }
-    _use(monkeypatch, RecordingModel({"items": [item]}))
+    use_model(monkeypatch, ScriptedModel(food_photo={"items": [item]}))
     headers = register_user(client)
 
     [estimated] = client.post(PHOTOS, headers=headers, json={"image": data_url("jpeg", JPEG)}).json()["items"]
@@ -126,8 +109,8 @@ def test_calories_far_below_the_macros_are_raised_to_match(
 
 
 def test_an_unreadable_photo_says_try_again(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    model = RecordingModel(ModelUnavailableError("down"))
-    _use(monkeypatch, model)
+    model = ScriptedModel(food_photo=ModelUnavailableError("down"))
+    use_model(monkeypatch, model)
     headers = register_user(client)
 
     response = client.post(PHOTOS, headers=headers, json={"image": data_url("jpeg", JPEG)})
@@ -235,7 +218,7 @@ def test_raised_calories_stay_within_the_limit(client: TestClient, monkeypatch: 
         "carbs": 500,
         "fat": 300,
     }
-    _use(monkeypatch, RecordingModel({"items": [item]}))
+    use_model(monkeypatch, ScriptedModel(food_photo={"items": [item]}))
     headers = register_user(client)
 
     [estimated] = client.post(PHOTOS, headers=headers, json={"image": data_url("jpeg", JPEG)}).json()["items"]
@@ -246,7 +229,7 @@ def test_raised_calories_stay_within_the_limit(client: TestClient, monkeypatch: 
 def test_a_failed_estimate_doesnt_use_up_a_photo(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from app.shared.rate_limit import user_limiter
 
-    _use(monkeypatch, RecordingModel(ModelUnavailableError("down")))
+    use_model(monkeypatch, ScriptedModel(food_photo=ModelUnavailableError("down")))
     headers = register_user(client)
     assert client.post(PHOTOS, headers=headers, json={"image": data_url("jpeg", JPEG)}).status_code == 503
 
@@ -269,7 +252,7 @@ def test_no_retry_once_half_the_time_is_gone(client: TestClient, monkeypatch: py
 
     monkeypatch.setattr(vision, "PHOTO_TIMEOUT_SECONDS", 0.1)
     model = SlowThenDown()
-    _use(monkeypatch, model)
+    use_model(monkeypatch, model)
     headers = register_user(client)
 
     assert client.post(PHOTOS, headers=headers, json={"image": data_url("jpeg", JPEG)}).status_code == 503

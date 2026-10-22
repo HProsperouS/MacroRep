@@ -13,7 +13,7 @@ const api = vi.hoisted(() => ({
 }))
 vi.mock("@/api/workout-api", () => ({ workoutApi: api }))
 // A real dialog rather than the mobile drawer, which needs browser layout APIs jsdom lacks.
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
+vi.mock("@/hooks/use-media-query")
 
 const workout: WorkoutHistoryItem = {
   id: "w1",

@@ -1,12 +1,12 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter, useLocation } from "react-router-dom"
+import { useLocation } from "react-router-dom"
 import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import ProgressPage from "@/pages/progress-page"
 import { progressResponse } from "@/test/progress"
-import { renderWithQuery } from "@/test/render"
+import { renderPage } from "@/test/render"
 import type { WeighIn } from "@/types/progress"
 
 const api = vi.hoisted(() => ({
@@ -17,7 +17,7 @@ const api = vi.hoisted(() => ({
   deleteWeighIn: vi.fn(),
 }))
 vi.mock("@/api/progress-api", () => ({ progressApi: api }))
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
+vi.mock("@/hooks/use-media-query")
 
 const weighIns: WeighIn[] = [
   { id: "w2", date: "2026-10-19", weightKg: 80, trendKg: 80.5 },
@@ -28,14 +28,13 @@ function Search() {
   return <output aria-label="search">{useLocation().search}</output>
 }
 
-function renderPage(url = "/progress") {
-  return renderWithQuery(
-    <MemoryRouter initialEntries={[url]}>
-      <ProgressPage />
-      <Search />
-    </MemoryRouter>,
-  )
-}
+/** The page, and the URL's query string for checking where the range is kept. */
+const page = (
+  <>
+    <ProgressPage />
+    <Search />
+  </>
+)
 
 beforeEach(() => {
   api.getProgress.mockImplementation((range: string) => Promise.resolve(progressResponse({ range: range as never })))
@@ -44,7 +43,7 @@ beforeEach(() => {
 
 describe("ProgressPage", () => {
   it("shows the period's stats, lifts and check-ins", async () => {
-    renderPage()
+    renderPage(page, "/progress")
 
     expect(await screen.findByText("21 September – 20 October")).toBeInTheDocument()
     expect(screen.getByText("−1.2 kg this period")).toBeInTheDocument()
@@ -75,7 +74,7 @@ describe("ProgressPage", () => {
       }),
     )
     api.listWeighIns.mockResolvedValue([])
-    renderPage()
+    renderPage(page, "/progress")
 
     // The chart's and the list's.
     await waitFor(() => expect(screen.getAllByText("No weigh-ins in this period.")).toHaveLength(2))
@@ -99,14 +98,14 @@ describe("ProgressPage", () => {
     api.getProgress.mockResolvedValue(
       progressResponse({ weight: { ...progressResponse().weight, ratePerWeekKg, goalRatePerWeekKg: 0 } }),
     )
-    renderPage()
+    renderPage(page, "/progress")
 
     expect(await screen.findByText("Goal: hold steady")).toHaveClass(className)
   })
 
   it("keeps the chosen range in the URL", async () => {
     const user = userEvent.setup()
-    renderPage("/progress?range=3M")
+    renderPage(page, "/progress?range=3M")
 
     await screen.findByText("21 September – 20 October")
     expect(api.getProgress).toHaveBeenLastCalledWith("3M", expect.anything())
@@ -122,7 +121,7 @@ describe("ProgressPage", () => {
 
   it("lists only the latest 12 months of weigh-ins for a longer range", async () => {
     api.getProgress.mockResolvedValue(progressResponse({ range: "All", from: "2024-01-01", to: "2026-10-20" }))
-    renderPage("/progress?range=All")
+    renderPage(page, "/progress?range=All")
 
     expect(await screen.findByText("Latest 12 months")).toBeInTheDocument()
     expect(api.listWeighIns).toHaveBeenCalledWith("2025-10-20", "2026-10-20", expect.anything())
@@ -131,7 +130,7 @@ describe("ProgressPage", () => {
   it("offers a retry when progress can't be loaded", async () => {
     api.getProgress.mockRejectedValueOnce(new Error("down"))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(page, "/progress")
 
     expect(await screen.findByText("Couldn’t load your progress")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Retry" }))
@@ -143,7 +142,7 @@ describe("Weigh-ins", () => {
   it("adds a weigh-in for a missed day", async () => {
     api.addWeighIn.mockResolvedValue({ date: "2026-10-15", scaleKg: 80.9, trendKg: 80.7 })
     const user = userEvent.setup()
-    renderPage()
+    renderPage(page, "/progress")
 
     await user.click(await screen.findByRole("button", { name: "Add weigh-in" }))
     const dialog = await screen.findByRole("dialog", { name: "Add weigh-in" })
@@ -161,7 +160,7 @@ describe("Weigh-ins", () => {
 
   it("refuses a day in the future", async () => {
     const user = userEvent.setup()
-    renderPage()
+    renderPage(page, "/progress")
 
     await user.click(await screen.findByRole("button", { name: "Add weigh-in" }))
     const dialog = await screen.findByRole("dialog", { name: "Add weigh-in" })
@@ -177,7 +176,7 @@ describe("Weigh-ins", () => {
   it("edits a weigh-in, sending only what changed", async () => {
     api.updateWeighIn.mockResolvedValue({ ...weighIns[0], weightKg: 79.6 })
     const user = userEvent.setup()
-    renderPage()
+    renderPage(page, "/progress")
 
     await user.click(await screen.findByRole("button", { name: "Edit weigh-in on Mon 19 Oct 2026" }))
     const dialog = await screen.findByRole("dialog", { name: "Edit weigh-in" })
@@ -191,7 +190,7 @@ describe("Weigh-ins", () => {
 
   it("closes an unchanged edit without a request", async () => {
     const user = userEvent.setup()
-    renderPage()
+    renderPage(page, "/progress")
 
     await user.click(await screen.findByRole("button", { name: "Edit weigh-in on Mon 19 Oct 2026" }))
     const dialog = await screen.findByRole("dialog", { name: "Edit weigh-in" })
@@ -204,7 +203,7 @@ describe("Weigh-ins", () => {
   it("reports a clash when moving onto a day that has a weigh-in", async () => {
     api.updateWeighIn.mockRejectedValue(new Error("conflict"))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(page, "/progress")
 
     await user.click(await screen.findByRole("button", { name: "Edit weigh-in on Mon 19 Oct 2026" }))
     const dialog = await screen.findByRole("dialog", { name: "Edit weigh-in" })
@@ -221,7 +220,7 @@ describe("Weigh-ins", () => {
     api.deleteWeighIn.mockResolvedValue(undefined)
     api.addWeighIn.mockResolvedValue({ date: "2026-10-18", scaleKg: 80.4, trendKg: 80.6 })
     const user = userEvent.setup()
-    renderPage()
+    renderPage(page, "/progress")
 
     await user.click(await screen.findByRole("button", { name: "Delete weigh-in on Sun 18 Oct 2026" }))
 
@@ -234,7 +233,7 @@ describe("Weigh-ins", () => {
 
   it("offers a retry when weigh-ins can't be loaded", async () => {
     api.listWeighIns.mockRejectedValue(new Error("down"))
-    renderPage()
+    renderPage(page, "/progress")
     expect(await screen.findByText("Couldn’t load your weigh-ins")).toBeInTheDocument()
   })
 })

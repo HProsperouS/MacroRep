@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
 from typing import Any, get_args
 
 import pytest
@@ -13,28 +12,10 @@ from app.coach.agents import graph as graph_module
 from app.coach.agents.fake_model import _FAKE_ANSWERS, FakeCoachModel, _fake_review
 from app.coach.agents.graph import nutrition_context, run_agents, workout_context
 from app.coach.agents.metrics import RunMetrics
-from app.coach.agents.model import AgentName, AgentTask, ModelReply, ModelUnavailableError
+from app.coach.agents.model import AgentName, AgentTask, ModelUnavailableError
 from app.coach.agents.schemas import ExerciseAdjustment, NutritionAdvice, WorkoutAdvice
 from app.coach.agents.validate import resolve_conflicts, validate_nutrition, validate_workout
-
-Answer = Mapping[str, Any] | str | Callable[[AgentTask[Any]], Any]
-
-
-class ScriptedModel:
-    """Answers each agent from a script (one entry per call, the last repeating); records what it saw."""
-
-    name = "scripted"
-
-    def __init__(self, **script: list[Answer]) -> None:
-        self.script = script
-        self.calls: dict[str, list[Mapping[str, Any]]] = {"nutrition": [], "workout": [], "reviewer": []}
-
-    async def generate(self, task: AgentTask[Any]) -> ModelReply:
-        calls = self.calls[task.agent]
-        calls.append(task.context)
-        answers = self.script[task.agent]
-        answer = answers[min(len(calls), len(answers)) - 1]
-        return ModelReply(answer(task) if callable(answer) else answer)
+from tests.fakes import ScriptedModel
 
 
 def snapshot(**overrides: Any) -> dict[str, Any]:

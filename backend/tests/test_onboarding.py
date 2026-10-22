@@ -8,25 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import register_user
-
-ONBOARDING = "/api/v1/profile/onboarding"
-GUIDE: dict[str, Any] = {
-    "name": "Sam Lee",
-    "heightCm": 168,
-    "goal": "lose",
-    "weeklyRateKg": -0.5,
-    "experienceLevel": "intermediate",
-    "dateOfBirth": "1995-04-20",
-    "sex": "female",
-    "activityLevel": "moderate",
-    "weightKg": 72.4,
-    "targets": {"calories": 1900, "protein": 140, "carbs": 190, "fat": 63},
-}
-
-
-def _history(client: TestClient, headers: dict[str, str]) -> list[dict[str, Any]]:
-    return list(client.get("/api/v1/nutrition/targets/history", headers=headers).json())
+from tests.helpers import GUIDE, ONBOARDING, register_user, target_history
 
 
 def _weigh_ins(client: TestClient, headers: dict[str, str]) -> list[dict[str, Any]]:
@@ -63,7 +45,7 @@ def test_the_guide_saves_the_profile_todays_weight_and_the_starting_targets(clie
     [weigh_in] = _weigh_ins(client, headers)
     assert weigh_in["weightKg"] == 72.4
     assert client.get("/api/v1/nutrition/targets", headers=headers).json() == GUIDE["targets"]
-    [version] = _history(client, headers)
+    [version] = target_history(client, headers)
     assert (version["version"], version["source"], version["calories"]) == (1, "initial", 1900), (
         "the chosen targets replace the defaults rather than following them"
     )
@@ -80,7 +62,7 @@ def test_the_guide_is_finished_only_once(client: TestClient) -> None:
     assert "Profile page" in again.json()["detail"]
     assert client.get("/api/v1/profile", headers=headers).json()["name"] == "Sam Lee"
     assert [row["weightKg"] for row in _weigh_ins(client, headers)] == [72.4]
-    assert len(_history(client, headers)) == 1
+    assert len(target_history(client, headers)) == 1
 
 
 def test_an_invalid_guide_saves_nothing(client: TestClient) -> None:
@@ -103,7 +85,7 @@ def test_keeping_the_default_targets_changes_nothing(client: TestClient) -> None
 
     assert client.post(ONBOARDING, headers=headers, json={**GUIDE, "targets": defaults}).status_code == 200
 
-    [version] = _history(client, headers)
+    [version] = target_history(client, headers)
     assert (version["source"], version["calories"]) == ("initial", defaults["calories"])
 
 
@@ -114,7 +96,7 @@ def test_targets_changed_before_the_guide_are_kept_in_the_history(client: TestCl
 
     assert client.post(ONBOARDING, headers=headers, json=GUIDE).status_code == 200
 
-    assert [(row["source"], row["calories"]) for row in _history(client, headers)] == [
+    assert [(row["source"], row["calories"]) for row in target_history(client, headers)] == [
         ("manual", 1900),
         ("manual", 2000),
         ("initial", 2200),
@@ -150,7 +132,7 @@ def test_targets_chosen_days_after_sign_up_still_cover_the_days_before(client: T
     from app.profile.models import NutritionTarget
 
     headers = register_user(client)
-    _history(client, headers)  # the profile and its starting targets now exist
+    target_history(client, headers)  # the profile and its starting targets now exist
     user_id = client.get("/api/v1/users/me", headers=headers).json()["id"]
     signed_up = date.today() - timedelta(days=3)
 
@@ -168,5 +150,5 @@ def test_targets_chosen_days_after_sign_up_still_cover_the_days_before(client: T
 
     assert client.post(ONBOARDING, headers=headers, json=GUIDE).status_code == 200
 
-    [version] = _history(client, headers)
+    [version] = target_history(client, headers)
     assert (version["effectiveDate"], version["calories"]) == (signed_up.isoformat(), 1900)

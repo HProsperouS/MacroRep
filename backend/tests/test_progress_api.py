@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from fastapi.testclient import TestClient
 
 from app.analytics.training import week_start
-from tests.helpers import plan_every_day
+from tests.helpers import log_meal, plan_every_day, weigh_in
 from tests.helpers import register_user as _new_user
 
 
@@ -154,34 +154,15 @@ def _set_calorie_target(client: TestClient, headers: dict[str, str], calories: i
     assert response.status_code == 200
 
 
-def _log_calories(client: TestClient, headers: dict[str, str], days_ago: int, calories: int) -> None:
-    response = client.post(
-        "/api/v1/food-log/entries",
-        headers=headers,
-        json={
-            "date": (date.today() - timedelta(days=days_ago)).isoformat(),
-            "meal": "lunch",
-            "name": "Test meal",
-            "amountLabel": "1 plate",
-            "source": "quick-add",
-            "calories": calories,
-            "protein": 0,
-            "carbs": 0,
-            "fat": 0,
-        },
-    )
-    assert response.status_code == 201
-
-
 def _log_mixed_week(client: TestClient) -> dict[str, str]:
     """A 2000 kcal target with one complete, one under-target, and one partial day, plus a snack today."""
 
     headers = _new_user(client)
     _set_calorie_target(client, headers, 2000)
-    _log_calories(client, headers, days_ago=1, calories=2000)  # complete, on target
-    _log_calories(client, headers, days_ago=2, calories=1500)  # complete, 500 under
-    _log_calories(client, headers, days_ago=3, calories=600)  # partial: under half the target
-    _log_calories(client, headers, days_ago=0, calories=300)  # today: in progress, not judged
+    log_meal(client, headers, days_ago=1, calories=2000)  # complete, on target
+    log_meal(client, headers, days_ago=2, calories=1500)  # complete, 500 under
+    log_meal(client, headers, days_ago=3, calories=600)  # partial: under half the target
+    log_meal(client, headers, days_ago=0, calories=300)  # today: in progress, not judged
     return headers
 
 
@@ -215,17 +196,9 @@ def test_daily_calories_label_each_day_and_total_the_gap(client: TestClient) -> 
     assert body["days"][-1]["calories"] == 300
 
 
-def _weigh_in(client: TestClient, headers: dict[str, str], days_ago: int, weight_kg: float) -> None:
-    day = (date.today() - timedelta(days=days_ago)).isoformat()
-    response = client.post(
-        "/api/v1/body/weigh-ins", headers=headers, json={"date": day, "weightKg": weight_kg}
-    )
-    assert response.status_code == 201
-
-
 def test_days_before_the_first_weigh_in_have_no_trend(client: TestClient) -> None:
     headers = _new_user(client)
-    _weigh_in(client, headers, days_ago=0, weight_kg=200)
+    weigh_in(client, headers, days_ago=0, weight_kg=200)
 
     weight = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["weight"]
 
@@ -238,8 +211,8 @@ def test_days_before_the_first_weigh_in_have_no_trend(client: TestClient) -> Non
 
 def test_the_rate_is_measured_from_the_first_weigh_in_not_the_start_of_the_range(client: TestClient) -> None:
     headers = _new_user(client)
-    _weigh_in(client, headers, days_ago=6, weight_kg=80)
-    _weigh_in(client, headers, days_ago=0, weight_kg=78)
+    weigh_in(client, headers, days_ago=6, weight_kg=80)
+    weigh_in(client, headers, days_ago=0, weight_kg=78)
 
     weight = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["weight"]
 
@@ -250,8 +223,8 @@ def test_the_rate_is_measured_from_the_first_weigh_in_not_the_start_of_the_range
 
 def test_no_weekly_rate_from_weigh_ins_only_days_apart(client: TestClient) -> None:
     headers = _new_user(client)
-    _weigh_in(client, headers, days_ago=3, weight_kg=80)
-    _weigh_in(client, headers, days_ago=0, weight_kg=79)
+    weigh_in(client, headers, days_ago=3, weight_kg=80)
+    weigh_in(client, headers, days_ago=0, weight_kg=79)
 
     weight = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["weight"]
 
@@ -271,7 +244,7 @@ def test_no_weigh_ins_means_no_trend_at_all(client: TestClient) -> None:
 
 def test_a_new_account_has_missed_nothing_yet(client: TestClient) -> None:
     headers = _new_user(client)
-    _log_calories(client, headers, days_ago=0, calories=756)  # today: still being logged
+    log_meal(client, headers, days_ago=0, calories=756)  # today: still being logged
 
     body = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()
 
@@ -281,8 +254,8 @@ def test_a_new_account_has_missed_nothing_yet(client: TestClient) -> None:
 
 def test_the_trend_carries_in_from_weigh_ins_before_the_range(client: TestClient) -> None:
     headers = _new_user(client)
-    _weigh_in(client, headers, days_ago=60, weight_kg=80)
-    _weigh_in(client, headers, days_ago=3, weight_kg=79)
+    weigh_in(client, headers, days_ago=60, weight_kg=80)
+    weigh_in(client, headers, days_ago=3, weight_kg=79)
 
     weight = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()["weight"]
 

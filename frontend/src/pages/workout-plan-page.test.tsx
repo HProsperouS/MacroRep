@@ -1,10 +1,9 @@
 import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import WorkoutPlanPage from "@/pages/workout-plan-page"
-import { renderWithQuery } from "@/test/render"
+import { renderPage } from "@/test/render"
 import { routine } from "@/test/routines"
 import type { Routine, WeekPlanDay } from "@/types/workout"
 
@@ -19,21 +18,13 @@ const api = vi.hoisted(() => ({
   searchExercises: vi.fn().mockResolvedValue([]),
 }))
 vi.mock("@/api/workout-api", () => ({ workoutApi: api }))
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
+vi.mock("@/hooks/use-media-query")
 
 const push = routine("r-push", "Push", [0, 4])
 const pull = routine("r-pull", "Pull", [2])
 
 function weekFor(routines: Routine[]): WeekPlanDay[] {
   return Array.from({ length: 7 }, (_, dayOfWeek) => ({ dayOfWeek, plan: routines.find((r) => r.scheduledDays.includes(dayOfWeek)) ?? null }))
-}
-
-function renderPage() {
-  return renderWithQuery(
-    <MemoryRouter>
-      <WorkoutPlanPage />
-    </MemoryRouter>,
-  )
 }
 
 beforeEach(() => {
@@ -45,13 +36,13 @@ beforeEach(() => {
 
 describe("WorkoutPlanPage", () => {
   it("lists routines with the days they're scheduled on", async () => {
-    renderPage()
+    renderPage(<WorkoutPlanPage />)
     expect(await screen.findByText("1 exercise · Mon, Fri")).toBeInTheDocument()
     expect(screen.getByText("1 exercise · Wed")).toBeInTheDocument()
   })
 
   it("shows each weekday's routine, or a rest day", async () => {
-    renderPage()
+    renderPage(<WorkoutPlanPage />)
     expect(await screen.findByLabelText("Monday")).toHaveValue("r-push")
     expect(screen.getByLabelText("Tuesday")).toHaveValue("")
     expect(screen.getByLabelText("Wednesday")).toHaveValue("r-pull")
@@ -60,14 +51,14 @@ describe("WorkoutPlanPage", () => {
 
   it("schedules the same routine on another day", async () => {
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<WorkoutPlanPage />)
     await user.selectOptions(await screen.findByLabelText("Tuesday"), "r-push")
     await waitFor(() => expect(api.assignDay).toHaveBeenCalledWith(1, "r-push"))
   })
 
   it("turns a day back into a rest day without deleting the routine", async () => {
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<WorkoutPlanPage />)
     await user.selectOptions(await screen.findByLabelText("Wednesday"), "")
     await waitFor(() => expect(api.deletePlanDay).toHaveBeenCalledWith(2))
     expect(api.deleteRoutine).not.toHaveBeenCalled()
@@ -76,7 +67,7 @@ describe("WorkoutPlanPage", () => {
   it("creates a routine", async () => {
     api.createRoutine.mockResolvedValue(push)
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<WorkoutPlanPage />)
     await user.click(await screen.findByRole("button", { name: "New routine" }))
 
     expect(screen.getByRole("heading", { name: "New routine" })).toBeInTheDocument()
@@ -86,7 +77,7 @@ describe("WorkoutPlanPage", () => {
   it("edits a routine and returns to the lists", async () => {
     api.updateRoutine.mockResolvedValue(push)
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<WorkoutPlanPage />)
     await user.click(await screen.findByRole("button", { name: "Edit Push" }))
 
     const name = screen.getByLabelText("Name")
@@ -103,7 +94,7 @@ describe("WorkoutPlanPage", () => {
   it("deletes a routine after confirming", async () => {
     api.deleteRoutine.mockResolvedValue(undefined)
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<WorkoutPlanPage />)
     await user.click(await screen.findByRole("button", { name: "Edit Push" }))
     await user.click(screen.getByRole("button", { name: "Delete routine" }))
     const dialog = await screen.findByRole("dialog", { name: "Delete this routine?" })
@@ -115,7 +106,7 @@ describe("WorkoutPlanPage", () => {
   it("explains when there are no routines yet", async () => {
     api.listRoutines.mockResolvedValue([])
     api.getWeekPlan.mockResolvedValue(weekFor([]))
-    renderPage()
+    renderPage(<WorkoutPlanPage />)
     expect(await screen.findByText(/No routines yet/)).toBeInTheDocument()
     expect(screen.getByLabelText("Monday")).toHaveValue("")
   })

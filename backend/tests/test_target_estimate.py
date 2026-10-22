@@ -10,8 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.analytics.energy import ActivityLevel, Sex, age_on, estimate_targets, resting_energy
 from app.analytics.nutrition import KCAL_PER_KG_BODY_MASS
-from tests.helpers import register_user
-from tests.test_onboarding import GUIDE, ONBOARDING
+from tests.helpers import GUIDE, ONBOARDING, register_user
 
 ESTIMATE = "/api/v1/nutrition/targets/estimate"
 LIMITS: dict[str, int] = {

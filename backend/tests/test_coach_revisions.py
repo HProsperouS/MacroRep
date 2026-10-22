@@ -3,45 +3,30 @@ proposal on request through the same checks as a check-in."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.coach.agents.chat import STOP_ASKING
-from app.coach.agents.model import AgentTask, ModelReply, ModelUnavailableError
+from app.coach.agents.model import AgentTask, ModelUnavailableError
 from app.coach.models import ProposalKind
 from app.coach.service import ALREADY_APPLIED
-from tests.helpers import register_user
-from tests.test_coach_api import CHECK_INS, _training_check_in
-
-
-class ScriptedModel:
-    """Answers each agent with its entry in ``answers`` (a reply, or a function of the task)."""
-
-    name = "scripted"
-
-    def __init__(self, **answers: dict[str, Any] | Callable[[AgentTask[Any]], dict[str, Any]]) -> None:
-        self.answers = answers
-        self.agents: list[str] = []
-
-    async def generate(self, task: AgentTask[Any]) -> ModelReply:
-        self.agents.append(task.agent)
-        answer = self.answers[task.agent]
-        return ModelReply(answer(task) if callable(answer) else answer)
-
-
-def _use(monkeypatch: pytest.MonkeyPatch, model: Any) -> None:
-    monkeypatch.setattr("app.coach.factory.get_coach_model", lambda: model)
-
-
-def _current(client: TestClient, headers: dict[str, str]) -> dict:
-    return client.get(f"{CHECK_INS}/current", headers=headers).json()
+from tests.fakes import ScriptedModel, use_model
+from tests.helpers import (
+    CHECK_INS,
+    ask_coach,
+    current_check_in,
+    decide,
+    register_user,
+    start_check_in,
+    training_check_in,
+    week_with_a_proposal,
+)
 
 
 def _ask(client: TestClient, headers: dict[str, str], check_in_id: str, text: str) -> dict:
-    response = client.post(f"{CHECK_INS}/{check_in_id}/messages", headers=headers, json={"text": text})
+    response = ask_coach(client, headers, check_in_id, text)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -53,7 +38,7 @@ def _nutrition(check_in: dict) -> dict:
 def test_an_unclear_change_gets_one_question_then_the_answer_revises_the_proposal(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
     before = _nutrition(check_in)
 
     question = _ask(client, auth_headers, check_in["id"], "Can you change my calories?")
@@ -61,12 +46,12 @@ def test_an_unclear_change_gets_one_question_then_the_answer_revises_the_proposa
         "clarification",
         "More or fewer calories, and by about how much?",
     )
-    assert _nutrition(_current(client, auth_headers)) == before, "nothing changes while asking"
+    assert _nutrition(current_check_in(client, auth_headers)) == before, "nothing changes while asking"
 
     done = _ask(client, auth_headers, check_in["id"], "A bit more calories please")
 
     assert done["kind"] == "revision"
-    after = _nutrition(_current(client, auth_headers))
+    after = _nutrition(current_check_in(client, auth_headers))
     assert after["id"] == before["id"] and after["status"] == "pending", "the same card, still to apply"
     assert after["changes"][0]["after"] == 2350 + 100, (
         "the rule-based agent's step, from the check-in's target"
@@ -79,7 +64,7 @@ def test_the_replaced_version_is_kept(client: TestClient, auth_headers: dict[str
     from app.coach.models import Proposal
     from app.core.database import get_session_factory
 
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
     before = _nutrition(check_in)
     _ask(client, auth_headers, check_in["id"], "Fewer calories please")
 
@@ -99,7 +84,7 @@ def test_the_replaced_version_is_kept(client: TestClient, auth_headers: dict[str
 
 
 def test_the_coach_stops_asking_after_two_questions(client: TestClient, auth_headers: dict[str, str]) -> None:
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
     kinds = [_ask(client, auth_headers, check_in["id"], "Change my calories")["kind"] for _ in range(2)]
     last = _ask(client, auth_headers, check_in["id"], "Change my calories")
 
@@ -108,32 +93,24 @@ def test_the_coach_stops_asking_after_two_questions(client: TestClient, auth_hea
 
 
 def test_an_applied_change_is_left_alone(client: TestClient, auth_headers: dict[str, str]) -> None:
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
     proposal = _nutrition(check_in)
-    client.post(
-        f"{CHECK_INS}/{check_in['id']}/proposals/{proposal['id']}/decision",
-        headers=auth_headers,
-        json={"decision": "apply"},
-    )
+    decide(client, auth_headers, check_in, {"decision": "apply"}, proposal["id"])
 
     reply = _ask(client, auth_headers, check_in["id"], "Fewer calories please")
 
     assert (reply["kind"], reply["text"]) == ("answer", ALREADY_APPLIED[ProposalKind.NUTRITION])
-    assert _nutrition(_current(client, auth_headers))["status"] == "applied"
+    assert _nutrition(current_check_in(client, auth_headers))["status"] == "applied"
 
 
 def test_after_a_rejection_a_new_proposal_is_made(client: TestClient, auth_headers: dict[str, str]) -> None:
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
     rejected = _nutrition(check_in)
-    client.post(
-        f"{CHECK_INS}/{check_in['id']}/proposals/{rejected['id']}/decision",
-        headers=auth_headers,
-        json={"decision": "reject"},
-    )
+    decide(client, auth_headers, check_in, {"decision": "reject"}, rejected["id"])
 
     assert _ask(client, auth_headers, check_in["id"], "Fewer calories please")["kind"] == "revision"
 
-    after = _current(client, auth_headers)
+    after = current_check_in(client, auth_headers)
     statuses = [p["status"] for p in after["proposals"] if p["kind"] == "nutrition"]
     assert statuses == ["rejected", "pending"]
     assert after["status"] == "needs-review"
@@ -141,12 +118,12 @@ def test_after_a_rejection_a_new_proposal_is_made(client: TestClient, auth_heade
 
 def test_a_training_change_is_revised_for_the_lift_named(client: TestClient) -> None:
     headers = register_user(client)
-    routine, check_in = _training_check_in(client, headers)
+    routine, check_in = training_check_in(client, headers)
 
     reply = _ask(client, headers, check_in["id"], "Make barbell bench press heavier")
 
     assert reply["kind"] == "revision"
-    training = [p for p in _current(client, headers)["proposals"] if p["kind"] == "training"][-1]
+    training = [p for p in current_check_in(client, headers)["proposals"] if p["kind"] == "training"][-1]
     [change] = training["changes"]
     assert (change["routineId"], change["before"], change["after"]) == (routine["id"], 100, 102.5)
 
@@ -155,14 +132,14 @@ def test_a_cut_cant_be_asked_for_while_a_training_change_adds_load(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     headers = register_user(client)
-    _, check_in = _training_check_in(client, headers)
+    _, check_in = training_check_in(client, headers)
     _ask(client, headers, check_in["id"], "Make barbell bench press heavier")  # now pending: 100 -> 102.5 kg
-    before = _nutrition(_current(client, headers))
+    before = _nutrition(current_check_in(client, headers))
 
     reply = _ask(client, headers, check_in["id"], "Fewer calories please")
 
     assert reply["kind"] == "answer" and "Reject that training change first" in reply["text"]
-    assert _nutrition(_current(client, headers)) == before
+    assert _nutrition(current_check_in(client, headers)) == before
 
 
 def test_the_reviewer_can_hold_a_revision_back(
@@ -178,21 +155,21 @@ def test_the_reviewer_can_hold_a_revision_back(
             "note": "A cut this size on top of last week's isn't supported by the trend.",
         },
     )
-    _use(monkeypatch, model)
-    check_in = _current(client, auth_headers)
+    use_model(monkeypatch, model)
+    check_in = current_check_in(client, auth_headers)
     before = _nutrition(check_in)
 
     reply = _ask(client, auth_headers, check_in["id"], "Cut calories by 300 more")
 
     assert model.agents == ["chat", "nutrition", "reviewer"]
     assert reply["kind"] == "answer" and "isn't supported by the trend" in reply["text"]
-    assert _nutrition(_current(client, auth_headers)) == before
+    assert _nutrition(current_check_in(client, auth_headers)) == before
 
 
 def test_a_revision_stays_within_the_limits(
     client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _use(
+    use_model(
         monkeypatch,
         ScriptedModel(
             chat={"intent": "adjust_nutrition", "reply": "On it.", "request": "Eat 1,000 kcal more"},
@@ -205,10 +182,12 @@ def test_a_revision_stays_within_the_limits(
             reviewer={"findings": [], "keep_nutrition": True, "keep_workout": True, "note": "Fine."},
         ),
     )
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
     _ask(client, auth_headers, check_in["id"], "Eat 1,000 kcal more")
 
-    assert _nutrition(_current(client, auth_headers))["changes"][0]["after"] == 2350 + 300, "the weekly limit"
+    assert _nutrition(current_check_in(client, auth_headers))["changes"][0]["after"] == 2350 + 300, (
+        "the weekly limit"
+    )
 
 
 def test_a_failed_revision_changes_and_stores_nothing(
@@ -217,13 +196,13 @@ def test_a_failed_revision_changes_and_stores_nothing(
     def down(task: AgentTask[Any]) -> dict[str, Any]:
         raise ModelUnavailableError("down")
 
-    _use(
+    use_model(
         monkeypatch,
         ScriptedModel(
             chat={"intent": "adjust_nutrition", "reply": "On it.", "request": "More calories"}, nutrition=down
         ),
     )
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
     before = _nutrition(check_in)
 
     response = client.post(
@@ -231,14 +210,14 @@ def test_a_failed_revision_changes_and_stores_nothing(
     )
 
     assert response.status_code == 503
-    assert _nutrition(_current(client, auth_headers)) == before
+    assert _nutrition(current_check_in(client, auth_headers)) == before
     assert client.get(f"{CHECK_INS}/{check_in['id']}/messages", headers=auth_headers).json() == []
 
 
 def test_the_message_kind_is_kept_in_the_conversation(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
     _ask(client, auth_headers, check_in["id"], "Change my calories")
     _ask(client, auth_headers, check_in["id"], "More calories please")
 
@@ -263,29 +242,24 @@ def test_asking_to_keep_things_withdraws_the_pending_change(
 ) -> None:
     from app.coach.service import WITHDRAWN
 
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
 
     reply = _ask(client, auth_headers, check_in["id"], "Keep my calories the same")
 
     assert (reply["kind"], reply["text"]) == ("revision", WITHDRAWN[ProposalKind.NUTRITION])
-    assert _nutrition(_current(client, auth_headers))["status"] == "rejected"
+    assert _nutrition(current_check_in(client, auth_headers))["status"] == "rejected"
 
 
 def test_changes_are_only_made_on_the_latest_check_in(client: TestClient) -> None:
     from app.coach.service import EARLIER_CHECK_IN
-    from tests.test_coach_api import _start, _week_with_a_proposal
 
     headers = register_user(client)
-    _week_with_a_proposal(client, headers)
-    _start(client, headers, "first")
-    first = _current(client, headers)
+    week_with_a_proposal(client, headers)
+    start_check_in(client, headers, "first")
+    first = current_check_in(client, headers)
     for proposal in first["proposals"]:
-        client.post(
-            f"{CHECK_INS}/{first['id']}/proposals/{proposal['id']}/decision",
-            headers=headers,
-            json={"decision": "reject"},
-        )
-    assert _start(client, headers, "second").status_code == 201
+        decide(client, headers, first, {"decision": "reject"}, proposal["id"])
+    assert start_check_in(client, headers, "second").status_code == 201
 
     reply = _ask(client, headers, first["id"], "More calories please")
 
@@ -311,7 +285,7 @@ def test_a_proposal_decided_while_the_model_worked_is_left_as_decided(
     from app.coach import service as service_module
     from app.coach.service import DECIDED_MEANWHILE
 
-    check_in = _current(client, auth_headers)
+    check_in = current_check_in(client, auth_headers)
     proposal = _nutrition(check_in)
     real = service_module.revise_proposal
 
@@ -334,7 +308,7 @@ def test_a_proposal_decided_while_the_model_worked_is_left_as_decided(
     reply = _ask(client, auth_headers, check_in["id"], "Fewer calories please")
 
     assert (reply["kind"], reply["text"]) == ("answer", DECIDED_MEANWHILE)
-    after = _nutrition(_current(client, auth_headers))
+    after = _nutrition(current_check_in(client, auth_headers))
     assert (after["status"], after["headline"]) == ("applied", proposal["headline"])
 
 

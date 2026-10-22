@@ -1,14 +1,13 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { AxiosError } from "axios"
-import { MemoryRouter } from "react-router-dom"
 import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { nutritionProposal } from "@/components/coach/proposal-fixtures"
 import { appliedDescription } from "@/lib/coach-messages"
 import CoachPage from "@/pages/coach-page"
-import { renderWithQuery } from "@/test/render"
+import { renderPage } from "@/test/render"
 import type { CheckIn } from "@/types/coach"
 
 const api = vi.hoisted(() => ({
@@ -19,7 +18,7 @@ const api = vi.hoisted(() => ({
   listMessages: vi.fn(),
 }))
 vi.mock("@/api/coach-api", () => ({ coachApi: api }))
-vi.mock("@/hooks/use-media-query", () => ({ DESKTOP_QUERY: "(min-width: 1024px)", useMediaQuery: () => true, useOverlayLayout: () => "dialog" }))
+vi.mock("@/hooks/use-media-query")
 
 function checkIn(overrides: Partial<CheckIn> = {}): CheckIn {
   return {
@@ -47,14 +46,6 @@ const running = checkIn({
   ],
 })
 
-function renderPage() {
-  return renderWithQuery(
-    <MemoryRouter>
-      <CoachPage />
-    </MemoryRouter>,
-  )
-}
-
 beforeEach(() => {
   for (const mock of Object.values(api)) mock.mockReset()
   api.listMessages.mockResolvedValue([])
@@ -63,7 +54,7 @@ beforeEach(() => {
 describe("CoachPage", () => {
   it("shows a running check-in and updates by itself when it's ready", async () => {
     api.getCurrentCheckIn.mockResolvedValueOnce(running).mockResolvedValue(checkIn())
-    renderPage()
+    renderPage(<CoachPage />)
 
     expect(await screen.findByText(/This page updates by itself/)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Apply/ })).not.toBeInTheDocument()
@@ -75,7 +66,7 @@ describe("CoachPage", () => {
 
   it("refreshes the progress history once a running check-in finishes", async () => {
     api.getCurrentCheckIn.mockResolvedValueOnce(running).mockResolvedValue(checkIn())
-    const { queryClient } = renderPage()
+    const { queryClient } = renderPage(<CoachPage />)
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")
 
     await screen.findByText(/This page updates by itself/)
@@ -87,7 +78,7 @@ describe("CoachPage", () => {
 
   it("stops polling once the check-in is ready", async () => {
     api.getCurrentCheckIn.mockResolvedValue(checkIn())
-    renderPage()
+    renderPage(<CoachPage />)
     await screen.findByText("Raise calories slightly")
     await new Promise((resolve) => setTimeout(resolve, 2_500))
     expect(api.getCurrentCheckIn).toHaveBeenCalledTimes(1)
@@ -99,7 +90,7 @@ describe("CoachPage", () => {
     )
     api.startCheckIn.mockResolvedValue(running)
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     expect(await screen.findByText("This check-in couldn’t be prepared")).toBeInTheDocument()
     expect(screen.getByText(/Nothing was changed/)).toBeInTheDocument()
@@ -118,7 +109,7 @@ describe("CoachPage decisions", () => {
     api.getCurrentCheckIn.mockResolvedValueOnce(checkIn()).mockResolvedValue(checkIn({ proposals: [nutritionProposal({ status: "applied" })] }))
     api.decideProposal.mockReturnValue(new Promise((resolve) => (answer = () => resolve(nutritionProposal({ status: "applied" })))))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Apply" }))
 
@@ -132,7 +123,7 @@ describe("CoachPage decisions", () => {
     api.getCurrentCheckIn.mockResolvedValue(checkIn())
     api.decideProposal.mockResolvedValue(nutritionProposal({ status: "rejected" }))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Reject" }))
     await waitFor(() => expect(api.decideProposal).toHaveBeenCalledWith("c1", "p1", { decision: "reject", changes: undefined }))
@@ -143,7 +134,7 @@ describe("CoachPage decisions", () => {
     api.getCurrentCheckIn.mockResolvedValue(checkIn())
     api.decideProposal.mockResolvedValue(nutritionProposal({ status: "edited" }))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Edit" }))
     const dialog = await screen.findByRole("dialog", { name: "Edit proposal" })
@@ -159,7 +150,7 @@ describe("CoachPage decisions", () => {
     api.getCurrentCheckIn.mockResolvedValue(checkIn())
     api.decideProposal.mockRejectedValue(new Error("down"))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Apply" }))
 
@@ -171,7 +162,7 @@ describe("CoachPage decisions", () => {
     api.getCurrentCheckIn.mockResolvedValue(checkIn({ proposals: [nutritionProposal(), training] }))
     api.decideProposal.mockImplementation((_c, id: string) => Promise.resolve({ id, status: "applied" }))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Apply all" }))
 
@@ -183,7 +174,7 @@ describe("CoachPage decisions", () => {
     api.getCurrentCheckIn.mockResolvedValue(checkIn({ proposals: [nutritionProposal(), training] }))
     api.decideProposal.mockResolvedValueOnce({ id: "p1", status: "applied" }).mockRejectedValueOnce(new Error("down"))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Apply all" }))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Some changes weren’t applied", expect.anything()))
@@ -193,7 +184,7 @@ describe("CoachPage decisions", () => {
     api.getCurrentCheckIn.mockResolvedValue(null)
     api.startCheckIn.mockResolvedValue(running)
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     expect(await screen.findByText("No check-in yet")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Start check-in" }))
@@ -205,7 +196,7 @@ describe("CoachPage decisions", () => {
     const detail = "That's a lot of check-ins for today. Try again in 24 hours."
     api.startCheckIn.mockRejectedValue(new AxiosError("429", "ERR_BAD_REQUEST", undefined, undefined, { status: 429, data: { detail } } as never))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Start check-in" }))
 
@@ -217,7 +208,7 @@ describe("CoachPage decisions", () => {
     api.getCurrentCheckIn.mockResolvedValue(null)
     api.startCheckIn.mockRejectedValueOnce(new Error("timeout")).mockResolvedValue(running)
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Start check-in" }))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t start a check-in", expect.anything()))
@@ -239,7 +230,7 @@ describe("CoachChat", () => {
       { id: "m1", role: "user", text: "Why fewer calories?" },
       { id: "m2", role: "coach", text: "Your weight held steady for a week." },
     ])
-    renderPage()
+    renderPage(<CoachPage />)
 
     const conversation = await screen.findByRole("list", { name: "Conversation" })
     expect(await within(conversation).findByText("Your weight held steady for a week.")).toBeInTheDocument()
@@ -250,7 +241,7 @@ describe("CoachChat", () => {
   it("asks a suggested question and shows the answer", async () => {
     api.askCoach.mockResolvedValue({ id: "m1", role: "coach", text: "Your weight dropped faster than planned." })
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
 
@@ -263,7 +254,7 @@ describe("CoachChat", () => {
   it("sends a typed question with Enter and clears the box", async () => {
     api.askCoach.mockResolvedValue({ id: "m1", role: "coach", text: "Yes." })
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     const box = await screen.findByRole("textbox", { name: "Ask the coach" })
     expect(screen.getByRole("button", { name: "Send question" })).toBeDisabled()
@@ -277,7 +268,7 @@ describe("CoachChat", () => {
   it("retries a question that got no answer", async () => {
     api.askCoach.mockRejectedValueOnce(new Error("down")).mockResolvedValue({ id: "m1", role: "coach", text: "Here you go." })
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
     expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong")
@@ -297,7 +288,7 @@ describe("CoachChat", () => {
       } as never),
     )
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
 
@@ -314,7 +305,7 @@ describe("CoachChat", () => {
       } as never),
     )
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
 
@@ -329,7 +320,7 @@ describe("CoachChat", () => {
       .mockResolvedValue(checkIn({ suggestedQuestions: ["Make the cut smaller"], proposals: [nutritionProposal({ headline: "Adjust your daily target to 2,100 kcal" })] }))
     api.askCoach.mockResolvedValue({ id: "m1", role: "coach", text: "I've revised the proposal.", kind: "revision" })
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
 
     await user.click(await screen.findByRole("button", { name: "Make the cut smaller" }))
 
@@ -340,7 +331,7 @@ describe("CoachChat", () => {
   it("looks again for an answer the server saved after the browser gave up", async () => {
     api.askCoach.mockRejectedValue(new AxiosError("timeout", "ECONNABORTED"))
     const user = userEvent.setup()
-    renderPage()
+    renderPage(<CoachPage />)
     await user.click(await screen.findByRole("button", { name: "Why more calories?" }))
 
     await waitFor(() => expect(api.listMessages).toHaveBeenCalledTimes(2))
