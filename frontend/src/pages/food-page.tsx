@@ -9,17 +9,16 @@ import type { CustomFoodSubmit } from "@/components/food/custom-food-form"
 import { DailySummaryCard, DailySummarySkeleton } from "@/components/food/daily-summary-card"
 import { EditFoodEntryForm } from "@/components/food/edit-food-entry-form"
 import { FoodSearchPanel, type FoodSearchPanelProps } from "@/components/food/food-search-panel"
-import { ManualEntry, type ManualEntryTab, type OverlayLayout } from "@/components/food/manual-entry"
+import { ManualEntry, type ManualEntryTab } from "@/components/food/manual-entry"
 import { MealSection, MealSectionSkeleton } from "@/components/food/meal-section"
 import { PhotoReview } from "@/components/food/photo-review"
 import type { QuickAddDraft, QuickAddResult } from "@/components/food/quick-add-form"
 import { DayPickerButton } from "@/components/layout/day-picker-button"
 import { PageHeader } from "@/components/layout/page-header"
-import { ResponsiveOverlay } from "@/components/layout/responsive-overlay"
+import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
 import { Spinner } from "@/components/ui/spinner"
 import {
   dateKey,
@@ -274,17 +273,16 @@ export default function FoodPage() {
             </CardContent>
           </Card>
         ) : (
-          <Drawer open={searchOpen} onOpenChange={setSearchOpen}>
-            <DrawerContent className="max-h-[92dvh]">
-              <DrawerHeader className="text-left">
-                <DrawerTitle>Add food</DrawerTitle>
-                <DrawerDescription className="sr-only">Search for a food and choose an amount.</DrawerDescription>
-              </DrawerHeader>
-              <div className="overflow-y-auto px-4 pb-6">
-                <FoodSearchPanel {...searchPanelProps} autoFocus />
-              </div>
-            </DrawerContent>
-          </Drawer>
+          <ResponsiveOverlay
+            open={searchOpen}
+            onOpenChange={setSearchOpen}
+            layout="drawer"
+            title="Add food"
+            description="Search for a food and choose an amount."
+            hideDescription
+          >
+            <FoodSearchPanel {...searchPanelProps} autoFocus />
+          </ResponsiveOverlay>
         )}
       </div>
 
@@ -323,7 +321,7 @@ export default function FoodPage() {
         layout={photoLayout ?? "dialog"}
         title="Check the photo estimate"
         description="These are estimates from the photo. Correct anything that's off; nothing is logged until you do."
-        className="sm:max-w-2xl"
+        dialogClassName="sm:max-w-2xl"
       >
         {photo.isPending ? (
           <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground" role="status">

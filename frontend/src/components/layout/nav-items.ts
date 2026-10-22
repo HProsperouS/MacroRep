@@ -1,6 +1,6 @@
 import { CircleUser, Dumbbell, House, Sparkles, TrendingUp, UtensilsCrossed, type LucideIcon } from "lucide-react"
 
-export type NavItem = {
+type NavItem = {
   label: string
   to: string
   icon: LucideIcon

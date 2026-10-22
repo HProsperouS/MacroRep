@@ -7,7 +7,7 @@ import { coachKeys, foodKeys, progressKeys, workoutKeys } from "@/api/query-keys
 import type { CheckIn, CoachMessage, Proposal, ProposalDecisionInput } from "@/types/coach"
 
 /** How often to look again while a check-in is being generated in the background. */
-export const CHECK_IN_POLL_MS = 2_000
+const CHECK_IN_POLL_MS = 2_000
 
 export function useCurrentCheckIn() {
   const queryClient = useQueryClient()

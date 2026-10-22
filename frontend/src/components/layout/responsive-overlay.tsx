@@ -14,21 +14,22 @@ type ResponsiveOverlayProps = {
   title: string
   description: string
   hideDescription?: boolean
-  className?: string
+  /** The dialog's classes, e.g. a wider max width; the drawer always spans the screen. */
+  dialogClassName?: string
   children: ReactNode
 }
 
 /** Dialog at ≥1024px, bottom drawer below (handoff §7). */
-export function ResponsiveOverlay({ open, onOpenChange, layout, title, description, hideDescription = false, className, children }: ResponsiveOverlayProps) {
+export function ResponsiveOverlay({ open, onOpenChange, layout, title, description, hideDescription = false, dialogClassName, children }: ResponsiveOverlayProps) {
   if (layout === "drawer") {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="max-h-[92dvh]">
+        <DrawerContent>
           <DrawerHeader className="text-left">
             <DrawerTitle>{title}</DrawerTitle>
             <DrawerDescription className={cn(hideDescription && "sr-only")}>{description}</DrawerDescription>
           </DrawerHeader>
-          <div className={cn("overflow-y-auto px-4 pb-6", className)}>{children}</div>
+          <div className="overflow-y-auto px-4 pb-6">{children}</div>
         </DrawerContent>
       </Drawer>
     )
@@ -37,7 +38,7 @@ export function ResponsiveOverlay({ open, onOpenChange, layout, title, descripti
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* The title and close button stay put; only the body scrolls when it's taller than the screen. */}
-      <DialogContent className={cn("flex flex-col overflow-hidden sm:max-w-md", className)}>
+      <DialogContent className={cn("flex flex-col overflow-hidden sm:max-w-md", dialogClassName)}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className={cn(hideDescription && "sr-only")}>{description}</DialogDescription>

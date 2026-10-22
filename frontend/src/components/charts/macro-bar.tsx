@@ -8,7 +8,7 @@ const MACRO_STYLES = {
   fat: { label: "Fat", short: "F", color: "bg-fat" },
 } as const
 
-export type MacroKey = keyof typeof MACRO_STYLES
+type MacroKey = keyof typeof MACRO_STYLES
 
 type MacroBarProps = {
   macro: MacroKey

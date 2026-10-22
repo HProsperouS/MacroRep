@@ -352,7 +352,7 @@ export function RoutineEditor({ routine, scheduledDays = [], submitting, deletin
         title="Add exercises"
         description="Search the library, pick one or more, or create your own."
         hideDescription
-        className="sm:max-w-lg"
+        dialogClassName="sm:max-w-lg"
       >
         <ExercisePicker onAdd={addExercises} />
       </ResponsiveOverlay>

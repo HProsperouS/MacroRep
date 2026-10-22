@@ -2,14 +2,11 @@ import { Plus, Zap } from "lucide-react"
 
 import { CustomFoodForm, type CustomFoodSubmit } from "@/components/food/custom-food-form"
 import { QuickAddForm, type QuickAddDraft, type QuickAddResult } from "@/components/food/quick-add-form"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
+import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { cn } from "@/lib/utils"
 import type { DailyTargets, MealType } from "@/types/food"
 
 export type ManualEntryTab = "quick" | "custom"
-export type OverlayLayout = "dialog" | "drawer"
 
 type ManualEntryProps = {
   open: boolean
@@ -32,35 +29,17 @@ const TITLE = "Add food manually"
 const DESCRIPTION = "Quick add logs numbers once. A custom food is saved with a serving size so you can reuse it."
 
 export function ManualEntry({ open, onOpenChange, layout, ...bodyProps }: ManualEntryProps) {
-  if (layout === "drawer") {
-    return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="max-h-[92dvh]">
-          <DrawerHeader className="text-left">
-            <DrawerTitle>{TITLE}</DrawerTitle>
-            <DrawerDescription>{DESCRIPTION}</DrawerDescription>
-          </DrawerHeader>
-          <div className="overflow-y-auto px-4 pb-6">
-            <ManualEntryBody {...bodyProps} />
-          </div>
-        </DrawerContent>
-      </Drawer>
-    )
-  }
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* As ResponsiveOverlay: the title stays put and the body scrolls. */}
-      <DialogContent className={cn("flex flex-col overflow-hidden sm:p-6", bodyProps.tab === "custom" ? "sm:max-w-5xl" : "sm:max-w-xl")}>
-        <DialogHeader>
-          <DialogTitle>{TITLE}</DialogTitle>
-          <DialogDescription>{DESCRIPTION}</DialogDescription>
-        </DialogHeader>
-        <div className="-mx-4 -mb-4 min-h-0 overflow-y-auto px-4 pb-4 sm:-mx-6 sm:-mb-6 sm:px-6 sm:pb-6">
-          <ManualEntryBody {...bodyProps} />
-        </div>
-      </DialogContent>
-    </Dialog>
+    <ResponsiveOverlay
+      open={open}
+      onOpenChange={onOpenChange}
+      layout={layout}
+      title={TITLE}
+      description={DESCRIPTION}
+      dialogClassName={bodyProps.tab === "custom" ? "sm:max-w-5xl" : "sm:max-w-xl"}
+    >
+      <ManualEntryBody {...bodyProps} />
+    </ResponsiveOverlay>
   )
 }
 

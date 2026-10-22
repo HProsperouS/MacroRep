@@ -34,7 +34,7 @@ export const test = base.extend<{ serverErrors: void }>({
   ],
 })
 
-export function uniqueEmail() {
+function uniqueEmail() {
   return `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`
 }
 

@@ -319,7 +319,7 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
         title="Add exercises"
         description="Search the library, pick one or more, or create your own."
         hideDescription
-        className="sm:max-w-lg"
+        dialogClassName="sm:max-w-lg"
       >
         <ExercisePicker key={pickerKey} onAdd={addExercises} />
       </ResponsiveOverlay>

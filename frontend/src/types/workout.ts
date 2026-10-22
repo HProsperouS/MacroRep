@@ -168,7 +168,7 @@ export type WorkoutDetail = WorkoutHistoryItem & {
 
 export const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const
 
-export type PlanSetInput = {
+type PlanSetInput = {
   kind: SetKind
   targetWeightKg: number | null
   targetReps: number | null

@@ -2,7 +2,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer,
 
 import { ChartTooltipBox } from "@/components/charts/chart-tooltip"
 
-export type TargetBarDatum = {
+type TargetBarDatum = {
   key: string
   label: string
   tooltipTitle: string

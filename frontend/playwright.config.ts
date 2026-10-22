@@ -42,8 +42,9 @@ export default defineConfig({
         DATABASE_URL,
         API_PREFIX: "/api/v1",
         AUTO_CREATE_SCHEMA: "false",
-        // The shared food and exercise catalog. Tests sign up their own users.
-        SEED_DEMO_DATA: "true",
+        // No demo user: the food and exercise catalogs come from the migrations, and the
+        // tests sign up their own users.
+        SEED_DEMO_DATA: "false",
         PREVIEW_AUTH_ENABLED: "false",
         REFRESH_COOKIE_PATH: "/api/v1/auth",
         REFRESH_COOKIE_SAMESITE: "strict",

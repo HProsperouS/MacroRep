@@ -95,7 +95,7 @@ function exerciseToSession(exercise: Exercise, instanceId: string): SessionExerc
 }
 
 /** Weight may be 0 (bodyweight); reps must be a positive whole number. */
-export function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
+function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
   const weightKg = set.weight.trim() === "" ? Number.NaN : Number(set.weight)
   const reps = set.reps.trim() === "" ? Number.NaN : Number(set.reps)
   const valid = Number.isFinite(weightKg) && weightKg >= 0 && weightKg <= 1000 && Number.isInteger(reps) && reps > 0 && reps <= 100
