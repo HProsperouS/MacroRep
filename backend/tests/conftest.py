@@ -4,6 +4,9 @@ runs on, so the tests see what production does.
 By default that's ``macrorep_test`` on the compose PostgreSQL (``docker compose up -d
 postgres``), created on first use. ``TEST_DATABASE_URL`` picks another; its name must end in
 ``_test``, since its ``public`` schema is wiped before each test.
+
+Run in parallel (``pytest -n auto``), each worker gets a database of its own beside it
+(``macrorep_gw0_test``, ...), so no worker wipes another's.
 """
 
 from __future__ import annotations
@@ -26,6 +29,10 @@ if _url.get_backend_name() != "postgresql":
 # Every test wipes it, so refuse anything that doesn't look like a database kept for tests.
 if not (_url.database or "").endswith("_test"):
     raise RuntimeError("TEST_DATABASE_URL must name a database ending in _test: the tests wipe it")
+# pytest-xdist names each worker (gw0, gw1, ...).
+if worker := os.environ.get("PYTEST_XDIST_WORKER"):
+    _url = _url.set(database=f"{(_url.database or '').removesuffix('_test')}_{worker}_test")
+    TEST_DATABASE_URL = _url.render_as_string(hide_password=False)
 
 os.environ.update(
     {

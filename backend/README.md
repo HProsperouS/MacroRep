@@ -120,13 +120,15 @@ jq -r '[.timestamp, .event, .correlation_id] | @tsv' logs/error-$(date -u +%F).l
 uv run ruff check app migrations tests evals
 uv run mypy --config-file pyproject.toml app evals
 uv run pytest
+uv run pytest -n auto          # in parallel, one process per CPU core
 uv run pytest --cov            # with branch coverage; fails below 90%
 ```
 
 Tests run on PostgreSQL, the database the app runs on: by default `macrorep_test` on the
 compose database, created on first use, so start it first (`docker compose up -d
 postgres`). `TEST_DATABASE_URL` picks another database; its name must end in `_test`
-(anything else is refused), since its `public` schema is wiped before every test.
+(anything else is refused), since its `public` schema is wiped before every test. In
+parallel, each process gets its own database beside it (`macrorep_gw0_test`, ...).
 
 CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
 backend lint, type check, migrations (upgrade, model check, downgrade and upgrade again)
