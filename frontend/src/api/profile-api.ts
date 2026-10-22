@@ -24,7 +24,7 @@ export const profileApi = {
     return data
   },
 
-  /** Every version of the targets, newest first. */
+  /** The latest versions of the targets (as many as the server keeps in its history), newest first. */
   async getTargetHistory(signal?: AbortSignal) {
     const { data } = await apiClient.get<TargetVersion[]>("/nutrition/targets/history", { signal })
     return data

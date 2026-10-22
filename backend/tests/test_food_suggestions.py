@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
+from app.food.catalog import POPULAR_FOOD_IDS
 from tests.helpers import register_user
 from tests.test_food_api import CHICKEN, EGG, _log_food, _quick_add
 
@@ -23,7 +24,7 @@ def test_a_new_user_is_offered_catalog_foods(client: TestClient) -> None:
     body = client.get(SUGGESTIONS, headers=headers).json()
 
     assert body["recent"] == []
-    assert _ids(body["common"]) == [CHICKEN, EGG, RICE], "the catalog, by name"
+    assert _ids(body["common"]) == list(POPULAR_FOOD_IDS[:8]), "the popular foods, most likely first"
 
 
 def test_the_most_eaten_come_first_then_the_rest_of_the_catalog(client: TestClient) -> None:
@@ -36,7 +37,17 @@ def test_the_most_eaten_come_first_then_the_rest_of_the_catalog(client: TestClie
     body = client.get(SUGGESTIONS, headers=headers).json()
 
     assert _ids(body["recent"]) == [CHICKEN, EGG]
-    assert _ids(body["common"]) == [RICE], "no food twice"
+    assert CHICKEN not in _ids(body["common"]) and EGG not in _ids(body["common"]), "no food twice"
+    assert _ids(body["common"]) == [food for food in POPULAR_FOOD_IDS if food not in (CHICKEN, EGG)][:6]
+
+
+def test_the_popular_foods_fill_up_to_the_largest_limit(client: TestClient) -> None:
+    headers = register_user(client)
+    _log_food(client, headers, foodId=POPULAR_FOOD_IDS[0], quantity=1)
+
+    body = client.get(SUGGESTIONS, headers=headers, params={"limit": 20}).json()
+
+    assert _ids(body["recent"]) + _ids(body["common"]) == list(POPULAR_FOOD_IDS)
 
 
 def test_a_tie_goes_to_the_one_eaten_last(client: TestClient) -> None:

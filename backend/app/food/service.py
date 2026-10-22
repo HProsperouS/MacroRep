@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.nutrition import Nutrients, scale_nutrients
 from app.identity.dependencies import ActorContext
-from app.shared.validation import ensure_plausible_calories
+from app.shared.validation import MAX_CUSTOM_FOODS_PER_USER, ensure_plausible_calories
 
+from .catalog import POPULAR_FOOD_IDS
 from .models import Food, FoodEntry, FoodSource
 from .repository import FoodEntryRepository, FoodRepository
 from .schemas import (
@@ -126,20 +127,25 @@ class FoodService:
         return [_to_food_read(row) for row in rows]
 
     async def suggest_foods(self, actor: ActorContext, limit: int) -> FoodSuggestions:
-        """What the user eats lately, then catalog foods to fill up to ``limit``."""
+        """What the user eats lately, then popular catalog foods, up to ``limit``."""
 
         # By the server's date: a day either way doesn't matter over a month.
         since = date_.today() - RECENT_FOODS_WINDOW
         recent = await self.foods.recently_eaten(actor.actor_id, since, limit)
         common: list[Food] = []
         if len(recent) < limit:
-            shown = [food.id for food in recent]
-            common = await self.foods.search(actor.actor_id, "", limit - len(recent), exclude=shown)
+            shown = {food.id for food in recent}
+            common = (await self.foods.catalog_foods(POPULAR_FOOD_IDS, exclude=shown))[: limit - len(recent)]
         return FoodSuggestions(
             recent=[_to_food_read(food) for food in recent], common=[_to_food_read(food) for food in common]
         )
 
     async def create_custom_food(self, payload: CreateCustomFoodInput, actor: ActorContext) -> FoodRead:
+        if await self.foods.count_custom(actor.actor_id) >= MAX_CUSTOM_FOODS_PER_USER:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"You can create up to {MAX_CUSTOM_FOODS_PER_USER} foods of your own.",
+            )
         food = Food(
             owner_id=actor.actor_id,
             name=payload.name,

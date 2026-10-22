@@ -105,6 +105,7 @@ async def estimate_targets_from_profile(actor: ActorDep, service: ProfileService
 
 @router.get("/nutrition/targets/history", response_model=list[TargetVersionRead])
 async def get_target_history(actor: ActorDep, service: ProfileServiceDep) -> list[TargetVersionRead]:
-    """Every version of the daily targets, newest first, with the day each took effect."""
+    """The latest ``MAX_TARGET_HISTORY`` versions of the daily targets, newest first, with the
+    day each took effect."""
 
     return await service.target_history(actor)

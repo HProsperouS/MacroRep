@@ -58,11 +58,17 @@ MAX_TARGET_PROTEIN_G = 500
 MAX_TARGET_CARBS_G = 1_000
 MAX_TARGET_FAT_G = 400
 
+# Custom foods a user can create; the catalog's don't count.
+MAX_CUSTOM_FOODS_PER_USER = 500
+# Target versions the history shows, newest first (every version still judges its days).
+MAX_TARGET_HISTORY = 50
+
 # Training
 MAX_SET_WEIGHT_KG = 1_000
 MAX_REPS = 100
 MAX_EXERCISES_PER_WORKOUT = 50
 MAX_ROUTINES_PER_USER = 50
+MAX_CUSTOM_EXERCISES_PER_USER = 200
 MAX_SETS_PER_EXERCISE = 50
 MAX_MUSCLES_PER_EXERCISE = 4
 # Tolerated difference between the client's clock and the server's when

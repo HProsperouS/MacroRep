@@ -12,7 +12,7 @@ const SOURCE_LABELS: Record<TargetSource, string> = {
   "check-in": "From a check-in",
 }
 
-/** Every version of the daily targets, newest first, so past days can be read against what applied then. */
+/** The latest versions of the daily targets, newest first, so past days can be read against what applied then. */
 export function TargetHistory() {
   const history = useTargetHistory()
 

@@ -3,8 +3,13 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import delete, func, select
 
+from app.core.database import get_session_factory
+from app.food.catalog import SYSTEM_FOODS, ensure_system_foods
+from app.food.models import Food
 from tests.helpers import register_user
 
 ENTRIES = "/api/v1/food-log/entries"
@@ -109,6 +114,83 @@ def test_add_entry_rejects_invalid_meal(client: TestClient, auth_headers: dict[s
     assert response.status_code == 422
 
 
+def test_the_builtin_catalogue_has_common_and_local_foods(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    def names(query: str) -> set[str]:
+        response = client.get("/api/v1/foods", headers=auth_headers, params={"q": query, "limit": 50})
+        assert response.status_code == 200
+        return {food["name"] for food in response.json()}
+
+    assert {"Chicken rice, steamed", "Chicken breast, grilled"} <= names("chicken")
+    assert {"Laksa", "Kopi (with condensed milk)", "Banana", "Greek yoghurt, plain, non-fat"} <= (
+        names("laksa") | names("kopi") | names("banana") | names("yoghurt")
+    )
+
+
+def _search(client: TestClient, headers: dict[str, str], query: str) -> list[str]:
+    response = client.get("/api/v1/foods", headers=headers, params={"q": query, "limit": 50})
+    assert response.status_code == 200
+    return [food["name"] for food in response.json()]
+
+
+def test_search_matches_every_word_in_any_order(client: TestClient, auth_headers: dict[str, str]) -> None:
+    assert _search(client, auth_headers, "grilled chicken") == ["Chicken breast, grilled"]
+    assert _search(client, auth_headers, "  chicken   STEAMED ") == ["Chicken rice, steamed"]
+    assert _search(client, auth_headers, "chicken pizza") == []
+
+
+def test_search_puts_the_best_matches_first(client: TestClient, auth_headers: dict[str, str]) -> None:
+    custom = {
+        "name": "milk",
+        "servingSize": 1,
+        "servingUnit": "cup",
+        "nutrition": {"calories": 150, "protein": 8, "carbs": 12, "fat": 8},
+    }
+    assert client.post("/api/v1/foods", headers=auth_headers, json=custom).status_code == 201
+
+    names = _search(client, auth_headers, "milk")
+    # The name itself, then names starting with it (shorter first), then a word starting with
+    # it, then anywhere in a word.
+    assert names[:4] == ["milk", "Milk, skim", "Milk, full cream", "Milk, low fat (1%)"]
+    assert names.index("Soy milk, unsweetened") < names.index("Kopi (with condensed milk)")
+    assert _search(client, auth_headers, "rice")[0] == "Rice noodles (bee hoon), cooked"
+
+
+def test_a_word_after_a_hyphen_or_slash_counts_as_a_word(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    for name in ("Aaxyzzy", "Ab-xyzzy", "Ac/xyzzy"):
+        food = {
+            "name": name,
+            "servingSize": 1,
+            "servingUnit": "cup",
+            "nutrition": {"calories": 100, "protein": 5, "carbs": 10, "fat": 4},
+        }
+        assert client.post("/api/v1/foods", headers=auth_headers, json=food).status_code == 201
+
+    # "xyzzy" starts a word in the last two, and only appears inside one in the first.
+    assert _search(client, auth_headers, "xyzzy") == ["Ab-xyzzy", "Ac/xyzzy", "Aaxyzzy"]
+
+
+def test_food_catalogue_install_is_idempotent(client: TestClient) -> None:
+    async def reinstall_one() -> tuple[int, int, int]:
+        async with get_session_factory()() as session:
+            await session.execute(delete(Food).where(Food.id == "food-laksa"))
+            await session.commit()
+
+            first = await ensure_system_foods(session)
+            second = await ensure_system_foods(session)
+            count = await session.scalar(
+                select(func.count()).select_from(Food).where(Food.owner_id.is_(None))
+            )
+            await session.commit()
+            return first, second, int(count or 0)
+
+    assert client.portal is not None
+    assert client.portal.call(reinstall_one) == (1, 0, len(SYSTEM_FOODS))
+
+
 def test_search_and_create_custom_food(client: TestClient, auth_headers: dict[str, str]) -> None:
     seeded = client.get("/api/v1/foods", headers=auth_headers, params={"q": "chicken"})
     assert seeded.status_code == 200
@@ -125,6 +207,19 @@ def test_search_and_create_custom_food(client: TestClient, auth_headers: dict[st
     body = created.json()
     assert body["source"] == "custom"
     assert body["nutrition"]["calories"] == 220
+
+
+def test_custom_foods_per_user_are_capped(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.food.service.MAX_CUSTOM_FOODS_PER_USER", 1)
+    nutrition = {"calories": 220, "protein": 30, "carbs": 10, "fat": 5}
+    food = {"name": "Shake", "servingSize": 1, "servingUnit": "scoop", "nutrition": nutrition}
+    assert client.post("/api/v1/foods", headers=auth_headers, json=food).status_code == 201
+
+    refused = client.post("/api/v1/foods", headers=auth_headers, json={**food, "name": "Another shake"})
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "You can create up to 1 foods of your own."
 
 
 def test_logging_a_saved_food_derives_everything_from_the_food(client: TestClient) -> None:

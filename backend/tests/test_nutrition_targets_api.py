@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -88,6 +89,15 @@ def test_each_change_adds_a_version_and_keeps_the_old_ones(client: TestClient) -
         (1, 2200, "initial"),
     ]
     assert client.get(TARGETS, headers=headers).json()["calories"] == 2100
+
+
+def test_history_shows_the_latest_versions(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.profile.service.MAX_TARGET_HISTORY", 2)
+    headers = register_user(client)
+    _set_targets(client, headers, 2100)
+    _set_targets(client, headers, 2200)
+
+    assert [(row["version"], row["calories"]) for row in _history(client, headers)] == [(3, 2200), (2, 2100)]
 
 
 def test_saving_unchanged_targets_adds_no_version(client: TestClient) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
 
@@ -35,6 +36,14 @@ def test_search_and_create_exercise(client: TestClient, auth_headers: dict[str, 
     assert created.json()["source"] == "custom"
 
 
+def test_exercise_search_matches_words_in_any_order(client: TestClient, auth_headers: dict[str, str]) -> None:
+    response = client.get("/api/v1/exercises", headers=auth_headers, params={"q": "press bench barbell"})
+    assert [exercise["name"] for exercise in response.json()] == [
+        "Barbell Bench Press",
+        "Incline Barbell Bench Press",
+    ]
+
+
 def test_builtin_catalogue_covers_common_movements(client: TestClient, auth_headers: dict[str, str]) -> None:
     response = client.get("/api/v1/exercises", headers=auth_headers, params={"limit": 100})
     assert response.status_code == 200
@@ -66,6 +75,27 @@ def test_builtin_catalogue_can_be_filtered(client: TestClient, auth_headers: dic
     }
     assert all(exercise["equipment"] == "dumbbell" for exercise in exercises)
     assert all("chest" in exercise["muscles"] for exercise in exercises)
+
+
+def test_a_muscle_filter_finds_matches_however_far_down_the_list(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    # The calf raises sort well after the first few exercises: filtered after a limit,
+    # they'd never be reached.
+    response = client.get("/api/v1/exercises", headers=auth_headers, params={"muscle": "calves", "limit": 2})
+    assert [exercise["name"] for exercise in response.json()] == ["Leg Press Calf Raise", "Seated Calf Raise"]
+
+
+def test_custom_exercises_per_user_are_capped(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.workout.service.MAX_CUSTOM_EXERCISES_PER_USER", 1)
+    exercise = {"name": "Cable Fly", "equipment": "cable", "muscles": ["chest"]}
+    assert client.post("/api/v1/exercises", headers=auth_headers, json=exercise).status_code == 201
+
+    refused = client.post("/api/v1/exercises", headers=auth_headers, json={**exercise, "name": "Pec Deck"})
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "You can create up to 1 exercises of your own."
 
 
 def test_system_catalogue_install_is_idempotent(client: TestClient) -> None:

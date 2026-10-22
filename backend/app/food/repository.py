@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from datetime import date as date_
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.shared.db import escape_like
 from app.shared.db import get_owned as _get_owned
+from app.shared.db import name_search
 
 from .models import Food, FoodEntry
 
@@ -18,16 +18,14 @@ class FoodRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def search(
-        self, owner_id: str, query: str, limit: int, exclude: Collection[str] = ()
-    ) -> list[Food]:
-        statement = select(Food).where(or_(Food.owner_id.is_(None), Food.owner_id == owner_id))
-        if exclude:
-            statement = statement.where(Food.id.not_in(exclude))
-        if query:
-            pattern = f"%{escape_like(query.strip())}%"
-            statement = statement.where(Food.name.ilike(pattern, escape="\\"))
-        statement = statement.order_by(Food.name.asc()).limit(limit)
+    async def search(self, owner_id: str, query: str, limit: int) -> list[Food]:
+        filters, ordering = name_search(Food.name, query)
+        statement = (
+            select(Food)
+            .where(or_(Food.owner_id.is_(None), Food.owner_id == owner_id), *filters)
+            .order_by(*ordering)
+            .limit(limit)
+        )
         return list(await self.session.scalars(statement))
 
     async def recently_eaten(self, owner_id: str, since: date_, limit: int) -> list[Food]:
@@ -55,6 +53,16 @@ class FoodRepository:
         )
         return list(await self.session.scalars(statement))
 
+    async def catalog_foods(self, ids: Sequence[str], exclude: Collection[str]) -> list[Food]:
+        """Catalogue foods with these ids, in the order given, leaving out ``exclude``."""
+
+        wanted = [food_id for food_id in ids if food_id not in exclude]
+        if not wanted:
+            return []
+        rows = await self.session.scalars(select(Food).where(Food.id.in_(wanted), Food.owner_id.is_(None)))
+        by_id = {food.id: food for food in rows}
+        return [by_id[food_id] for food_id in wanted if food_id in by_id]
+
     async def get_visible(self, food_id: str, owner_id: str) -> Food | None:
         """A food by id, if it's in the global catalog or is this user's own custom food."""
 
@@ -62,6 +70,10 @@ class FoodRepository:
         if food is None or (food.owner_id is not None and food.owner_id != owner_id):
             return None
         return food
+
+    async def count_custom(self, owner_id: str) -> int:
+        statement = select(func.count()).select_from(Food).where(Food.owner_id == owner_id)
+        return int(await self.session.scalar(statement) or 0)
 
     async def add(self, food: Food) -> Food:
         self.session.add(food)

@@ -19,7 +19,7 @@ from app.analytics.training import (
 from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
 from app.shared.timezones import local_today, user_zone
-from app.shared.validation import MAX_ROUTINES_PER_USER
+from app.shared.validation import MAX_CUSTOM_EXERCISES_PER_USER, MAX_ROUTINES_PER_USER
 
 from .models import Exercise, SetKind, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutSession, WorkoutSetLog
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
@@ -153,10 +153,7 @@ class WorkoutService:
     async def search_exercises(
         self, actor: ActorContext, query: str, muscle: str | None, equipment: str | None, limit: int
     ) -> list[ExerciseRead]:
-        rows = await self.exercises.search(actor.actor_id, query, equipment, limit)
-        if muscle:
-            rows = [row for row in rows if muscle in row.muscles]
-        rows = rows[:limit]
+        rows = await self.exercises.search(actor.actor_id, query, muscle, equipment, limit)
 
         last_sessions = await self._last_sessions(actor, [row.id for row in rows])
         results = []
@@ -181,6 +178,11 @@ class WorkoutService:
         return results
 
     async def create_exercise(self, payload: CreateExerciseInput, actor: ActorContext) -> ExerciseRead:
+        if await self.exercises.count_custom(actor.actor_id) >= MAX_CUSTOM_EXERCISES_PER_USER:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"You can create up to {MAX_CUSTOM_EXERCISES_PER_USER} exercises of your own.",
+            )
         exercise = Exercise(
             owner_id=actor.actor_id, name=payload.name, equipment=payload.equipment, muscles=payload.muscles
         )

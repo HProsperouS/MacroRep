@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
+from sqlalchemy import ColumnElement, case, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import QueryableAttribute
 
 
 class _HasOwner(Protocol):
@@ -42,3 +44,33 @@ def escape_like(value: str, *, escape_char: str = "\\") -> str:
         .replace("%", f"{escape_char}%")
         .replace("_", f"{escape_char}_")
     )
+
+
+def name_search(
+    name: QueryableAttribute[str], query: str
+) -> tuple[list[ColumnElement[bool]], list[ColumnElement[Any]]]:
+    """Filters and an ordering for searching ``name`` by ``query``, best match first.
+
+    Every word of the query must appear in the name, in any order ("grilled chicken" finds
+    "Chicken breast, grilled"). Matches rank by how the whole query meets the name: the
+    name itself, then a name starting with it, then a word in the name starting with it,
+    then anywhere. Within a rank, shorter names (the plainer food or movement) come first.
+    """
+
+    phrase = " ".join(query.split())
+    if not phrase:
+        return [], [name.asc()]
+    filters: list[ColumnElement[bool]] = [
+        name.ilike(f"%{escape_like(word)}%", escape="\\") for word in dict.fromkeys(phrase.split())
+    ]
+    escaped = escape_like(phrase)
+    # A word starts after a space, a bracket, a hyphen or a slash ("Kopi-O", "Teh-C/O").
+    word_start = or_(*(name.ilike(f"%{mark}{escaped}%", escape="\\") for mark in (" ", "(", "-", "/")))
+    rank = case(
+        # Both sides lower-cased by PostgreSQL, so they agree beyond ASCII too.
+        (func.lower(name) == func.lower(phrase), 0),
+        (name.ilike(f"{escaped}%", escape="\\"), 1),
+        (word_start, 2),
+        else_=3,
+    )
+    return filters, [rank, func.length(name), name.asc()]

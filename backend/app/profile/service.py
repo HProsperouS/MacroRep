@@ -18,6 +18,7 @@ from app.shared.timezones import DEFAULT_TIMEZONE, local_today, user_zone
 from app.shared.validation import (
     MAX_TARGET_CALORIES,
     MAX_TARGET_CARBS_G,
+    MAX_TARGET_HISTORY,
     MAX_TARGET_PROTEIN_G,
     MIN_TARGET_CALORIES,
 )
@@ -342,7 +343,7 @@ class ProfileService:
         return stored
 
     async def target_history(self, actor: ActorContext) -> list[TargetVersionRead]:
-        """Every version of the targets, newest first."""
+        """The latest ``MAX_TARGET_HISTORY`` versions of the targets, newest first."""
 
         profile = await self._get_or_create(actor)
         return [
@@ -353,5 +354,5 @@ class ProfileService:
                 source=row.source,
                 changed_at=row.created_utc,
             )
-            for row in reversed(await self.repository.target_history(profile.user_id))
+            for row in await self.repository.recent_targets(profile.user_id, MAX_TARGET_HISTORY)
         ]

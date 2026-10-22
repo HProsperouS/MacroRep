@@ -37,10 +37,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             async with get_engine().begin() as connection:
                 await connection.run_sync(Base.metadata.create_all)
             # AUTO_CREATE_SCHEMA deliberately bypasses Alembic, so install the
-            # non-demo system catalogue independently of SEED_DEMO_DATA.
+            # non-demo system catalogues independently of SEED_DEMO_DATA.
+            from app.food.catalog import ensure_system_foods
             from app.workout.catalog import ensure_system_exercises
 
             async with get_session_factory()() as session:
+                await ensure_system_foods(session)
                 await ensure_system_exercises(session)
                 await session.commit()
         if settings.seed_demo_data:

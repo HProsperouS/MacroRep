@@ -5,11 +5,13 @@ from __future__ import annotations
 from typing import cast
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import cast as cast_
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import estimated_one_rep_max
-from app.shared.db import escape_like
+from app.shared.db import name_search
 from app.shared.timezones import local_date
 
 from .models import (
@@ -27,15 +29,24 @@ class ExerciseRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def search(self, owner_id: str, query: str, equipment: str | None, limit: int) -> list[Exercise]:
-        statement = select(Exercise).where(or_(Exercise.owner_id.is_(None), Exercise.owner_id == owner_id))
-        if query:
-            pattern = f"%{escape_like(query.strip())}%"
-            statement = statement.where(Exercise.name.ilike(pattern, escape="\\"))
+    async def search(
+        self, owner_id: str, query: str, muscle: str | None, equipment: str | None, limit: int
+    ) -> list[Exercise]:
+        filters, ordering = name_search(Exercise.name, query)
+        statement = select(Exercise).where(
+            or_(Exercise.owner_id.is_(None), Exercise.owner_id == owner_id), *filters
+        )
+        if muscle:
+            # Filtered here, before the limit, so no matching exercise is cut off unseen.
+            statement = statement.where(cast_(Exercise.muscles, JSONB).contains([muscle]))
         if equipment:
             statement = statement.where(Exercise.equipment == equipment)
-        statement = statement.order_by(Exercise.name.asc()).limit(max(limit * 3, limit))
+        statement = statement.order_by(*ordering).limit(limit)
         return list(await self.session.scalars(statement))
+
+    async def count_custom(self, owner_id: str) -> int:
+        statement = select(func.count()).select_from(Exercise).where(Exercise.owner_id == owner_id)
+        return int(await self.session.scalar(statement) or 0)
 
     async def get(self, exercise_id: str) -> Exercise | None:
         return await self.session.get(Exercise, exercise_id)

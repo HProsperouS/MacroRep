@@ -18,7 +18,6 @@ from app.coach.agents.graph import run_agents
 from app.coach.agents.model import FakeCoachModel
 from app.coach.models import CheckIn, Proposal
 from app.core.database import get_session_factory
-from app.food.models import Food
 from app.identity.models import User, UserStatus
 from app.profile.models import ExperienceLevel, Goal, NutritionTarget, Profile, TargetSource
 from app.shared.persistence.mixins import utc_now
@@ -85,45 +84,6 @@ async def seed_demo_data() -> None:
                     fat_g=70,
                     source=TargetSource.INITIAL,
                 )
-            )
-
-        if await _is_empty(session, Food):
-            session.add_all(
-                [
-                    Food(
-                        id="food-chicken-breast",
-                        name="Chicken breast, grilled",
-                        serving_size=100,
-                        serving_unit="g",
-                        serving_weight_g=100,
-                        calories=165,
-                        protein=31,
-                        carbs=0,
-                        fat=3.6,
-                    ),
-                    Food(
-                        id="food-white-rice",
-                        name="White rice, cooked",
-                        serving_size=1,
-                        serving_unit="bowl",
-                        serving_weight_g=150,
-                        calories=195,
-                        protein=4,
-                        carbs=42,
-                        fat=0.4,
-                    ),
-                    Food(
-                        id="food-egg",
-                        name="Egg, whole",
-                        serving_size=1,
-                        serving_unit="piece",
-                        serving_weight_g=50,
-                        calories=78,
-                        protein=6.3,
-                        carbs=0.6,
-                        fat=5.3,
-                    ),
-                ]
             )
 
         await ensure_system_exercises(session)

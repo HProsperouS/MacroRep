@@ -60,6 +60,18 @@ class ProfileRepository:
             )
         )
 
+    async def recent_targets(self, owner_id: str, limit: int) -> list[NutritionTarget]:
+        """The user's latest ``limit`` versions of the targets, newest first."""
+
+        return list(
+            await self.session.scalars(
+                select(NutritionTarget)
+                .where(NutritionTarget.owner_id == owner_id)
+                .order_by(NutritionTarget.version.desc())
+                .limit(limit)
+            )
+        )
+
     async def calorie_target_versions(self, owner_id: str) -> list[tuple[date, float]]:
         """(effective date, calories) of every version, oldest first, for ``targets_by_date``."""
 

@@ -32,11 +32,13 @@ backend/
 Each domain normally owns `models.py`, `schemas.py`, `repository.py`,
 `service.py`, and `router.py`.
 
-`app/workout/catalog.py` is the validated, append-only source for the built-in
-exercise library. Its Alembic data migration installs the same global rows in
-every environment (`owner_id` is null); `AUTO_CREATE_SCHEMA` installs them
-independently of demo data. A user's custom exercises use that user's id and
-are visible only to them. Every future catalog addition must include a new
+`app/workout/catalog.py` and `app/food/catalog.py` are the validated, append-only
+sources for the built-in exercise and food libraries. Their Alembic data migrations
+install the same global rows in every environment (`owner_id` is null);
+`AUTO_CREATE_SCHEMA` installs them independently of demo data. A user's custom
+exercises and foods use that user's id and are visible only to them. The foods'
+values follow USDA FoodData Central (basic foods) and Singapore's Health Promotion
+Board (hawker dishes and drinks), each row marked with its source. Every future catalog addition must include a new
 additive data migration so already-upgraded databases receive it.
 
 ### Input validation
