@@ -5,17 +5,16 @@ from __future__ import annotations
 from datetime import date as date_
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.coach.agents.model import get_coach_model
-from app.coach.agents.vision import estimate_photo
 from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
-from app.shared.rate_limit import PHOTOS_PER_USER, count_attempt, user_limiter
 from app.shared.validation import MAX_SEARCH_LENGTH
 
+from .photo_estimate import PhotoService
 from .repository import FoodEntryRepository, FoodRepository
 from .schemas import (
     CreateCustomFoodInput,
@@ -39,6 +38,13 @@ def get_food_service(session: Annotated[AsyncSession, Depends(get_db_session)]) 
 
 
 FoodServiceDep = Annotated[FoodService, Depends(get_food_service)]
+
+
+def get_photo_service(settings: Annotated[Settings, Depends(get_settings)]) -> PhotoService:
+    return PhotoService(get_coach_model(), rate_limits=settings.rate_limits_enabled)
+
+
+PhotoServiceDep = Annotated[PhotoService, Depends(get_photo_service)]
 ActorDep = Annotated[ActorContext, Depends(get_current_actor)]
 
 
@@ -102,22 +108,12 @@ async def create_custom_food(
 
 @router.post("/food/photo-estimates", response_model=PhotoEstimateRead)
 async def estimate_meal_photo(
-    payload: PhotoEstimateInput, actor: ActorDep, settings: Annotated[Settings, Depends(get_settings)]
+    payload: PhotoEstimateInput, actor: ActorDep, service: PhotoServiceDep
 ) -> PhotoEstimateRead:
     """Estimate the foods in a meal photo, for the user to correct before logging any of them.
     Nothing is logged and the photo isn't kept."""
 
-    key = ("photo", actor.actor_id)
-    if settings.rate_limits_enabled:
-        count_attempt((key, PHOTOS_PER_USER), reason="That's a lot of photos for now.", counts=user_limiter)
-    estimate = await estimate_photo(get_coach_model(), payload.image, actor.actor_id)
-    if estimate is None:
-        # Our failure, not the user's photo: it doesn't use up one of theirs.
-        if settings.rate_limits_enabled:
-            user_limiter.undo(key)
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "The photo couldn't be read just now. Please try again."
-        )
+    estimate = await service.estimate(payload.image, actor.actor_id)
     return PhotoEstimateRead(
         items=[PhotoItemRead(**item.model_dump()) for item in estimate.items], note=estimate.note
     )

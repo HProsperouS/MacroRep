@@ -15,19 +15,34 @@ from app.analytics.nutrition import (
     target_gap_kcal,
     targets_by_date,
 )
-from app.analytics.training import average_rpe, completion_percent, planned_sessions
+from app.analytics.training import average_rpe, completion_percent
 from app.analytics.weight import trend_on_or_before
 from app.body.service import trend_by_date
 from app.profile.models import ExperienceLevel, Profile
 from app.profile.repository import ProfileRepository
 from app.profile.service import DEFAULT_TARGETS
+from app.progress.days import logging_counted_from, workouts_planned
 from app.progress.repository import ProgressRepository
 from app.shared.exceptions import Invalid
-from app.shared.timezones import local_date
 
 CHECK_IN_WINDOW_DAYS = 7
 MIN_FOOD_LOG_DAYS = 4
 MIN_WEIGH_INS = 2
+
+
+def _require_enough_data(food_log_days: int, weigh_ins: int) -> None:
+    """Refuse (422) a week with too little logged to judge, saying what's missing."""
+
+    missing: list[str] = []
+    if food_log_days < MIN_FOOD_LOG_DAYS:
+        missing.append(
+            f"log food on at least {MIN_FOOD_LOG_DAYS} of the last {CHECK_IN_WINDOW_DAYS} days "
+            f"({food_log_days} so far)"
+        )
+    if weigh_ins < MIN_WEIGH_INS:
+        missing.append(f"weigh in at least {MIN_WEIGH_INS} times ({weigh_ins} so far)")
+    if missing:
+        raise Invalid(f"Not enough data for a check-in yet: {' and '.join(missing)}.")
 
 
 class WeekSnapshot:
@@ -47,18 +62,7 @@ class WeekSnapshot:
         history = await self.week_data.weigh_ins_up_to(owner_id, end)
         weigh_ins_in_window = [row for row in history if row.log_date >= start]
 
-        missing: list[str] = []
-        if len(calories_by_date) < MIN_FOOD_LOG_DAYS:
-            missing.append(
-                f"log food on at least {MIN_FOOD_LOG_DAYS} of the last {CHECK_IN_WINDOW_DAYS} days "
-                f"({len(calories_by_date)} so far)"
-            )
-        if len(weigh_ins_in_window) < MIN_WEIGH_INS:
-            missing.append(f"weigh in at least {MIN_WEIGH_INS} times ({len(weigh_ins_in_window)} so far)")
-        if missing:
-            raise Invalid(
-                f"Not enough data for a check-in yet: {' and '.join(missing)}.",
-            )
+        _require_enough_data(len(calories_by_date), len(weigh_ins_in_window))
 
         trends = trend_by_date(history)
         # A weigh-in from before the window anchors the start; otherwise the
@@ -81,8 +85,7 @@ class WeekSnapshot:
         # Non-None: the data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days.
         avg_calories = cast(float, average_daily_calories(calories_by_date))
         # Judged from when the user started, as on Progress: days before it weren't missed.
-        signed_up = local_date(profile.created_utc, zone) if profile else start
-        logged_from = max(start, await self.week_data.logging_started(owner_id, signed_up))
+        logged_from = await logging_counted_from(self.week_data, owner_id, profile, start, zone)
         # `end` is today: still being logged, so it's left out of completeness and the target gap.
         statuses = day_statuses(calories_by_date, logged_from, end, target_by_date, end)
         completeness = logging_completeness(statuses.values())
@@ -94,18 +97,7 @@ class WeekSnapshot:
         workouts_done = await self.week_data.workouts_done(owner_id, start, end, zone)
         # Nor were plan days before there was a plan: the workout agent holds back progress when
         # completion looks low, so a plan made mid-week mustn't read as missed sessions.
-        training_started = await self.week_data.training_started(owner_id, zone)
-        workouts_planned = (
-            planned_sessions(
-                await self.week_data.plan_weekdays(owner_id),
-                max(start, training_started),
-                end,
-                end,
-                trained_today=await self.week_data.workouts_done(owner_id, end, end, zone) > 0,
-            )
-            if training_started
-            else 0
-        )
+        planned = await workouts_planned(self.week_data, owner_id, start, end, end, zone)
         rpe_entries = await self.week_data.rpe_entries(owner_id, start, end, zone)
         routines = await self.week_data.scheduled_routines(owner_id)
         return {
@@ -127,8 +119,8 @@ class WeekSnapshot:
             "weight_change_kg": round(trend_end - trend_start, 2),
             "goal_rate_kg_per_week": float(profile.weekly_rate_kg) if profile else 0.0,
             "workouts_done": workouts_done,
-            "workouts_planned": workouts_planned,
-            "completion_percent": completion_percent(workouts_done, workouts_planned),
+            "workouts_planned": planned,
+            "completion_percent": completion_percent(workouts_done, planned),
             "avg_rpe": average_rpe(rpe for _, rpe in rpe_entries),
             # What the workout agent may adjust, and how each exercise has been going.
             "routines": routines,

@@ -16,9 +16,16 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
+from app.profile.service import zone_of
 from app.shared.exceptions import Conflict, Invalid, NotFound, Unavailable
-from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, CHECK_INS_PER_USER, count_attempt, user_limiter
-from app.shared.timezones import local_today, user_zone
+from app.shared.rate_limit import (
+    CHAT_QUESTIONS_PER_USER,
+    CHECK_INS_PER_USER,
+    count_attempt,
+    counted_attempt,
+    user_limiter,
+)
+from app.shared.timezones import local_today
 
 from .agents.chat import (
     CHAT_HISTORY,
@@ -213,7 +220,7 @@ class CoachService:
                 )
 
         profile = await self.profiles.get(actor.actor_id)
-        zone = user_zone(profile.timezone if profile else None)
+        zone = zone_of(profile)
         today = local_today(zone)
         start = today - timedelta(days=CHECK_IN_WINDOW_DAYS - 1)
         # Checked and frozen now, so a lack of data is refused at once and the proposals,
@@ -417,20 +424,14 @@ class CoachService:
         if check_in.status in (CheckInStatus.RUNNING, CheckInStatus.FAILED):
             raise Conflict(CHAT_NOT_READY)
         # Counted from here on, where the paid model call is made.
-        count_key = ("chat", actor.actor_id)
-        if self.rate_limits:
-            count_attempt(
-                (count_key, CHAT_QUESTIONS_PER_USER),
-                reason="That's a lot of questions for now.",
-                counts=user_limiter,
-            )
-        try:
+        with counted_attempt(
+            ("chat", actor.actor_id),
+            CHAT_QUESTIONS_PER_USER,
+            reason="That's a lot of questions for now.",
+            counts=user_limiter,
+            enabled=self.rate_limits,
+        ):
             return await self._answer(check_in, text, actor)
-        except Exception:
-            # Our failure, not the user's: it doesn't use up one of their questions.
-            if self.rate_limits:
-                user_limiter.undo(count_key)
-            raise
 
     async def _answer(self, check_in: CheckInModel, text: str, actor: ActorContext) -> CoachMessage:
         check_in_id = check_in.id

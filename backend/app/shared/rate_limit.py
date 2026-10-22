@@ -11,7 +11,8 @@ from __future__ import annotations
 import math
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from .exceptions import TooMany
@@ -134,6 +135,24 @@ def count_attempt(*checks: Check, reason: str = "Too many attempts.", counts: Ra
         raise TooMany(too_many_message(wait, reason), retry_after=wait)
     for key, limit in checks:
         counts.hit(key, limit)
+
+
+@contextmanager
+def counted_attempt(
+    key: tuple[str, str], limit: Limit, *, reason: str, counts: RateLimiter, enabled: bool = True
+) -> Iterator[None]:
+    """Count one attempt for the block (429 if over ``limit``), given back if the block raises:
+    a failure on our side doesn't use up the user's allowance. Does nothing unless ``enabled``."""
+
+    if not enabled:
+        yield
+        return
+    count_attempt((key, limit), reason=reason, counts=counts)
+    try:
+        yield
+    except Exception:
+        counts.undo(key)
+        raise
 
 
 def too_many_message(seconds: int, reason: str = "Too many attempts.") -> str:

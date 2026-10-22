@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,6 +117,12 @@ def to_daily_targets(target: NutritionTarget) -> DailyTargets:
     )
 
 
+def zone_of(profile: Profile | None) -> ZoneInfo:
+    """The user's timezone; the default before they have a profile."""
+
+    return user_zone(profile.timezone if profile else None)
+
+
 async def record_targets(
     profiles: ProfileRepository,
     profile: Profile,
@@ -135,7 +142,7 @@ async def record_targets(
         protein=targets.protein,
         carbs=targets.carbs,
         fat=targets.fat,
-        effective_date=local_today(user_zone(profile.timezone)),
+        effective_date=local_today(zone_of(profile)),
         source=source,
         proposal_id=proposal_id,
     )
@@ -219,7 +226,7 @@ class ProfileService:
         if not await self.repository.mark_onboarded(profile.user_id, utc_now()):
             raise Conflict("Your profile is already set up. Change it on the Profile page.")
         _apply(profile, payload)
-        today = local_today(user_zone(profile.timezone))
+        today = local_today(zone_of(profile))
         try:
             await self.weigh_ins.upsert(profile.user_id, today, payload.weight_kg)
             await self._set_starting_targets(profile, _stored_targets(payload.targets))
@@ -276,7 +283,7 @@ class ProfileService:
         created = profile.created_utc
         if datetime.now(UTC) - created > _NEW_ACCOUNT:
             return
-        defaults.effective_date = local_today(user_zone(profile.timezone))
+        defaults.effective_date = local_today(zone_of(profile))
 
     async def estimate_targets(
         self, payload: EstimateTargetsInput, actor: ActorContext
@@ -285,7 +292,7 @@ class ProfileService:
         profile that doesn't exist yet isn't created for this."""
 
         profile = await self.repository.get(actor.actor_id)
-        today = local_today(user_zone(profile.timezone if profile else None))
+        today = local_today(zone_of(profile))
         return _estimate(
             payload.weight_kg,
             payload.height_cm,
@@ -310,7 +317,7 @@ class ProfileService:
             raise Conflict(
                 "Add your date of birth, sex and activity level to your profile first.",
             )
-        today = local_today(user_zone(profile.timezone))
+        today = local_today(zone_of(profile))
         latest = await self.weigh_ins.latest(profile.user_id, today)
         if latest is None:
             raise Conflict("Log your weight first: the estimate starts from it.")

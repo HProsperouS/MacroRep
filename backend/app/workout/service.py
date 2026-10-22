@@ -17,8 +17,9 @@ from app.analytics.training import (
 )
 from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
+from app.profile.service import zone_of
 from app.shared.exceptions import Conflict, Invalid, NotFound
-from app.shared.timezones import local_today, user_zone
+from app.shared.timezones import local_today
 from app.shared.validation import MAX_CUSTOM_EXERCISES_PER_USER, MAX_ROUTINES_PER_USER
 
 from .models import Exercise, SetKind, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutSession, WorkoutSetLog
@@ -140,8 +141,7 @@ class WorkoutService:
         self.profiles = profiles
 
     async def _zone(self, actor: ActorContext) -> ZoneInfo:
-        profile = await self.profiles.get(actor.actor_id)
-        return user_zone(profile.timezone if profile else None)
+        return zone_of(await self.profiles.get(actor.actor_id))
 
     async def _last_sessions(
         self, actor: ActorContext, exercise_ids: list[str]
@@ -256,6 +256,12 @@ class WorkoutService:
         if entry is None or entry.owner_id != actor.actor_id:
             raise NotFound("Routine not found")
         return entry
+
+    async def _owned_session(self, actor: ActorContext, session_id: str) -> WorkoutSession:
+        workout_session = await self.sessions.get_session(actor.actor_id, session_id)
+        if workout_session is None:
+            raise NotFound("Workout not found")
+        return workout_session
 
     async def _save_routine_exercises(
         self, entry: WorkoutPlanEntry, payload: SaveRoutineInput
@@ -479,9 +485,7 @@ class WorkoutService:
         return [_history_item(s, sets_by_session.get(s.id, [])) for s in sessions]
 
     async def get_history_detail(self, actor: ActorContext, session_id: str) -> WorkoutDetail:
-        workout_session = await self.sessions.get_session(actor.actor_id, session_id)
-        if workout_session is None:
-            raise NotFound("Workout not found")
+        workout_session = await self._owned_session(actor, session_id)
         sets = await self.sessions.list_sets(actor.actor_id, [workout_session.id])
         return WorkoutDetail(
             **_history_item(workout_session, sets).model_dump(), exercises=_history_exercises(sets)
@@ -492,9 +496,7 @@ class WorkoutService:
     ) -> WorkoutDetail:
         """Replace a logged workout's name and sets; its start and finish times are kept."""
 
-        workout_session = await self.sessions.get_session(actor.actor_id, session_id)
-        if workout_session is None:
-            raise NotFound("Workout not found")
+        workout_session = await self._owned_session(actor, session_id)
         await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
 
         workout_session.name = payload.name
@@ -506,8 +508,6 @@ class WorkoutService:
         return await self.get_history_detail(actor, session_id)
 
     async def delete_session(self, actor: ActorContext, session_id: str) -> None:
-        workout_session = await self.sessions.get_session(actor.actor_id, session_id)
-        if workout_session is None:
-            raise NotFound("Workout not found")
+        workout_session = await self._owned_session(actor, session_id)
         await self.sessions.delete_session(workout_session)
         await self.session.commit()

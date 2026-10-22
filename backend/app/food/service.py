@@ -173,6 +173,12 @@ class FoodService:
             raise NotFound("Food not found")
         return food
 
+    async def _owned_entry(self, entry_id: str, actor: ActorContext) -> FoodEntry:
+        entry = await self.entries.get_owned(entry_id, actor.actor_id)
+        if entry is None:
+            raise NotFound("Food log entry not found")
+        return entry
+
     async def add_entry(self, payload: CreateFoodEntryInput, actor: ActorContext) -> FoodEntryRead:
         entry = FoodEntry(owner_id=actor.actor_id, log_date=payload.date, meal=payload.meal)
         if payload.food_id is not None:
@@ -195,9 +201,7 @@ class FoodService:
     async def update_entry(
         self, entry_id: str, payload: UpdateFoodEntryInput, actor: ActorContext
     ) -> FoodEntryRead:
-        entry = await self.entries.get_owned(entry_id, actor.actor_id)
-        if entry is None:
-            raise NotFound("Food log entry not found")
+        entry = await self._owned_entry(entry_id, actor)
 
         if entry.food_id is not None:
             if payload.entered_values():
@@ -236,8 +240,6 @@ class FoodService:
         return _to_entry_read(entry)
 
     async def remove_entry(self, entry_id: str, actor: ActorContext) -> None:
-        entry = await self.entries.get_owned(entry_id, actor.actor_id)
-        if entry is None:
-            raise NotFound("Food log entry not found")
+        entry = await self._owned_entry(entry_id, actor)
         await self.entries.remove(entry)
         await self.session.commit()
