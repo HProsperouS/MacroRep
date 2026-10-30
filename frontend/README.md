@@ -93,15 +93,16 @@ frontend/
 │   ├── api/                # axios client and typed endpoint modules
 │   ├── components/
 │   │   ├── ui/             # shadcn-generated primitives
-│   │   ├── layout/         # App shell, sidebar, bottom tab bar, page header
+│   │   ├── layout/         # App shell, sidebar, bottom tab bar, page header, overlays
 │   │   ├── charts/         # Calorie ring, macro bars, weight trend, volume
 │   │   ├── food/           # Meal sections, food rows, quick add, custom food
 │   │   ├── workout/        # Exercise card, set rows, rest timer
 │   │   ├── coach/          # Check-in pipeline, proposal cards, chat
 │   │   └── progress/       # Stat tiles, lift rows, check-in history
-│   ├── hooks/              # Reusable hooks (use-media-query, data hooks)
-│   ├── lib/                # Utilities (cn, macro maths, formatting, auth)
+│   ├── hooks/              # Reusable hooks (use-media-query, data hooks); __mocks__/ for tests
+│   ├── lib/                # Pure, tested logic (reducers for the live workout and routine editor, macro maths, formatting, auth)
 │   ├── pages/              # One component per route
+│   ├── test/               # Test setup, render helpers and shared fixtures
 │   ├── types/              # Shared TypeScript types
 │   ├── App.tsx             # Routes
 │   ├── main.tsx            # Providers and entry point
@@ -118,4 +119,8 @@ Conventions:
 - File names are kebab-case (`app-shell.tsx`); components are PascalCase.
 - Import from `src` with the `@/` alias.
 - Unit tests sit next to the file they test (`macros.test.ts`).
-- Layout responds to Tailwind breakpoints: `md` (768px) switches mobile → desktop.
+- Layout responds to Tailwind breakpoints: `md` (768px) swaps the bottom tab bar for the sidebar;
+  `lg` (1024px) opens side panels and dialogs instead of bottom drawers.
+- Every overlay goes through `ResponsiveOverlay`, and every confirmation through `ConfirmOverlay`.
+- Tests render with `renderWithQuery` / `renderPage` (`src/test/render.tsx`) and reuse the fixtures
+  in `src/test/`; `vi.mock("@/hooks/use-media-query")` gives a page its desktop layout.

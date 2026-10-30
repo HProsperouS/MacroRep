@@ -63,9 +63,12 @@ How it's organised (`frontend/src`):
   that attaches the access token and refreshes it on a 401.
 - `hooks/`: TanStack Query hooks; mutations invalidate the queries they affect.
 - `lib/`: pure logic with its own tests, e.g. the live workout reducer
-  (`workout-session.ts`), the workout clock, and the proposal edit limits.
+  (`workout-session.ts`), the routine editor's reducer (`routine-draft.ts`), the workout
+  clock, and the proposal edit limits.
 - `components/` and `pages/`: UI. Forms use React Hook Form with Zod schemas that mirror
-  the backend's limits.
+  the backend's limits. Every overlay goes through `ResponsiveOverlay` (a dialog on
+  desktop, a bottom drawer below 1024px), and every "are you sure?" through
+  `ConfirmOverlay`.
 
 **State.** Server data lives in the TanStack Query cache. The one piece of client-only
 state that matters is the workout in progress: kept in `localStorage`, so it survives a
@@ -91,7 +94,7 @@ Each module under `backend/app/` follows the same layout: `models.py` (tables),
 | `auth` | (users' password and refresh-token columns) | Register, log in, refresh-token rotation, log out |
 | `identity` | `users` | Resolves the current user from the bearer token |
 | `profile` | `profiles`, `nutrition_targets` | Profile, timezone, versioned daily targets |
-| `food` | `foods`, `food_entries` | Food catalog and the daily food log |
+| `food` | `foods`, `food_entries` | Food catalog, the daily food log, meal-photo estimates |
 | `body` | `weigh_ins` | Weigh-ins and the trend weight |
 | `workout` | `exercises`, routines, schedule, sessions, sets | Validated built-in catalog plus private custom exercises, routines, weekly schedule, logged workouts |
 | `progress` | (none: reads the others) | Dashboard figures, and the week's data a check-in needs |
@@ -101,7 +104,26 @@ Each module under `backend/app/` follows the same layout: `models.py` (tables),
 
 Modules call each other through repositories and services, never through HTTP. `progress`
 is a read model over the other modules' tables, so dashboard queries aren't scattered as
-special cases across every module.
+special cases across every module. Which days count (logging before sign-up isn't missed,
+nor are plan days before the first plan) is decided once, in `progress/days.py`, and used
+by Progress, Home and the check-in alike.
+
+Services know nothing of HTTP. They refuse a request by raising a domain error from
+`app/shared/exceptions.py` (`NotFound`, `Conflict`, `Invalid`, `Unauthorized`,
+`Unavailable`, `TooMany`); one handler in `app/shared/errors.py` turns each into its status
+code (404, 409, 422, 401, 503, 429 with `Retry-After`).
+
+The `coach` module is split by job:
+
+| File | Job |
+|---|---|
+| `service.py` | Starting and reading check-ins, proposal decisions, Coach Chat |
+| `snapshot.py` | Gathering and freezing the week's figures, and refusing a week with too little data |
+| `apply.py` | Writing an accepted proposal to the targets or routine (`ProposalApplier`) |
+| `pipeline.py` | The check-in's output contract, and the week's summary and stats |
+| `runner.py` | Background generation, resuming interrupted runs at start-up, stopping them at shutdown |
+| `factory.py` | Building the service and its dependencies, for a request or a background run |
+| `agents/` | The agents, the model providers and the limits ([agents.md](agents.md)) |
 
 ### Request path
 
@@ -112,7 +134,8 @@ special cases across every module.
    Validation errors return `{"message", "detail"}` without echoing the input.
 3. **Identity**: the bearer token is verified and the user resolved. Every repository
    query is scoped to that user's id, so another user's data reads as not found (404).
-4. **Service**: the domain rules, in one transaction per request.
+4. **Service**: the domain rules, in one transaction per request. A refusal is a domain
+   error, answered as `{"detail"}` with its status code.
 
 ### Dates and time zones
 

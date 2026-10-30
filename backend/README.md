@@ -12,11 +12,11 @@ backend/
 │   ├── main.py            # FastAPI entry point and middleware
 │   ├── demo_seed.py        # idempotent local demo seed
 │   ├── core/                # typed configuration and DB session
-│   ├── shared/               # logging, correlation IDs, persistence base, camelCase schema base
+│   ├── shared/               # logging, correlation IDs, persistence base, camelCase schema base, domain errors, rate limits
 │   ├── identity/              # current-actor resolution (self-issued JWT or local preview header)
 │   ├── auth/                   # registration, login, refresh-token rotation, logout
 │   ├── profile/                 # fitness profile and nutrition targets
-│   ├── food/                     # food catalog and daily food log
+│   ├── food/                     # food catalog, daily food log, meal-photo estimates
 │   ├── workout/                    # built-in/custom exercise catalog, weekly plan, logged sessions
 │   ├── body/                        # weigh-ins and trend-weight calculation
 │   ├── progress/                     # read-model composing the above into dashboard charts
@@ -24,13 +24,21 @@ backend/
 │   ├── coach/                          # check-ins, proposals, chat; agents/ is the LangGraph flow
 │   └── health/                          # liveness/readiness/version
 ├── migrations/             # Alembic schema migrations
-├── tests/                  # API, validation and formula tests (on PostgreSQL)
+├── tests/                  # API, validation and formula tests (on PostgreSQL); helpers.py and fakes.py are shared
 ├── pyproject.toml
 └── Dockerfile
 ```
 
 Each domain normally owns `models.py`, `schemas.py`, `repository.py`,
-`service.py`, and `router.py`.
+`service.py`, and `router.py`. Services don't import FastAPI: they refuse a request
+with a domain error from `app/shared/exceptions.py` (`NotFound`, `Conflict`,
+`Invalid`, ...), which `app/shared/errors.py` turns into its HTTP status. The coach
+module is split further by job (snapshot, apply, runner, factory); see
+[`docs/architecture.md`](../docs/architecture.md#modules).
+
+Tests share their setup instead of copying it: `tests/helpers.py` registers users and
+logs food, weigh-ins and workouts through the API, and `tests/fakes.py` is a scripted
+coach model for the agent, chat, revision and photo tests.
 
 `app/workout/catalog.py` and `app/food/catalog.py` are the validated, append-only
 sources for the built-in exercise and food libraries. Their Alembic data migrations

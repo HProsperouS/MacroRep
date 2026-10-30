@@ -80,7 +80,7 @@ Order matters: the reviewer's holds apply first, then the conflict rule, so a cu
 reviewer held back doesn't also hold back training.
 
 The same limits apply again when the user **applies** a proposal, edited or not
-(`training_change_error`, and the nutrition checks in `CoachService`). On top of that,
+(`training_change_error`, and the nutrition checks in `ProposalApplier`, `app/coach/apply.py`). On top of that,
 applying is refused (409) when what the proposal was based on has changed: the targets
 have a newer version, or the routine was saved again since the check-in. All of a
 proposal's changes are applied, or none.
