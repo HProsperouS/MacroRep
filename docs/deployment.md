@@ -15,8 +15,8 @@ document turns that section into steps and adds what the code needs since it was
 | Migrations | `alembic upgrade head`, the same backend image | A one-off ECS task, run before each backend release |
 
 The check-in agents run inside the backend process (a background task per check-in), so
-there is no separate worker or queue. No object storage is needed yet: nothing stores
-files (food-photo analysis, which would, isn't built).
+there is no separate worker or queue. No object storage is needed: nothing stores files
+(a meal photo goes to the model and is dropped, never kept).
 
 ## Topology
 
