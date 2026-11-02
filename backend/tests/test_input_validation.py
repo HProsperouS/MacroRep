@@ -491,9 +491,9 @@ def test_nul_bytes_in_urls_are_refused(client: TestClient, headers: dict[str, st
 
 
 def test_text_is_stored_trimmed(client: TestClient, headers: dict[str, str]) -> None:
-    response = client.put("/api/v1/profile", headers=headers, json={**PROFILE, "name": "  Alex Tan  "})
+    response = client.put("/api/v1/profile", headers=headers, json={**PROFILE, "name": "  Alex Yau  "})
     assert response.status_code == 200
-    assert response.json()["name"] == "Alex Tan"
+    assert response.json()["name"] == "Alex Yau"
 
 
 @pytest.mark.parametrize(

@@ -39,8 +39,8 @@ from app.workout.schemas import FinishWorkoutExercise, FinishWorkoutInput, Logge
 from app.workout.service import WorkoutService
 
 DEMO_USER_ID = "USR-DEMO"
-DEMO_USER_EMAIL = "alex.tan@example.com"
-DEMO_USER_PASSWORD = "macrorep-demo"
+DEMO_USER_EMAIL = "alex.yau@example.com"
+DEMO_USER_PASSWORD = "nailong"
 
 # The presenter's zone: the browser would set it at sign-in anyway, and every date below hangs on it.
 DEMO_TIMEZONE = "Asia/Singapore"
@@ -151,7 +151,7 @@ async def seed_demo_data() -> None:
             session.add(
                 User(
                     id=DEMO_USER_ID,
-                    name="Alex Tan",
+                    name="Alex Yau",
                     email=DEMO_USER_EMAIL,
                     password_hash=hash_password(DEMO_USER_PASSWORD),
                     status=UserStatus.ACTIVE,
@@ -163,7 +163,7 @@ async def seed_demo_data() -> None:
             session.add(
                 Profile(
                     user_id=DEMO_USER_ID,
-                    name="Alex Tan",
+                    name="Alex Yau",
                     height_cm=175,
                     goal=Goal.LOSE,
                     weekly_rate_kg=-0.5,
@@ -339,7 +339,7 @@ async def seed_demo_history() -> None:
 
         zone = ZoneInfo(DEMO_TIMEZONE)
         today = local_today(zone)
-        actor = ActorContext(actor_id=DEMO_USER_ID, display_name="Alex Tan")
+        actor = ActorContext(actor_id=DEMO_USER_ID, display_name="Alex Yau")
 
         profile = await session.get(Profile, DEMO_USER_ID)
         assert profile is not None  # seed_demo_data made it

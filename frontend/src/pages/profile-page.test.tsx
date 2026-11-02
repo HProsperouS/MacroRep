@@ -64,13 +64,13 @@ describe("ProfilePage", () => {
     const name = await screen.findByLabelText("Name")
     expect(screen.getByRole("button", { name: "Save profile" })).toBeDisabled()
     await user.clear(name)
-    await user.type(name, "Alex Tan")
+    await user.type(name, "Alex Yau")
     await user.click(screen.getByRole("radio", { name: "Advanced" }))
     await user.click(screen.getByRole("button", { name: "Save profile" }))
 
     await waitFor(() =>
       expect(profileApi.updateProfile).toHaveBeenCalledWith({
-        name: "Alex Tan",
+        name: "Alex Yau",
         heightCm: 178,
         goal: "lose",
         weeklyRateKg: -0.5,

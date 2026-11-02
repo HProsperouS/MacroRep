@@ -13,8 +13,8 @@ def test_get_profile_seeded(client: TestClient, auth_headers: dict[str, str]) ->
     response = client.get("/api/v1/profile", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()
-    assert body["name"] == "Alex Tan"
-    assert body["email"] == "alex.tan@example.com"
+    assert body["name"] == "Alex Yau"
+    assert body["email"] == "alex.yau@example.com"
     assert body["goal"] == "lose"
     assert body["experienceLevel"] == "intermediate"
 

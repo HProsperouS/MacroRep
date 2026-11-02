@@ -18,15 +18,25 @@ describe("AuthForm", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }))
 
     expect(await screen.findByText("Enter your email")).toBeInTheDocument()
-    expect(screen.getByText("Use at least 8 characters")).toBeInTheDocument()
+    expect(screen.getByText("Enter your password")).toBeInTheDocument()
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
-  it("rejects a malformed email and a short password", async () => {
+  it("signs in with a password shorter than a new one must be", async () => {
     const { user, onSubmit } = renderForm("login")
-    await user.type(screen.getByLabelText("Email"), "not-an-email")
+    await user.type(screen.getByLabelText("Email"), "alex@example.com")
     await user.type(screen.getByLabelText("Password"), "short")
     await user.click(screen.getByRole("button", { name: "Sign in" }))
+
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ email: "alex@example.com", password: "short" })
+  })
+
+  it("rejects a malformed email and a short password when registering", async () => {
+    const { user, onSubmit } = renderForm("register")
+    await user.type(screen.getByLabelText("Email"), "not-an-email")
+    await user.type(screen.getByLabelText("Password"), "short")
+    await user.click(screen.getByRole("button", { name: "Create account" }))
 
     expect(await screen.findByText("Enter a valid email")).toBeInTheDocument()
     expect(screen.getByText("Use at least 8 characters")).toBeInTheDocument()

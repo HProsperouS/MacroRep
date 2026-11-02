@@ -26,7 +26,7 @@ const authSchema = (mode: AuthMode) =>
       email: z.string().trim().min(1, "Enter your email").email("Enter a valid email"),
       password: z
         .string()
-        .min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`)
+        .min(mode === "register" ? MIN_PASSWORD_LENGTH : 1, mode === "register" ? `Use at least ${MIN_PASSWORD_LENGTH} characters` : "Enter your password")
         .max(128, "Keep it under 128 characters"),
     })
     .refine((values) => mode === "login" || values.name.length > 0, {

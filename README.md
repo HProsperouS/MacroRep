@@ -36,8 +36,8 @@ This builds and starts 3 containers:
 On first boot, the backend seeds one demo account with four weeks of food, weigh-ins
 and workouts, so Progress has something to show and a check-in can start right away:
 
-- **Email:** `alex.tan@example.com`
-- **Password:** `macrorep-demo`
+- **Email:** `alex.yau@example.com`
+- **Password:** `nailong`
 
 Open http://localhost:5173, sign in with that account (or register your own —
 registration works for real, against the real database).
