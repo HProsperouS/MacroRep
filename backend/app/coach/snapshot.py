@@ -17,6 +17,7 @@ from app.analytics.nutrition import (
 )
 from app.analytics.training import average_rpe, completion_percent
 from app.analytics.weight import trend_on_or_before
+from app.body.models import WeighIn
 from app.body.service import trend_by_date
 from app.profile.models import ExperienceLevel, Profile
 from app.profile.repository import ProfileRepository
@@ -68,6 +69,24 @@ class WeekSnapshot:
         if missing and not routines:
             raise Invalid(f"Not enough data for a check-in yet: {' and '.join(missing)}.")
         nutrition_skipped = f"{' and '.join(missing).capitalize()} for a calorie review." if missing else None
+        _require_enough_data(len(calories_by_date), len(weigh_ins_in_window))
+
+        return {
+            "period_start": start.isoformat(),
+            "period_end": end.isoformat(),
+            **self._weight_change(history, weigh_ins_in_window, start, profile),
+            **await self._intake(owner_id, profile, start, end, zone, calories_by_date),
+            **await self._training(owner_id, start, end, zone),
+            # A profile not made yet would start as a beginner.
+            "experience_level": (profile.experience_level if profile else ExperienceLevel.BEGINNER).value,
+            "goal": profile.goal.value if profile else "maintain",
+        }
+
+    def _weight_change(
+        self, history: list[WeighIn], weigh_ins_in_window: list[WeighIn], start: date, profile: Profile | None
+    ) -> dict[str, object]:
+        """The week's weight change, trend to trend: a weigh-in from before the window
+        anchors the start, otherwise the window's own first reading does."""
 
         weight_change: float | None = None
         if len(weigh_ins_in_window) >= MIN_WEIGH_INS:
@@ -80,6 +99,33 @@ class WeekSnapshot:
             weight_change = round(trends[weigh_ins_in_window[-1].log_date] - trend_start, 2)
 
         # Each day is judged against the target in effect that day; proposals start from today's.
+        trends = trend_by_date(history)
+        trend_start = trend_on_or_before(trends, start)
+        if trend_start is None:
+            trend_start = trends[weigh_ins_in_window[0].log_date]
+        trend_end = trends[weigh_ins_in_window[-1].log_date]
+        return {
+            "weigh_ins": len(weigh_ins_in_window),
+            "weight_change_kg": round(trend_end - trend_start, 2),
+            "goal_rate_kg_per_week": float(profile.weekly_rate_kg) if profile else 0.0,
+        }
+
+    async def _intake(
+        self,
+        owner_id: str,
+        profile: Profile | None,
+        start: date,
+        end: date,
+        zone: ZoneInfo,
+        calories_by_date: dict[date, int],
+    ) -> dict[str, object]:
+        """The food side of the week: the target in effect each day, how fully the week
+        was logged, and how close the logged days came to their own day's target.
+
+        Each day is judged against the target in effect that day; proposals start
+        from today's. ``end`` is still being logged, so it's left out of the average,
+        the completeness and the gap."""
+
         target_versions = await self.profiles.target_history(owner_id)
         current_targets = target_versions[-1] if target_versions else None
         target_by_date = targets_by_date(
@@ -93,9 +139,13 @@ class WeekSnapshot:
         # data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days, so a finished one.
         # None on a week with no food logged (a training-only check-in).
         avg_calories = average_daily_calories({day: kcal for day, kcal in calories_by_date.items() if day != end})
+        # Non-None: the data gate in ``gather`` guarantees at least MIN_FOOD_LOG_DAYS logged
+        # days besides `end`, so a finished one.
+        avg_calories = cast(
+            float, average_daily_calories({day: kcal for day, kcal in calories_by_date.items() if day != end})
+        )
         # Judged from when the user started, as on Progress: days before it weren't missed.
         logged_from = await logging_counted_from(self.week_data, owner_id, profile, start, zone)
-        # `end` is today: still being logged, so it's left out of completeness and the target gap.
         statuses = day_statuses(calories_by_date, logged_from, end, target_by_date, end)
         completeness = logging_completeness(statuses.values())
         finished_logged = [
@@ -115,6 +165,8 @@ class WeekSnapshot:
             "nutrition_skipped": nutrition_skipped,
             "avg_calories": round(avg_calories, 1) if avg_calories is not None else None,
             "target_calories": target_calories,
+            "avg_calories": round(avg_calories, 1),
+            "target_calories": round(target_by_date[end]),
             # The targets version the proposals were made against; applying one checks it is still current.
             "target_version": current_targets.version if current_targets else None,
             "food_log_days": len(calories_by_date),
@@ -128,6 +180,21 @@ class WeekSnapshot:
             "weigh_ins": len(weigh_ins_in_window),
             "weight_change_kg": weight_change,
             "goal_rate_kg_per_week": float(profile.weekly_rate_kg) if profile else 0.0,
+        }
+
+    async def _training(
+        self, owner_id: str, start: date, end: date, zone: ZoneInfo
+    ) -> dict[str, object]:
+        """The training side of the week: sessions done against planned, effort, and how
+        each exercise in the scheduled routines has been going. Plan days before the
+        user first had a plan weren't missed: the workout agent holds back progress when
+        completion looks low, so a plan made mid-week mustn't read as missed sessions."""
+
+        workouts_done = await self.week_data.workouts_done(owner_id, start, end, zone)
+        planned = await workouts_planned(self.week_data, owner_id, start, end, end, zone)
+        rpe_entries = await self.week_data.rpe_entries(owner_id, start, end, zone)
+        routines = await self.week_data.scheduled_routines(owner_id)
+        return {
             "workouts_done": workouts_done,
             "workouts_planned": planned,
             "completion_percent": completion_percent(workouts_done, planned),
@@ -147,7 +214,4 @@ class WeekSnapshot:
                 end,
                 zone,
             ),
-            # A profile not made yet would start as a beginner.
-            "experience_level": (profile.experience_level if profile else ExperienceLevel.BEGINNER).value,
-            "goal": profile.goal.value if profile else "maintain",
         }
