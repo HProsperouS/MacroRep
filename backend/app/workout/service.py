@@ -215,12 +215,10 @@ class WorkoutService:
 
     async def get_week_plan(self, actor: ActorContext) -> list[WeekPlanDay]:
         schedule = {row.day_of_week: row.routine_id for row in await self.plans.list_schedule(actor.actor_id)}
-        entries = [
-            entry
-            for entry in await self.plans.list_for_owner(actor.actor_id)
-            if entry.id in schedule.values()
-        ]
-        planned = await self._planned_workouts(actor, entries)
+        # Only the routines the week uses; the unscheduled ones are the Routine list's.
+        planned = await self._planned_workouts(
+            actor, list((await self.plans.get_many(list(schedule.values()))).values())
+        )
         return [
             WeekPlanDay(day_of_week=day, plan=planned.get(schedule[day]) if day in schedule else None)
             for day in range(7)

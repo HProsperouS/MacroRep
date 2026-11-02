@@ -140,6 +140,16 @@ class WorkoutPlanRepository:
     async def get(self, plan_entry_id: str) -> WorkoutPlanEntry | None:
         return await self.session.get(WorkoutPlanEntry, plan_entry_id)
 
+    async def get_many(self, plan_entry_ids: list[str]) -> dict[str, WorkoutPlanEntry]:
+        """Several routines by id, keyed by id, leaving out any that don't exist."""
+
+        if not plan_entry_ids:
+            return {}
+        rows = await self.session.scalars(
+            select(WorkoutPlanEntry).where(WorkoutPlanEntry.id.in_(plan_entry_ids))
+        )
+        return {row.id: row for row in rows}
+
     async def list_for_owner(self, owner_id: str) -> list[WorkoutPlanEntry]:
         return list(
             await self.session.scalars(
