@@ -20,7 +20,13 @@ from app.analytics.nutrition import (
     target_gap_kcal,
     targets_by_date,
 )
-from app.analytics.training import average_rpe_by_week, completion_percent, percent_change, week_start
+from app.analytics.training import (
+    average_rpe_by_week,
+    completion_percent,
+    percent_change,
+    week_start,
+    weekly_volume_kg,
+)
 from app.analytics.weight import rate_per_week
 from app.body.models import WeighIn
 from app.body.service import trend_by_date
@@ -84,6 +90,7 @@ class ProgressService:
         earliest = history[0].log_date if history else None
         date_from, date_to = self._resolve_range(progress_range, earliest, today)
         adherence_percent, logging = await self._logging(owner_id, profile, date_from, date_to, today, zone)
+        volume, rpe = await self._training_loads(owner_id, date_from, date_to, today, zone)
         return ProgressResponse(
             range=progress_range,
             **{"from": date_from, "to": date_to},
@@ -91,8 +98,8 @@ class ProgressService:
             adherence_percent=adherence_percent,
             logging=logging,
             workouts=await self._workouts(owner_id, date_from, date_to, today, zone),
-            volume=await self._volume(owner_id, date_from, date_to, today, zone),
-            rpe=await self._rpe(owner_id, today, zone),
+            volume=volume,
+            rpe=rpe,
             strength=await self._strength(owner_id, date_from, date_to, zone),
             check_ins=await self._check_ins(owner_id, date_from, date_to, zone),
         )
@@ -175,41 +182,57 @@ class ProgressService:
             done=done, planned=planned, completion_percent=completion_percent(done, planned)
         )
 
-    async def _volume(
+    async def _training_loads(
         self, owner_id: str, date_from: date, date_to: date, today: date, zone: ZoneInfo
-    ) -> VolumeSummary:
-        weekly_volume = await self.repository.weekly_volume(owner_id, date_from, date_to, zone)
-        weekly_rpe = average_rpe_by_week(
-            await self.repository.rpe_entries(owner_id, date_from, date_to, zone)
+    ) -> tuple[VolumeSummary, RpeSummary]:
+        """Weekly volume and average RPE, each from one query.
+
+        Both read the same tables: the range's weeks for the chart, and the two
+        weeks before it for how training changed — windows that mostly overlap.
+        Fetch each once over the earlier of the two, and pick out the days each
+        part needs, rather than querying the range and then its tail again.
+        """
+
+        this_week = week_start(today)
+        last_week = this_week - timedelta(days=7)
+        week_before = last_week - timedelta(days=7)
+        fetch_from = min(date_from, week_before)
+        volume_rows = await self.repository.volume_entries(owner_id, fetch_from, today, zone)
+        rpe_rows = await self.repository.rpe_entries(owner_id, fetch_from, today, zone)
+
+        range_volume = weekly_volume_kg(
+            (day, weight_kg, reps) for day, weight_kg, reps in volume_rows if date_from <= day <= date_to
+        )
+        range_rpe = average_rpe_by_week(
+            (day, rpe) for day, rpe in rpe_rows if date_from <= day <= date_to
         )
         weeks = [
-            VolumeWeek(week_start=week, tonnes=round(kg / 1000, 2), avg_rpe=weekly_rpe.get(week))
-            for week, kg in sorted(weekly_volume.items())
+            VolumeWeek(week_start=week, tonnes=round(kg / 1000, 2), avg_rpe=range_rpe.get(week))
+            for week, kg in sorted(range_volume.items())
         ]
-        # Queried on their own rather than read from `weekly_volume`, so the
-        # comparison doesn't depend on the selected range covering both weeks.
-        last_week = week_start(today) - timedelta(days=7)
-        week_before = last_week - timedelta(days=7)
-        recent_volume = await self.repository.weekly_volume(
-            owner_id, week_before, last_week + timedelta(days=6), zone
+        # The change is measured from the same rows: the two weeks before this one,
+        # whether or not the selected range covers them.
+        recent_volume = weekly_volume_kg(
+            (day, weight_kg, reps)
+            for day, weight_kg, reps in volume_rows
+            if week_before <= day <= last_week + timedelta(days=6)
         )
         last_week_kg = recent_volume.get(last_week, 0.0)
-        return VolumeSummary(
+        volume = VolumeSummary(
             weeks=weeks,
             average_tonnes=round(sum(w.tonnes for w in weeks) / len(weeks), 2) if weeks else 0.0,
             last_week_tonnes=round(last_week_kg / 1000, 2),
             change_percent=percent_change(recent_volume.get(week_before, 0.0), last_week_kg),
         )
 
-    async def _rpe(self, owner_id: str, today: date, zone: ZoneInfo) -> RpeSummary:
         # Unlike volume (a total, which a half-finished week understates), RPE is an
         # average, so the current week is meaningful as soon as one set has an RPE.
-        this_week = week_start(today)
-        last_week = this_week - timedelta(days=7)
-        recent_rpe = average_rpe_by_week(await self.repository.rpe_entries(owner_id, last_week, today, zone))
+        recent_rpe = average_rpe_by_week(
+            (day, rpe) for day, rpe in rpe_rows if last_week <= day <= today
+        )
         this_week_rpe = recent_rpe.get(this_week)
         last_week_rpe = recent_rpe.get(last_week)
-        return RpeSummary(
+        rpe = RpeSummary(
             this_week_avg=this_week_rpe,
             change=(
                 round(this_week_rpe - last_week_rpe, 1)
@@ -217,6 +240,7 @@ class ProgressService:
                 else None
             ),
         )
+        return volume, rpe
 
     async def _strength(
         self, owner_id: str, date_from: date, date_to: date, zone: ZoneInfo

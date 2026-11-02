@@ -23,7 +23,6 @@ from app.analytics.training import (
     average_rpe,
     estimated_one_rep_max,
     estimated_one_rep_max_sql,
-    weekly_volume_kg,
 )
 from app.body.models import WeighIn
 from app.coach.models import CheckIn, CheckInStatus
@@ -127,10 +126,11 @@ class ProgressRepository:
         rows = await self.session.execute(statement)
         return [(local_date(started_at, zone), float(rpe)) for rpe, started_at in rows]
 
-    async def weekly_volume(
+    async def volume_entries(
         self, owner_id: str, start: date_, end: date_, zone: ZoneInfo
-    ) -> dict[date_, float]:
-        """Working-set volume (kg) per week, keyed by the week's Monday."""
+    ) -> list[tuple[date_, float, int]]:
+        """(session date, weight kg, reps) of each working set logged in the window,
+        in no particular order; the caller groups them (by week, over whatever days)."""
 
         since, until = utc_bounds(start, end, zone)
         statement = (
@@ -144,9 +144,9 @@ class ProgressRepository:
             )
         )
         rows = await self.session.execute(statement)
-        return weekly_volume_kg(
+        return [
             (local_date(started_at, zone), float(weight_kg), reps) for weight_kg, reps, started_at in rows
-        )
+        ]
 
     async def strength_lifts(
         self, owner_id: str, start: date_, end: date_, zone: ZoneInfo
