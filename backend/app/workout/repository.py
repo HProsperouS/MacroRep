@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import cast as cast_
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import estimated_one_rep_max_sql
@@ -178,20 +179,21 @@ class WorkoutPlanRepository:
         )
 
     async def set_day(self, owner_id: str, day_of_week: int, routine_id: str) -> None:
-        """Schedule a routine on a weekday, replacing whatever was there."""
+        """Schedule a routine on a weekday, replacing whatever was there.
 
-        existing = await self.session.scalar(
-            select(WorkoutScheduleDay).where(
-                WorkoutScheduleDay.owner_id == owner_id, WorkoutScheduleDay.day_of_week == day_of_week
+        One INSERT ... ON CONFLICT UPDATE, not a SELECT then a write: two
+        requests scheduling the same day at once can't both land their own row.
+        """
+
+        statement = (
+            pg_insert(WorkoutScheduleDay)
+            .values(owner_id=owner_id, day_of_week=day_of_week, routine_id=routine_id)
+            .on_conflict_do_update(
+                index_elements=[WorkoutScheduleDay.owner_id, WorkoutScheduleDay.day_of_week],
+                set_={"routine_id": routine_id},
             )
         )
-        if existing is None:
-            self.session.add(
-                WorkoutScheduleDay(owner_id=owner_id, day_of_week=day_of_week, routine_id=routine_id)
-            )
-        else:
-            existing.routine_id = routine_id
-        await self.session.flush()
+        await self.session.execute(statement)
 
     async def clear_day(self, owner_id: str, day_of_week: int) -> None:
         await self.session.execute(
