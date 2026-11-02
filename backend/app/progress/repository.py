@@ -19,7 +19,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.training import average_rpe, estimated_one_rep_max, weekly_volume_kg
+from app.analytics.training import (
+    average_rpe,
+    estimated_one_rep_max,
+    estimated_one_rep_max_sql,
+    weekly_volume_kg,
+)
 from app.body.models import WeighIn
 from app.coach.models import CheckIn, CheckInStatus
 from app.food.models import FoodEntry
@@ -146,15 +151,23 @@ class ProgressRepository:
     async def strength_lifts(
         self, owner_id: str, start: date_, end: date_, zone: ZoneInfo
     ) -> dict[str, tuple[float, float]]:
-        """Best estimated 1RM per exercise at the start vs. the end of the range."""
+        """Best estimated 1RM per exercise at the start vs. the end of the range.
 
-        _, until = utc_bounds(start, end, zone)
+        Aggregated in the database, one row per exercise, rather than read as a
+        row per logged set. The "before" side needs all of history up to the
+        range — the best lift before a range is from whenever it was set — but
+        only its max crosses the wire, not every set under it. ``since`` splits
+        before from current exactly as ``local_date`` would, both being the
+        range's own days in the user's zone.
+        """
+
+        since, until = utc_bounds(start, end, zone)
+        e1rm = estimated_one_rep_max_sql(WorkoutSetLog.weight_kg, WorkoutSetLog.reps)
         statement = (
             select(
                 WorkoutSetLog.exercise_name,
-                WorkoutSetLog.weight_kg,
-                WorkoutSetLog.reps,
-                WorkoutSession.started_at,
+                func.max(e1rm).filter(WorkoutSession.started_at < since),
+                func.max(e1rm).filter(WorkoutSession.started_at >= since),
             )
             .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
             .where(
@@ -162,18 +175,17 @@ class ProgressRepository:
                 WorkoutSetLog.kind != SetKind.WARMUP,
                 WorkoutSession.started_at < until,
             )
+            .group_by(WorkoutSetLog.exercise_name)
         )
-        rows = await self.session.execute(statement)
-        before: dict[str, float] = {}
-        current: dict[str, float] = {}
-        midpoint = start
-        for name, weight_kg, reps, started_at in rows:
-            e1rm = estimated_one_rep_max(float(weight_kg), reps)
-            if e1rm is None:
+        lifts: dict[str, tuple[float, float]] = {}
+        for name, before, current in await self.session.execute(statement):
+            if current is None:
+                # Nothing qualifying was lifted within the range, so the
+                # Python-read version left the exercise out entirely.
                 continue
-            bucket = before if local_date(started_at, zone) < midpoint else current
-            bucket[name] = max(bucket.get(name, 0.0), e1rm)
-        return {name: (before.get(name, current[name]), current[name]) for name in current}
+            current = float(current)
+            lifts[name] = (float(before) if before is not None else current, current)
+        return lifts
 
     async def check_ins_in_range(
         self, owner_id: str, start: date_, end: date_, zone: ZoneInfo
