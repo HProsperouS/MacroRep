@@ -1,4 +1,4 @@
-"""Check-in creation and retrieval, proposal decisions, and coach chat."""
+"""Check-in creation and retrieval, proposal decisions, and the chat's gating."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
 from app.profile.service import zone_of
-from app.shared.exceptions import Conflict, Invalid, NotFound, Unavailable
+from app.shared.exceptions import Conflict, Invalid, NotFound
 from app.shared.rate_limit import (
     CHAT_QUESTIONS_PER_USER,
     CHECK_INS_PER_USER,
@@ -27,23 +27,13 @@ from app.shared.rate_limit import (
 )
 from app.shared.timezones import local_today
 
-from .agents.chat import (
-    CHAT_HISTORY,
-    MAX_CLARIFICATIONS,
-    STOP_ASKING,
-    answer_question,
-    chat_context,
-    clarifications_in_a_row,
-    proposal_for_chat,
-    revise_proposal,
-)
 from .agents.graph import run_agents
 from .agents.metrics import RunMetrics, RunOutcome, elapsed_ms
 from .agents.model import CoachModel
 from .apply import ROUTINE_CHANGED, ProposalApplier
+from .chat import CoachChat
 from .models import CheckIn as CheckInModel
-from .models import CheckInStatus, MessageRole, ProposalKind, ProposalStatus
-from .models import CoachMessage as CoachMessageModel
+from .models import CheckInStatus, ProposalKind, ProposalStatus
 from .models import Proposal as ProposalModel
 from .pipeline import gather_step
 from .repository import CoachRepository
@@ -133,6 +123,7 @@ class CoachService:
         profiles: ProfileRepository,
         week: WeekSnapshot,
         applier: ProposalApplier,
+        chat: CoachChat,
         model: Callable[[], CoachModel],
         checkpointer: Callable[[], BaseCheckpointSaver[str]],
         *,
@@ -148,6 +139,7 @@ class CoachService:
         self.profiles = profiles
         self.week = week
         self.applier = applier
+        self.chat = chat
         self.model = model
         self.checkpointer = checkpointer
         self.rate_limits = rate_limits
@@ -402,15 +394,7 @@ class CoachService:
 
     async def list_messages(self, check_in_id: str, actor: ActorContext) -> list[CoachMessage]:
         await self._owned_check_in(check_in_id, actor)
-        return [
-            CoachMessage(
-                id=message.id,
-                role=message.role,
-                text=message.text,
-                kind="answer" if message.role == MessageRole.USER else message.kind,
-            )
-            for message in await self.repository.list_messages(check_in_id)
-        ]
+        return await self.chat.list_messages(check_in_id)
 
     async def ask_coach(self, check_in_id: str, text: str, actor: ActorContext) -> CoachMessage:
         """Answer a question about the check-in. The question and the answer are stored

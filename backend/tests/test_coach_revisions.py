@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 
 from app.coach.agents.chat import STOP_ASKING
 from app.coach.agents.model import AgentTask, ModelUnavailableError
+from app.coach.chat import ALREADY_APPLIED
 from app.coach.models import ProposalKind
-from app.coach.service import ALREADY_APPLIED
 from tests.fakes import ScriptedModel, use_model
 from tests.helpers import (
     CHECK_INS,
@@ -240,7 +240,7 @@ def test_an_empty_request_means_none_yet() -> None:
 def test_asking_to_keep_things_withdraws_the_pending_change(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
-    from app.coach.service import WITHDRAWN
+    from app.coach.chat import WITHDRAWN
 
     check_in = current_check_in(client, auth_headers)
 
@@ -251,7 +251,7 @@ def test_asking_to_keep_things_withdraws_the_pending_change(
 
 
 def test_changes_are_only_made_on_the_latest_check_in(client: TestClient) -> None:
-    from app.coach.service import EARLIER_CHECK_IN
+    from app.coach.chat import EARLIER_CHECK_IN
 
     headers = register_user(client)
     week_with_a_proposal(client, headers)
@@ -282,12 +282,12 @@ def test_changes_are_only_made_on_the_latest_check_in(client: TestClient) -> Non
 def test_a_proposal_decided_while_the_model_worked_is_left_as_decided(
     client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from app.coach import service as service_module
-    from app.coach.service import DECIDED_MEANWHILE
+    from app.coach import chat as chat_module
+    from app.coach.chat import DECIDED_MEANWHILE
 
     check_in = current_check_in(client, auth_headers)
     proposal = _nutrition(check_in)
-    real = service_module.revise_proposal
+    real = chat_module.revise_proposal
 
     async def decided_meanwhile(*args: Any, **kwargs: Any) -> Any:
         revision = await real(*args, **kwargs)
@@ -303,7 +303,7 @@ def test_a_proposal_decided_while_the_model_worked_is_left_as_decided(
             await other.commit()
         return revision
 
-    monkeypatch.setattr(service_module, "revise_proposal", decided_meanwhile)
+    monkeypatch.setattr(chat_module, "revise_proposal", decided_meanwhile)
 
     reply = _ask(client, auth_headers, check_in["id"], "Fewer calories please")
 

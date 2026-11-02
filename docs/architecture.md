@@ -117,7 +117,8 @@ The `coach` module is split by job:
 
 | File | Job |
 |---|---|
-| `service.py` | Starting and reading check-ins, proposal decisions, Coach Chat |
+| `service.py` | Starting and reading check-ins, proposal decisions, and the chat's gating (ownership, readiness, rate limits) |
+| `chat.py` | Coach Chat: answering a question, and revising or withdrawing a proposal it asks for |
 | `snapshot.py` | Gathering and freezing the week's figures, and refusing a week with too little data |
 | `apply.py` | Writing an accepted proposal to the targets or routine (`ProposalApplier`) |
 | `pipeline.py` | The check-in's output contract, and the week's summary and stats |
