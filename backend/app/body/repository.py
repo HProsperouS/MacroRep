@@ -6,9 +6,11 @@ from datetime import date as date_
 from typing import cast
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.db import get_owned as _get_owned
+from app.shared.persistence.mixins import utc_now
 
 from .models import WeighIn
 
@@ -52,15 +54,19 @@ class WeighInRepository:
     async def delete(self, weigh_in: WeighIn) -> None:
         await self.session.delete(weigh_in)
 
-    async def upsert(self, owner_id: str, log_date: date_, weight_kg: float) -> WeighIn:
-        existing = await self.session.scalar(
-            select(WeighIn).where(WeighIn.owner_id == owner_id, WeighIn.log_date == log_date)
+    async def upsert(self, owner_id: str, log_date: date_, weight_kg: float) -> None:
+        """Record the day's weigh-in, replacing one already there (one a day).
+
+        One INSERT ... ON CONFLICT UPDATE, not a SELECT then a write: two
+        requests saving the same day at once can't both miss the other's row.
+        """
+
+        statement = (
+            pg_insert(WeighIn)
+            .values(owner_id=owner_id, log_date=log_date, weight_kg=weight_kg)
+            .on_conflict_do_update(
+                index_elements=[WeighIn.owner_id, WeighIn.log_date],
+                set_={"weight_kg": weight_kg, "updated_utc": utc_now()},
+            )
         )
-        if existing is not None:
-            existing.weight_kg = weight_kg
-            existing.touch()
-            return existing
-        row = WeighIn(owner_id=owner_id, log_date=log_date, weight_kg=weight_kg)
-        self.session.add(row)
-        await self.session.flush()
-        return row
+        await self.session.execute(statement)
