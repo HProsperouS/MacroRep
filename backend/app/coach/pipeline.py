@@ -94,7 +94,7 @@ def summarize_week(snapshot: Mapping[str, Any]) -> tuple[str, list[dict[str, str
         workouts += f" ({float(completion):.0f}%)"
     stats = [
         {"label": "Avg calories", "value": f"{avg_calories:.0f} kcal"},
-        {"label": "Vs target", "value": f"{target_gap:+,} kcal"},
+        {"label": "Total vs target", "value": f"{target_gap:+,} kcal"},
         {"label": "Days logged", "value": f"{adherence_percent:.0f}%"},
         {"label": "Workouts", "value": workouts},
         {"label": "Avg RPE", "value": f"{float(avg_rpe):.1f}" if avg_rpe is not None else "—"},

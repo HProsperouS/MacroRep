@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     rate_limits_enabled: bool = Field(default=True, alias="RATE_LIMITS_ENABLED")
     auto_create_schema: bool = Field(default=False, alias="AUTO_CREATE_SCHEMA")
     seed_demo_data: bool = Field(default=False, alias="SEED_DEMO_DATA")
+    # Four weeks of the demo user's logs on top (app/demo_seed.py).
+    seed_demo_history: bool = Field(default=False, alias="SEED_DEMO_HISTORY")
 
     # Self-issued auth tokens (see app/auth). The secret only ever signs our own
     # access tokens; rotate it in production.
@@ -161,6 +163,8 @@ class Settings(BaseSettings):
             raise ValueError("AUTO_CREATE_SCHEMA must be false in production; use Alembic")
         if self.app_env is Environment.PRODUCTION and self.seed_demo_data:
             raise ValueError("SEED_DEMO_DATA must be false in production")
+        if self.app_env is Environment.PRODUCTION and self.seed_demo_history:
+            raise ValueError("SEED_DEMO_HISTORY must be false in production")
         if self.app_env is Environment.PRODUCTION and self.jwt_secret_key == LOCAL_JWT_SECRET:
             raise ValueError("JWT_SECRET_KEY must be set to a private value in production")
         if self.app_env is Environment.PRODUCTION and not self.refresh_cookie_secure:

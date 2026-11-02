@@ -47,9 +47,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await ensure_system_exercises(session)
                 await session.commit()
         if settings.seed_demo_data:
-            from app.demo_seed import seed_demo_data
+            from app.demo_seed import seed_demo_data, seed_demo_history
 
             await seed_demo_data()
+            if settings.seed_demo_history:
+                await seed_demo_history()
         async with checkpointer_lifespan(settings.database_url):
             await resume_interrupted_check_ins()
             yield

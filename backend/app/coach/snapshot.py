@@ -82,8 +82,11 @@ class WeekSnapshot:
             DEFAULT_TARGETS.calories,
         )
         target_calories = round(target_by_date[end])
-        # Non-None: the data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days.
-        avg_calories = cast(float, average_daily_calories(calories_by_date))
+        # `end` is today: still being logged, so it would drag the average down. Non-None: the
+        # data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days, so a finished one.
+        avg_calories = cast(
+            float, average_daily_calories({day: kcal for day, kcal in calories_by_date.items() if day != end})
+        )
         # Judged from when the user started, as on Progress: days before it weren't missed.
         logged_from = await logging_counted_from(self.week_data, owner_id, profile, start, zone)
         # `end` is today: still being logged, so it's left out of completeness and the target gap.

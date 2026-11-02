@@ -281,7 +281,7 @@ def test_check_in_reports_the_week_against_target(client: TestClient) -> None:
     start_check_in(client, headers, "gap")
     check_in = ready_check_in(client, headers)
     stats = {stat["label"]: stat["value"] for stat in check_in["stats"]}
-    assert stats["Vs target"] == "-1,400 kcal"
+    assert stats["Total vs target"] == "-1,400 kcal"
     assert "1,400 kcal under target" in check_in["summary"]
     assert "1 of them fell under half the target" in check_in["summary"]
 

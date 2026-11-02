@@ -37,6 +37,7 @@ services:
       PREVIEW_AUTH_ENABLED: "true"
       AUTO_CREATE_SCHEMA: "false"
       SEED_DEMO_DATA: "true"
+      SEED_DEMO_HISTORY: "true"
       WATCHFILES_FORCE_POLLING: "true"
     init: true
     ports:

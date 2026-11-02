@@ -10,7 +10,7 @@ and the coach check-in flow.
 backend/
 ├── app/
 │   ├── main.py            # FastAPI entry point and middleware
-│   ├── demo_seed.py        # idempotent local demo seed
+│   ├── demo_seed.py        # idempotent local demo seed and its optional history
 │   ├── core/                # typed configuration and DB session
 │   ├── shared/               # logging, correlation IDs, persistence base, camelCase schema base, domain errors, rate limits
 │   ├── identity/              # current-actor resolution (self-issued JWT or local preview header)

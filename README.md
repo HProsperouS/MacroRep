@@ -33,14 +33,18 @@ This builds and starts 3 containers:
 | `backend`  | FastAPI + Uvicorn (hot reload), runs migrations on start | http://localhost:8000/docs |
 | `postgres` | PostgreSQL 17                                    | localhost:5432 (for a DB client) |
 
-On first boot, the backend seeds one demo account so there's something to look
-at immediately:
+On first boot, the backend seeds one demo account with four weeks of food, weigh-ins
+and workouts, so Progress has something to show and a check-in can start right away:
 
 - **Email:** `alex.tan@example.com`
 - **Password:** `macrorep-demo`
 
 Open http://localhost:5173, sign in with that account (or register your own —
 registration works for real, against the real database).
+
+The history is dated from the day it's seeded and a routine is due that day, so for a
+demo reseed the same day (`docker compose down -v`, then `make dev`). A check-in uses the
+built-in rule-based model unless `backend/.env` sets `COACH_MODEL_PROVIDER=openai` and a key.
 
 Stop everything with `make dev-down` (or `docker compose down`). Data persists
 in a Docker volume between runs; to wipe it and reseed from scratch:

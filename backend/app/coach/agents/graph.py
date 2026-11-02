@@ -49,8 +49,8 @@ The figures: weight_change_kg is how much the user's trend weight (a smoothed av
 already filters out day-to-day water swings) moved over these 7 days, so it is a reliable
 weekly rate, not a single noisy weigh-in. goal_rate_kg_per_week is the planned rate:
 negative to lose, positive to gain, 0 to maintain. food_log_days is how many of the 7 days
-have food logged. avg_calories is the average over those days; target_gap_kcal is intake
-minus target summed over the finished days logged (today isn't finished, so
+have food logged. avg_calories is the average over the finished days logged; target_gap_kcal
+is intake minus target summed over those same days (today isn't finished, so
 complete_days + partial_days + missing_days is 6).
 
 When food_log_days is at least 5 and the trend misses the goal rate by more than
