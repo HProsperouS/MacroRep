@@ -98,6 +98,13 @@ class FoodEntryRepository:
         await self.session.flush()
         return entry
 
+    async def add_all(self, entries: Sequence[FoodEntry]) -> list[FoodEntry]:
+        """Insert several entries as one batch, in one flush and one round trip."""
+
+        self.session.add_all(entries)
+        await self.session.flush()
+        return list(entries)
+
     async def get_owned(self, entry_id: str, owner_id: str) -> FoodEntry | None:
         return await _get_owned(self.session, FoodEntry, entry_id, owner_id)
 

@@ -287,16 +287,18 @@ async def _seed_plan(session: AsyncSession, today: date) -> dict[str, str]:
 async def _seed_food(session: AsyncSession, actor: ActorContext, today: date) -> None:
     """Every day but the missed ones, and only today's breakfast, leaving the day to log live."""
 
+    entries = [
+        CreateFoodEntryInput(
+            date=today - timedelta(days=days_ago), meal=meal, food_id=food_id, quantity=servings
+        )
+        for days_ago in range(HISTORY_DAYS)
+        if days_ago not in FOOD_DAYS_MISSED
+        for meal, food_id, servings in MENUS[days_ago % len(MENUS)]
+        if days_ago > 0 or meal == "breakfast"
+    ]
+    # One batch, not a transaction per line: the whole month's log is one INSERT and one commit.
     food = FoodService(session, FoodRepository(session), FoodEntryRepository(session))
-    for days_ago in range(HISTORY_DAYS):
-        if days_ago in FOOD_DAYS_MISSED:
-            continue
-        for meal, food_id, servings in MENUS[days_ago % len(MENUS)]:
-            if days_ago > 0 or meal == "breakfast":
-                entry = CreateFoodEntryInput(
-                    date=today - timedelta(days=days_ago), meal=meal, food_id=food_id, quantity=servings
-                )
-                await food.add_entry(entry, actor)
+    await food.add_entries(entries, actor)
 
 
 async def _seed_workouts(

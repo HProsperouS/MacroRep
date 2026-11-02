@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date as date_
 from datetime import timedelta
 from typing import cast
@@ -179,7 +180,9 @@ class FoodService:
             raise NotFound("Food log entry not found")
         return entry
 
-    async def add_entry(self, payload: CreateFoodEntryInput, actor: ActorContext) -> FoodEntryRead:
+    async def _new_entry(self, payload: CreateFoodEntryInput, actor: ActorContext) -> FoodEntry:
+        """An entry ready to insert, from a saved food and a quantity or a quick add's values."""
+
         entry = FoodEntry(owner_id=actor.actor_id, log_date=payload.date, meal=payload.meal)
         if payload.food_id is not None:
             food = await self._visible_food(payload.food_id, actor)
@@ -193,10 +196,27 @@ class FoodService:
             entry.protein = cast(float, payload.protein)
             entry.carbs = cast(float, payload.carbs)
             entry.fat = cast(float, payload.fat)
+        return entry
+
+    async def add_entry(self, payload: CreateFoodEntryInput, actor: ActorContext) -> FoodEntryRead:
+        entry = await self._new_entry(payload, actor)
         await self.entries.add(entry)
         await self.session.commit()
         await self.session.refresh(entry)
         return _to_entry_read(entry)
+
+    async def add_entries(
+        self, payloads: Sequence[CreateFoodEntryInput], actor: ActorContext
+    ) -> list[FoodEntryRead]:
+        """Several log lines at once, inserted as one batch: one flush and one commit
+        for the lot, not a transaction each. Each line still derives its own values
+        the same way :meth:`add_entry` does."""
+
+        entries = [await self._new_entry(payload, actor) for payload in payloads]
+        # Repeated foods are looked up once each: the session keeps what it has fetched.
+        await self.entries.add_all(entries)
+        await self.session.commit()
+        return [_to_entry_read(entry) for entry in entries]
 
     async def update_entry(
         self, entry_id: str, payload: UpdateFoodEntryInput, actor: ActorContext
