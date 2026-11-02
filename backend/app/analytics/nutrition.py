@@ -136,11 +136,21 @@ def targets_by_date(
     if not versions:
         return {start + timedelta(days=offset): fallback for offset in range((end - start).days + 1)}
     first_effective = min(effective for effective, _ in versions)
+    # Each day's pick is the last version, in the order given, effective on or before
+    # it. Days ascend and a day never looks further back than the last one, so the
+    # picks only move forward: walk the versions' effective dates once, rather than
+    # rescanning every version for every day.
+    steps = sorted((effective, index) for index, (effective, _) in enumerate(versions))
+    step = 0
+    walked = 0
     targets: dict[date, float] = {}
     day = start
     while day <= end:
         as_of = max(day, first_effective)
-        targets[day] = [calories for effective, calories in versions if effective <= as_of][-1]
+        while walked < len(steps) and steps[walked][0] <= as_of:
+            step = max(step, steps[walked][1])
+            walked += 1
+        targets[day] = versions[step][1]
         day += timedelta(days=1)
     return targets
 
