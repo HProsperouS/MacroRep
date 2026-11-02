@@ -10,7 +10,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.training import estimated_one_rep_max
+from app.analytics.training import estimated_one_rep_max_sql
 from app.shared.db import name_search
 from app.shared.timezones import local_date
 
@@ -295,7 +295,8 @@ class WorkoutSessionRepository:
         self, owner_id: str, exercise_ids: list[str], before_session_id: str
     ) -> dict[str, float]:
         """The best estimated 1RM (Epley) per exercise from working sets in sessions
-        before this one, in one query for all exercises at once.
+        before this one, aggregated by the database: one row per exercise, not every
+        set ever logged hydrated to be reduced in Python.
 
         Filtered to working sets only, matching the new-PR comparison in
         ``WorkoutService.finish_session`` — otherwise a heavy warmup could inflate
@@ -304,21 +305,20 @@ class WorkoutSessionRepository:
 
         if not exercise_ids:
             return {}
-        rows = list(
-            await self.session.scalars(
-                select(WorkoutSetLog)
-                .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
-                .where(
-                    WorkoutSetLog.owner_id == owner_id,
-                    WorkoutSetLog.exercise_id.in_(exercise_ids),
-                    WorkoutSetLog.session_id != before_session_id,
-                    WorkoutSetLog.kind != SetKind.WARMUP,
-                )
+        e1rm = estimated_one_rep_max_sql(WorkoutSetLog.weight_kg, WorkoutSetLog.reps)
+        statement = (
+            select(WorkoutSetLog.exercise_id, func.max(e1rm))
+            .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
+            .where(
+                WorkoutSetLog.owner_id == owner_id,
+                WorkoutSetLog.exercise_id.in_(exercise_ids),
+                WorkoutSetLog.session_id != before_session_id,
+                WorkoutSetLog.kind != SetKind.WARMUP,
             )
+            .group_by(WorkoutSetLog.exercise_id)
         )
-        best: dict[str, float] = {}
-        for row in rows:
-            e1rm = estimated_one_rep_max(float(row.weight_kg), row.reps)
-            if row.exercise_id is not None and e1rm is not None:
-                best[row.exercise_id] = max(best.get(row.exercise_id, 0.0), e1rm)
-        return best
+        return {
+            exercise_id: float(best)
+            for exercise_id, best in await self.session.execute(statement)
+            if best is not None
+        }

@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterable
 from datetime import date, timedelta
-from typing import cast
+from typing import Any, cast
+
+from sqlalchemy import ColumnElement, case
+from sqlalchemy.orm import QueryableAttribute
 
 
 def estimated_one_rep_max(weight_kg: float, reps: int) -> float | None:
@@ -26,6 +29,23 @@ def estimated_one_rep_max(weight_kg: float, reps: int) -> float | None:
     if reps == 1:
         return float(weight_kg)
     return float(weight_kg) * (1 + reps / 30)
+
+
+def estimated_one_rep_max_sql(
+    weight_kg: QueryableAttribute[float], reps: QueryableAttribute[int]
+) -> ColumnElement[Any]:
+    """The same estimate as a SQL expression over weight and reps columns.
+
+    NULL where :func:`estimated_one_rep_max` returns None, so aggregates like
+    ``max`` skip those rows and agree with the Python function.
+    """
+
+    return case(
+        (reps < 1, None),
+        (weight_kg <= 0, None),
+        (reps == 1, weight_kg),
+        else_=weight_kg * (1 + reps / 30.0),
+    )
 
 
 def best_estimated_one_rep_max(sets: Iterable[tuple[float, int]]) -> float | None:
