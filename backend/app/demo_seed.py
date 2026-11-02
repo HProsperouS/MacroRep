@@ -40,7 +40,7 @@ from app.workout.service import WorkoutService
 
 DEMO_USER_ID = "USR-DEMO"
 DEMO_USER_EMAIL = "alex.yau@example.com"
-DEMO_USER_PASSWORD = "nailong"
+DEMO_USER_PASSWORD = "nailong2"
 
 # The presenter's zone: the browser would set it at sign-in anyway, and every date below hangs on it.
 DEMO_TIMEZONE = "Asia/Singapore"

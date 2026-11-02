@@ -11,6 +11,7 @@ MacroRep: An Adaptive Nutrition and Workout Tracking Platform Powered by Multi-A
   - [`agents.md`](docs/agents.md) — the weekly check-in's agents and their safeguards
   - [`analytics.md`](docs/analytics.md) — the formulas behind the progress figures
   - [`deployment.md`](docs/deployment.md) — how it would be deployed on AWS
+  - [`demo-script.md`](docs/demo-script.md) — the live demo, feature by feature
   - [`follow-ups.md`](docs/follow-ups.md) — known gaps and deferred decisions
 
 ## Quick start (Docker — recommended)
@@ -37,7 +38,7 @@ On first boot, the backend seeds one demo account with four weeks of food, weigh
 and workouts, so Progress has something to show and a check-in can start right away:
 
 - **Email:** `alex.yau@example.com`
-- **Password:** `nailong`
+- **Password:** `nailong2`
 
 Open http://localhost:5173, sign in with that account (or register your own —
 registration works for real, against the real database).
