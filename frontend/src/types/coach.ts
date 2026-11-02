@@ -1,4 +1,4 @@
-export type PipelineStepStatus = "done" | "running" | "waiting" | "failed"
+export type PipelineStepStatus = "done" | "running" | "waiting" | "failed" | "skipped"
 
 export type PipelineStep = {
   id: string

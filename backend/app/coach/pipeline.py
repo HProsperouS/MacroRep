@@ -64,7 +64,7 @@ class CheckInDraft:
 def summarize_week(snapshot: Mapping[str, Any]) -> tuple[str, list[dict[str, str]]]:
     """A plain-language summary of the week and its headline numbers."""
 
-    avg_calories = float(snapshot["avg_calories"])
+    avg_calories = snapshot["avg_calories"]
     target_calories = int(snapshot["target_calories"])
     adherence_percent = float(snapshot["adherence_percent"])
     partial_days = int(snapshot["partial_days"])
@@ -72,14 +72,22 @@ def summarize_week(snapshot: Mapping[str, Any]) -> tuple[str, list[dict[str, str
     workouts_done, workouts_planned = int(snapshot["workouts_done"]), int(snapshot["workouts_planned"])
     completion = snapshot["completion_percent"]
     avg_rpe = snapshot["avg_rpe"]
-    weight_change = float(snapshot["weight_change_kg"])
+    weight_change = snapshot["weight_change_kg"]
+    # Set on a training-only check-in: too little food or weight data for a calorie review.
+    nutrition_skipped = snapshot.get("nutrition_skipped")
 
-    summary = (
-        f"Averaged {avg_calories:.0f} kcal/day against a {target_calories} kcal target, "
-        f"with {adherence_percent:.0f}% of days logged and {workouts_done}/{workouts_planned} "
-        "planned workouts completed."
-    )
-    if target_gap <= -_NOTABLE_WEEKLY_GAP_KCAL:
+    workouts_sentence = f"{workouts_done}/{workouts_planned} planned workouts completed."
+    if nutrition_skipped:
+        summary = (
+            f"Food was logged on {int(snapshot['food_log_days'])} of the last 7 days, so this week "
+            f"reviews training only: {workouts_sentence}"
+        )
+    else:
+        summary = (
+            f"Averaged {float(avg_calories):.0f} kcal/day against a {target_calories} kcal target, "
+            f"with {adherence_percent:.0f}% of days logged and {workouts_sentence}"
+        )
+    if not nutrition_skipped and target_gap <= -_NOTABLE_WEEKLY_GAP_KCAL:
         summary += f" Logged days came in {-target_gap:,} kcal under target in total."
         if partial_days:
             summary += (
@@ -93,11 +101,17 @@ def summarize_week(snapshot: Mapping[str, Any]) -> tuple[str, list[dict[str, str
     if completion is not None:
         workouts += f" ({float(completion):.0f}%)"
     stats = [
-        {"label": "Avg calories", "value": f"{avg_calories:.0f} kcal"},
-        {"label": "Total vs target", "value": f"{target_gap:+,} kcal"},
+        {"label": "Total vs target", "value": f"{target_gap:+,} kcal" if not nutrition_skipped else "—"},
+        {
+            "label": "Avg calories",
+            "value": f"{float(avg_calories):.0f} kcal" if avg_calories is not None else "—",
+        },
         {"label": "Days logged", "value": f"{adherence_percent:.0f}%"},
         {"label": "Workouts", "value": workouts},
         {"label": "Avg RPE", "value": f"{float(avg_rpe):.1f}" if avg_rpe is not None else "—"},
-        {"label": "Weight change", "value": f"{weight_change:+.2f} kg"},
+        {
+            "label": "Weight change",
+            "value": f"{float(weight_change):+.2f} kg" if weight_change is not None else "—",
+        },
     ]
     return summary, stats

@@ -30,8 +30,8 @@ MIN_FOOD_LOG_DAYS = 4
 MIN_WEIGH_INS = 2
 
 
-def _require_enough_data(food_log_days: int, weigh_ins: int) -> None:
-    """Refuse (422) a week with too little logged to judge, saying what's missing."""
+def _nutrition_shortfall(food_log_days: int, weigh_ins: int) -> list[str]:
+    """What's missing for the calorie review, in words; empty when the week has enough."""
 
     missing: list[str] = []
     if food_log_days < MIN_FOOD_LOG_DAYS:
@@ -41,8 +41,7 @@ def _require_enough_data(food_log_days: int, weigh_ins: int) -> None:
         )
     if weigh_ins < MIN_WEIGH_INS:
         missing.append(f"weigh in at least {MIN_WEIGH_INS} times ({weigh_ins} so far)")
-    if missing:
-        raise Invalid(f"Not enough data for a check-in yet: {' and '.join(missing)}.")
+    return missing
 
 
 class WeekSnapshot:
@@ -55,22 +54,30 @@ class WeekSnapshot:
     ) -> dict[str, object]:
         """Gather the week's metrics, refusing with 422 when there's too little data to judge.
 
+        Too little food or weight data alone skips the calorie review: with scheduled routines,
+        the training review still runs (``nutrition_skipped`` says why).
         ``end`` is the user's today, in ``zone``.
         """
 
         calories_by_date = await self.week_data.daily_calories(owner_id, start, end)
         history = await self.week_data.weigh_ins_up_to(owner_id, end)
         weigh_ins_in_window = [row for row in history if row.log_date >= start]
+        routines = await self.week_data.scheduled_routines(owner_id)
 
-        _require_enough_data(len(calories_by_date), len(weigh_ins_in_window))
+        missing = _nutrition_shortfall(len(calories_by_date), len(weigh_ins_in_window))
+        if missing and not routines:
+            raise Invalid(f"Not enough data for a check-in yet: {' and '.join(missing)}.")
+        nutrition_skipped = f"{' and '.join(missing).capitalize()} for a calorie review." if missing else None
 
-        trends = trend_by_date(history)
-        # A weigh-in from before the window anchors the start; otherwise the
-        # window's own first reading does.
-        trend_start = trend_on_or_before(trends, start)
-        if trend_start is None:
-            trend_start = trends[weigh_ins_in_window[0].log_date]
-        trend_end = trends[weigh_ins_in_window[-1].log_date]
+        weight_change: float | None = None
+        if len(weigh_ins_in_window) >= MIN_WEIGH_INS:
+            trends = trend_by_date(history)
+            # A weigh-in from before the window anchors the start; otherwise the
+            # window's own first reading does.
+            trend_start = trend_on_or_before(trends, start)
+            if trend_start is None:
+                trend_start = trends[weigh_ins_in_window[0].log_date]
+            weight_change = round(trends[weigh_ins_in_window[-1].log_date] - trend_start, 2)
 
         # Each day is judged against the target in effect that day; proposals start from today's.
         target_versions = await self.profiles.target_history(owner_id)
@@ -84,9 +91,8 @@ class WeekSnapshot:
         target_calories = round(target_by_date[end])
         # `end` is today: still being logged, so it would drag the average down. Non-None: the
         # data gate above guarantees at least MIN_FOOD_LOG_DAYS logged days, so a finished one.
-        avg_calories = cast(
-            float, average_daily_calories({day: kcal for day, kcal in calories_by_date.items() if day != end})
-        )
+        # None on a week with no food logged (a training-only check-in).
+        avg_calories = average_daily_calories({day: kcal for day, kcal in calories_by_date.items() if day != end})
         # Judged from when the user started, as on Progress: days before it weren't missed.
         logged_from = await logging_counted_from(self.week_data, owner_id, profile, start, zone)
         # `end` is today: still being logged, so it's left out of completeness and the target gap.
@@ -102,11 +108,12 @@ class WeekSnapshot:
         # completion looks low, so a plan made mid-week mustn't read as missed sessions.
         planned = await workouts_planned(self.week_data, owner_id, start, end, end, zone)
         rpe_entries = await self.week_data.rpe_entries(owner_id, start, end, zone)
-        routines = await self.week_data.scheduled_routines(owner_id)
         return {
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
-            "avg_calories": round(avg_calories, 1),
+            # Why the calorie review is skipped this week, or None when it runs.
+            "nutrition_skipped": nutrition_skipped,
+            "avg_calories": round(avg_calories, 1) if avg_calories is not None else None,
             "target_calories": target_calories,
             # The targets version the proposals were made against; applying one checks it is still current.
             "target_version": current_targets.version if current_targets else None,
@@ -119,7 +126,7 @@ class WeekSnapshot:
             "missing_days": completeness.missing,
             "target_gap_kcal": target_gap_kcal(finished_logged),
             "weigh_ins": len(weigh_ins_in_window),
-            "weight_change_kg": round(trend_end - trend_start, 2),
+            "weight_change_kg": weight_change,
             "goal_rate_kg_per_week": float(profile.weekly_rate_kg) if profile else 0.0,
             "workouts_done": workouts_done,
             "workouts_planned": planned,

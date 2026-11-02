@@ -159,7 +159,7 @@ sequenceDiagram
 
     U->>FE: Start check-in
     FE->>API: POST /coach/check-ins (Idempotency-Key)
-    API->>DB: Check the week has enough data
+    API->>DB: Check the week has enough data (food + weigh-ins, or else routines for a training-only review)
     API->>DB: Save check-in: running, with a frozen snapshot of the week
     API-->>FE: 201 running
     API->>G: Background: generate

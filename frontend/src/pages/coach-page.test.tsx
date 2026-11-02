@@ -84,6 +84,17 @@ describe("CoachPage", () => {
     expect(api.getCurrentCheckIn).toHaveBeenCalledTimes(1)
   })
 
+  it("shows a skipped step with why it was skipped", async () => {
+    const detail = "Log food on at least 4 of the last 7 days (2 so far) for a calorie review."
+    api.getCurrentCheckIn.mockResolvedValue(
+      checkIn({ pipeline: [{ id: "nutrition", title: "Nutrition agent", detail, status: "skipped" }] }),
+    )
+    renderPage(<CoachPage />)
+
+    expect(await screen.findByText(detail)).toBeInTheDocument()
+    expect(screen.getByText("Skipped")).toBeInTheDocument()
+  })
+
   it("explains a failed check-in and offers to try again", async () => {
     api.getCurrentCheckIn.mockResolvedValue(
       checkIn({ status: "failed", proposals: [], failureReason: "Something went wrong while preparing this check-in. Nothing was changed." }),

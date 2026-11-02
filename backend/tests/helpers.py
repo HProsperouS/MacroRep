@@ -230,8 +230,9 @@ def week_with_a_proposal(client: TestClient, headers: dict[str, str]) -> None:
     weigh_in(client, headers, days_ago=0, weight_kg=78)
 
 
-def training_check_in(client: TestClient, headers: dict[str, str]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """A routine (warm-up + 3 x 100 kg x 5 bench) and a check-in proposing to ease it to 95 kg."""
+def bench_week(client: TestClient, headers: dict[str, str]) -> dict[str, Any]:
+    """A routine (warm-up + 3 x 100 kg x 5 bench) planned every day, and a hard week on it
+    (95 kg at RPE 9.5, stalled): the fake model proposes easing it to 95 kg. Returns the routine."""
 
     routine = client.post(
         "/api/v1/workouts/routines",
@@ -252,10 +253,17 @@ def training_check_in(client: TestClient, headers: dict[str, str]) -> tuple[dict
     ).json()
     for day in range(7):
         client.put(f"/api/v1/workouts/plan/{day}", headers=headers, json={"routineId": routine["id"]})
-    week_with_a_proposal(client, headers)
     log_bench(client, headers, days_ago=14, weight_kg=100, rpe=8)
     log_bench(client, headers, days_ago=2, weight_kg=95, rpe=9.5)
     log_bench(client, headers, days_ago=1, weight_kg=95, rpe=9.5)
+    return dict(routine)
+
+
+def training_check_in(client: TestClient, headers: dict[str, str]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``bench_week`` with every day logged, and its check-in's training proposal (to 95 kg)."""
+
+    routine = bench_week(client, headers)
+    week_with_a_proposal(client, headers)
     start_check_in(client, headers, "training")
     check_in = ready_check_in(client, headers)
     training = next(p for p in check_in["proposals"] if p["kind"] == "training")

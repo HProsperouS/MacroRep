@@ -130,6 +130,25 @@ async def test_a_nutrition_and_a_training_proposal_come_out_of_one_run() -> None
     assert [step["status"] for step in draft.pipeline] == ["done", "done", "done", "done", "waiting"]
 
 
+async def test_a_training_only_week_skips_the_nutrition_agent() -> None:
+    reason = "Log food on at least 4 of the last 7 days (2 so far) for a calorie review."
+    week = snapshot(nutrition_skipped=reason, food_log_days=2, avg_calories=None, weight_change_kg=None)
+    model = ScriptedModel(workout=[adjust(("bench", "target_weight_kg", 95))], reviewer=[APPROVE])
+    draft = await run_agents(week, model)
+
+    assert "nutrition" not in model.calls, "no model call for a review that can't be judged"
+    assert model.calls["reviewer"][0]["nutrition_skipped"] == reason
+    assert [p.kind for p in draft.proposals] == ["training"]
+    assert draft.pipeline[1] == {
+        "id": "nutrition",
+        "title": "Nutrition agent",
+        "detail": reason,
+        "status": "skipped",
+    }
+    assert "reviews training only" in draft.summary
+    assert {stat["label"]: stat["value"] for stat in draft.stats}["Avg calories"] == "—"
+
+
 async def test_the_reviewer_catches_less_food_with_more_training() -> None:
     # The fake model's own reviewer rule, given a cut alongside a load increase.
     model = ScriptedModel(

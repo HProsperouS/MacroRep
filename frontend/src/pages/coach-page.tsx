@@ -48,7 +48,7 @@ export default function CoachPage() {
               <Sparkles />
             </EmptyMedia>
             <EmptyTitle>No check-in yet</EmptyTitle>
-            <EmptyDescription>A check-in reviews your last 7 days. It needs food logged on at least 4 of those days and at least 2 weigh-ins.</EmptyDescription>
+            <EmptyDescription>A check-in reviews your last 7 days. A calorie review needs food logged on at least 4 of those days and at least 2 weigh-ins; with a scheduled routine, your training is reviewed either way.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent className="flex-row justify-center gap-2">
             <StartCheckInButton label="Start check-in" />

@@ -88,7 +88,9 @@ any increase in training load (working sets, target weight or target reps) is a 
 eating less while training harder undercuts recovery. Report it with severity "conflict" and
 hold one of the two back. Also look for conclusions the data doesn't support and for anything
 outside a fitness app's scope. You may hold a proposal back (keep_* = false), never add or
-enlarge one. Write a short note the user will read.
+enlarge one. When nutrition_skipped is set, there was too little food or weight data for a
+calorie review: nutrition is absent on purpose, so don't report that as a finding. Write a short
+note the user will read.
 {output_limits(Review)}"""
 
 
@@ -136,6 +138,9 @@ def _current_value(snapshot: Mapping[str, Any], routine_id: str, exercise_id: st
 
 def build_graph(model: CoachModel, metrics: RunMetrics) -> StateGraph[CoachState]:
     async def nutrition(state: CoachState) -> CoachState:
+        # Too little food or weight data to judge: no model call, and so no calorie proposal.
+        if state["snapshot"].get("nutrition_skipped"):
+            return {"nutrition": None}
         advice = await ask_agent(
             model,
             "nutrition",
@@ -191,6 +196,7 @@ def reviewer_context(
             ],
         }
     return {
+        "nutrition_skipped": snapshot.get("nutrition_skipped"),
         "current_calorie_target": snapshot["target_calories"],
         "missing_days": snapshot["missing_days"],
         "avg_rpe": snapshot["avg_rpe"],
@@ -211,7 +217,7 @@ def _finalize(state: CoachState) -> dict[str, Any]:
     draft = CheckInDraft(
         summary=summary,
         stats=stats,
-        pipeline=_pipeline(nutrition, workout, review, bool(proposals)),
+        pipeline=_pipeline(nutrition, workout, review, bool(proposals), snapshot.get("nutrition_skipped")),
         suggested_questions=[
             "Why did you suggest this change?",
             "What if I keep training the same but eat less?",
@@ -257,14 +263,22 @@ def _decide(
 
 
 def _pipeline(
-    nutrition: NutritionAdvice | None, workout: WorkoutAdvice | None, review: Review | None, proposed: bool
+    nutrition: NutritionAdvice | None,
+    workout: WorkoutAdvice | None,
+    review: Review | None,
+    proposed: bool,
+    nutrition_skipped: str | None = None,
 ) -> list[dict[str, str]]:
     """The steps shown on the check-in, as they ended."""
 
     conflicts = sum(1 for finding in review.findings if finding.severity == "conflict") if review else 0
     return [
         gather_step(),
-        _agent_step("nutrition", "Nutrition agent", nutrition.headline if nutrition else None),
+        (
+            {"id": "nutrition", "title": "Nutrition agent", "detail": nutrition_skipped, "status": "skipped"}
+            if nutrition_skipped
+            else _agent_step("nutrition", "Nutrition agent", nutrition.headline if nutrition else None)
+        ),
         _agent_step("workout", "Workout agent", workout.headline if workout else None),
         {
             "id": "reviewer",

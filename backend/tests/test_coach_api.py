@@ -10,6 +10,8 @@ from tests.helpers import (
     CHECK_INS,
     GUIDE,
     ONBOARDING,
+    ask_coach,
+    bench_week,
     decide,
     iso_days_ago,
     log_meal,
@@ -74,6 +76,29 @@ def test_start_check_in_refuses_without_enough_data(client: TestClient) -> None:
         log_meal(client, headers, days_ago=days_ago)
     weigh_in(client, headers, days_ago=3, weight_kg=80.2)
     assert start_check_in(client, headers, "too-early").status_code == 201
+
+
+def test_too_little_food_or_weight_data_still_reviews_training(client: TestClient) -> None:
+    headers = _new_user(client)
+    bench_week(client, headers)
+    log_meal(client, headers, days_ago=1)
+    log_meal(client, headers, days_ago=0)
+    weigh_in(client, headers, days_ago=0, weight_kg=80)
+
+    assert start_check_in(client, headers, "training-only").status_code == 201
+    check_in = ready_check_in(client, headers)
+
+    assert [p["kind"] for p in check_in["proposals"]] == ["training"]
+    nutrition_step = next(step for step in check_in["pipeline"] if step["id"] == "nutrition")
+    assert nutrition_step["status"] == "skipped"
+    assert "log food on at least 4" in nutrition_step["detail"].lower()
+    assert "weigh in at least 2" in nutrition_step["detail"]
+
+    # Nor can the chat make the calorie change the check-in held back.
+    reply = ask_coach(client, headers, check_in["id"], "Can I eat fewer calories?")
+    assert reply.status_code == 200
+    assert "too little data" in reply.json()["text"]
+    assert [p["kind"] for p in ready_check_in(client, headers)["proposals"]] == ["training"]
 
 
 def test_replaying_an_idempotency_key_returns_the_same_check_in(client: TestClient) -> None:

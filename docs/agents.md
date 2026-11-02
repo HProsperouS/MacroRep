@@ -31,9 +31,12 @@ graph ends there; the user's decision goes through the proposals API, not the gr
 
 ## Input: the snapshot
 
-When a check-in starts, the backend checks there's enough data (food logged on at least 4
-of the last 7 days, at least 2 weigh-ins) and freezes the week into the check-in's
-`input_snapshot`. The agents only ever see this snapshot: they never query the database,
+When a check-in starts, the backend checks there's enough data and freezes the week into
+the check-in's `input_snapshot`. A calorie review needs food logged on at least 4 of the
+last 7 days and at least 2 weigh-ins. Without them, a user with scheduled routines still
+gets a **training-only** check-in: the snapshot's `nutrition_skipped` says what's missing,
+the Nutrition agent isn't called (its step shows as skipped, with that reason), and Coach
+Chat won't revise the calorie target either. With neither, the start is refused (422). The agents only ever see this snapshot: they never query the database,
 and a run can be reproduced from it later. Each user may start 5 check-ins a day (then 429);
 a run that fails gives its one back.
 
@@ -299,7 +302,8 @@ A run lost to a restart and swept as stale logs none. For example, one OpenAI ru
 - **Structured output:** invalid output is retried once then dropped; extra fields are refused.
 - **Retries:** transient errors are retried, and a model that stays down fails the run.
 - **Resume:** an interrupted run resumes from its checkpoint without redoing finished steps.
-- **Insufficient data:** too little data gives no change rather than an invented one.
+- **Insufficient data:** too little data gives no change rather than an invented one; a
+  training-only week skips the Nutrition agent without a model call.
 - **Limits:** every value is clamped as in the table above.
 
 `backend/tests/test_coach_openai.py` covers the OpenAI provider against a stand-in client:

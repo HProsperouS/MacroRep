@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Clock, LoaderCircle } from "lucide-react"
+import { Check, CircleAlert, CircleMinus, Clock, LoaderCircle } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
@@ -9,6 +9,7 @@ const STATUS: Record<PipelineStepStatus, { label: string; icon: typeof Check; cl
   running: { label: "In progress", icon: LoaderCircle, className: "bg-muted text-foreground [&_svg]:animate-spin" },
   waiting: { label: "Waiting for you", icon: Clock, className: "bg-carbs/15 text-carbs" },
   failed: { label: "Failed", icon: CircleAlert, className: "bg-destructive/15 text-destructive" },
+  skipped: { label: "Skipped", icon: CircleMinus, className: "bg-muted text-muted-foreground" },
 }
 
 /** How the check-in was produced: data → agents → reviewer → user. */
