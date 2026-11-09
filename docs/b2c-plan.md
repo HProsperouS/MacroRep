@@ -159,7 +159,22 @@ Rules (double progression, the progressive overload principle in ACSM's progress
 - Missed reps two sessions in a row → flag it for the weekly check-in instead of changing it here.
 - If the day's readiness lowered the load, judge against the adjusted target, not the original.
 
-It's a suggestion for one session. Permanent routine changes still come only from the approved weekly check-in.
+It's a suggestion. Permanent routine changes still come only from the approved weekly check-in.
+
+**Built so far (2026-11-10):**
+
+- The summary shows the target ([workout/service.py](../backend/app/workout/service.py)), judged from the **top-weight sets only**, so a light ramp-up or back-off set can't hold a progression back.
+- **Today's session starts at that target.** A comfortable last session raises today's working targets one step, with a note saying why. It only raises a target, so a higher one set by a check-in stays. It applies to today's session alone: the routine editor and week plan still show the routine as saved, so saving the editor can't turn a suggestion into a permanent change ([targets.py](../backend/app/workout/targets.py), `suggested_loads`).
+
+#### F5b. First time on an exercise: find your weight by feel
+
+With no history there is nothing to base a weight on, so the app doesn't guess one. It teaches the lifter to find it:
+
+1. **Start light.** Pick a weight where you could do about 3 more reps than planned, then rate the set with RPE (10 = nothing left, 9 = one more rep, 8 = two more).
+2. **Each rated set adjusts the next.** The target is RPE 8, the same effort the progression rule treats as room to progress. The next set's weight moves about **3% of the load per RPE point** away from 8 (at least one 2.5 kg step, at most 15%), unless the lifter has already typed a weight.
+3. **Trust the feel over the number.** The hint says it's an estimate.
+
+Why this and not a calculator: autoregulating by RPE gave similar strength gains to fixed percentages [5], and the step size follows the Tuchscherer RPE chart, where 5 reps at RPE 10 is about 86% of a one-rep max and at RPE 8 about 81%, roughly 2.6% per RPE point [11]. Those figures are population averages and RPE is a self-rating, so the guidance is a starting estimate; it lives in [find-weight.ts](../frontend/src/lib/find-weight.ts) and runs live during the session. The same flow covers a lift picked mid-workout that has no history. Bodyweight sets get no advice, since there is no load to adjust.
 
 ### F6. Low-effort food mode
 
@@ -262,3 +277,4 @@ Several of these were read from abstracts or summaries rather than full text. Ch
 8. *Digital self-monitoring: Does adherence or association with outcomes differ by self-monitoring target?* <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7156825/>
 9. *Comparing Self-Monitoring Strategies for Weight Loss in a Smartphone App: Randomized Controlled Trial* (GoalTracker, 2019). <https://pmc.ncbi.nlm.nih.gov/articles/PMC6416539/>
 10. ACSM (2009). *Progression models in resistance training for healthy adults.* Med Sci Sports Exerc 41(3):687–708. <https://pubmed.ncbi.nlm.nih.gov/19204579/>
+11. Tuchscherer RPE chart (Reactive Training Systems), as tabulated at <https://fitnessvolt.com/rpe-training/guides/tuchscherer-chart-explained>; RPE scale: Zourdos et al. (2016), *Novel resistance training-specific rating of perceived exertion scale measuring repetitions in reserve*, J Strength Cond Res 30(1):267–275. The percentages are a secondary tabulation of population averages; check the original before quoting them.
