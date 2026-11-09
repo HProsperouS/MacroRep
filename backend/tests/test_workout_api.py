@@ -341,6 +341,55 @@ def _routine_payload(name: str = "Leg day", exercise_id: str = "exercise-squat")
     }
 
 
+def _finish_leg_day(
+    client: TestClient, headers: dict[str, str], plan_id: str | None, sets: list[dict[str, object]]
+) -> dict:
+    payload = _session_payload("exercise-squat", sets, plan_id=plan_id)
+    payload["exercises"][0]["name"] = "Barbell Squat"
+    response = client.post("/api/v1/workouts/sessions", headers=headers, json=payload)
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_a_workout_suggests_a_heavier_load_when_the_routine_reps_came_easily(client: TestClient) -> None:
+    headers = register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload()).json()
+    body = _finish_leg_day(
+        client,
+        headers,
+        routine["id"],
+        [
+            # The warm-up isn't judged; both working sets made the routine's 5 reps at RPE 7.5.
+            {"kind": "warmup", "weightKg": 40, "reps": 10},
+            {"kind": "working", "weightKg": 80, "reps": 5, "rpe": 7.5},
+            {"kind": "working", "weightKg": 80, "reps": 5, "rpe": 7.5},
+        ],
+    )
+    assert body["nextTargets"] == [
+        {"exercise": "Barbell Squat", "weightKg": 82.5, "reps": 5, "increase": True}
+    ]
+    # A suggestion only: the routine's own target is untouched.
+    after = client.get("/api/v1/workouts/routines", headers=headers).json()[0]
+    assert after["exercises"][0]["sets"][1]["targetWeightKg"] == 80
+
+
+def test_a_workout_holds_the_load_after_a_missed_rep(client: TestClient) -> None:
+    headers = register_user(client)
+    routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload()).json()
+    body = _finish_leg_day(
+        client, headers, routine["id"], [{"kind": "working", "weightKg": 80, "reps": 4, "rpe": 8}]
+    )
+    assert body["nextTargets"] == [
+        {"exercise": "Barbell Squat", "weightKg": 80.0, "reps": 5, "increase": False}
+    ]
+
+
+def test_a_workout_without_a_routine_has_no_next_targets(client: TestClient) -> None:
+    headers = register_user(client)
+    body = _finish_leg_day(client, headers, None, [{"kind": "working", "weightKg": 80, "reps": 5, "rpe": 7}])
+    assert body["nextTargets"] == []
+
+
 def test_create_update_and_delete_a_routine(client: TestClient) -> None:
     headers = register_user(client)
     created = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload())

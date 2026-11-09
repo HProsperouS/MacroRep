@@ -136,6 +136,15 @@ class UpdateWorkoutInput(CamelModel):
     exercises: list[FinishWorkoutExercise] = Field(min_length=1, max_length=MAX_EXERCISES_PER_WORKOUT)
 
 
+class NextTargetRead(CamelModel):
+    """What to aim for on an exercise next session, from how this one went."""
+
+    exercise: str
+    weight_kg: float
+    reps: int
+    increase: bool
+
+
 class WorkoutSummary(CamelModel):
     id: str
     name: str
@@ -143,6 +152,7 @@ class WorkoutSummary(CamelModel):
     sets_completed: int
     volume_kg: float
     personal_records: list[str]
+    next_targets: list[NextTargetRead] = Field(default_factory=list)
 
 
 class WorkoutHistoryItem(CamelModel):

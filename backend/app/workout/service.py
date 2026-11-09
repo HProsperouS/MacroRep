@@ -13,6 +13,7 @@ from app.analytics.training import (
     best_estimated_one_rep_max,
     estimated_minutes,
     is_personal_record,
+    next_session_target,
     volume_kg,
 )
 from app.identity.dependencies import ActorContext
@@ -33,6 +34,7 @@ from .schemas import (
     HistoryExercise,
     HistorySet,
     LastSession,
+    NextTargetRead,
     PlannedExercise,
     PlannedSet,
     PlannedWorkout,
@@ -458,6 +460,8 @@ class WorkoutService:
             ):
                 personal_records.append(f"{exercise_entry.name} — new estimated 1RM {round(best_new, 1)} kg")
 
+        next_targets = await self._next_targets(plan_id, payload)
+
         session_volume_kg = volume_kg(
             (s.weight_kg, s.reps) for e in payload.exercises for s in e.sets if s.kind != SetKind.WARMUP
         )
@@ -472,7 +476,45 @@ class WorkoutService:
             sets_completed=sets_completed,
             volume_kg=round(session_volume_kg, 1),
             personal_records=personal_records,
+            next_targets=next_targets,
         )
+
+    async def _next_targets(self, plan_id: str | None, payload: FinishWorkoutInput) -> list[NextTargetRead]:
+        """A target for each routine exercise done today, from its sets against the routine's reps.
+
+        Only for a workout started from a routine: without one there are no target reps to
+        judge the sets against. A suggestion for next time only; the routine itself is
+        changed only by an approved check-in.
+        """
+
+        if plan_id is None:
+            return []
+        target_reps_by_exercise: dict[str, int] = {}
+        for plan_exercise in await self.plans.list_exercises(plan_id):
+            working_reps = [
+                cast(int, planned["target_reps"])
+                for planned in plan_exercise.planned_sets
+                if planned.get("kind") == SetKind.WORKING.value and planned.get("target_reps") is not None
+            ]
+            if working_reps:
+                target_reps_by_exercise[plan_exercise.exercise_id] = max(working_reps)
+
+        targets: list[NextTargetRead] = []
+        for exercise_entry in payload.exercises:
+            target = next_session_target(
+                [(s.weight_kg, s.reps, s.rpe) for s in exercise_entry.sets if s.kind == SetKind.WORKING],
+                target_reps_by_exercise.get(exercise_entry.exercise_id),
+            )
+            if target is not None:
+                targets.append(
+                    NextTargetRead(
+                        exercise=exercise_entry.name,
+                        weight_kg=target.weight_kg,
+                        reps=target.reps,
+                        increase=target.increase,
+                    )
+                )
+        return targets
 
     async def list_history(self, actor: ActorContext, limit: int, offset: int) -> list[WorkoutHistoryItem]:
         sessions = await self.sessions.list_sessions(actor.actor_id, limit, offset)
