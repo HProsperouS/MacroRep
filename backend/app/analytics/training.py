@@ -8,7 +8,8 @@ volume nor mask a genuine PR.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, cast
 
@@ -92,6 +93,47 @@ def estimated_minutes(exercises: Iterable[tuple[int, int]]) -> int:
             seconds += set_count * (SET_SECONDS + rest_seconds)
             last_rest = rest_seconds
     return max(1, -(-(seconds - last_rest) // 60))
+
+
+# Smallest load jump on a barbell or machine stack: what a suggested increase adds.
+PROGRESSION_STEP_KG = 2.5
+# Every working set at or below this effort left room for more, so the load can go up.
+RPE_ROOM_TO_PROGRESS = 8.0
+
+
+@dataclass(frozen=True)
+class NextTarget:
+    """What to aim for on an exercise next session."""
+
+    weight_kg: float
+    reps: int
+    increase: bool
+
+
+def next_session_target(
+    working_sets: Sequence[tuple[float, int, float | None]], target_reps: int | None
+) -> NextTarget | None:
+    """Double progression: a heavier load once the target reps came easily, else hold.
+
+    ``working_sets`` are the (weight_kg, reps, rpe) of the exercise's working sets only
+    (the caller leaves warm-ups, failure and drop sets out). The load goes up by
+    ``PROGRESSION_STEP_KG`` when every set made ``target_reps`` at an RPE of at most
+    ``RPE_ROOM_TO_PROGRESS``; otherwise the heaviest load is held for the same reps.
+    Returns None when there's nothing to judge it against: no working sets, no rep
+    target, or no weight on the bar.
+    """
+
+    if not working_sets or target_reps is None or target_reps < 1:
+        return None
+    weight_kg = max(float(weight) for weight, _, _ in working_sets)
+    if weight_kg <= 0:
+        return None
+    reps_made = all(reps >= target_reps for _, reps, _ in working_sets)
+    # A set without an RPE can't show there was room to spare, so it never earns an increase.
+    felt_easy = all(rpe is not None and rpe <= RPE_ROOM_TO_PROGRESS for _, _, rpe in working_sets)
+    if reps_made and felt_easy:
+        return NextTarget(weight_kg=weight_kg + PROGRESSION_STEP_KG, reps=target_reps, increase=True)
+    return NextTarget(weight_kg=weight_kg, reps=target_reps, increase=False)
 
 
 def week_start(day: date) -> date:

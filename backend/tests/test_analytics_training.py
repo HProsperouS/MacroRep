@@ -12,6 +12,7 @@ from app.analytics.training import (
     estimated_minutes,
     estimated_one_rep_max,
     is_personal_record,
+    next_session_target,
     percent_change,
     planned_sessions,
     volume_kg,
@@ -154,3 +155,45 @@ def test_percent_change(before: float, after: float, expected: float | None) -> 
 )
 def test_estimated_minutes(exercises: list[tuple[int, int]], expected: int) -> None:
     assert estimated_minutes(exercises) == expected
+
+
+@pytest.mark.parametrize(
+    ("sets", "target_reps", "weight_kg", "increase"),
+    [
+        # Every rep made at RPE 8 or less: room to spare, so up one step.
+        ([(80, 5, 7.5), (80, 5, 8.0)], 5, 82.5, True),
+        # More reps than asked for counts the same.
+        ([(80, 6, 7.0), (80, 5, 8.0)], 5, 82.5, True),
+        # A missed rep holds the load.
+        ([(80, 5, 7.0), (80, 4, 8.0)], 5, 80.0, False),
+        # Reps made, but a grind (RPE 9.5): hold.
+        ([(80, 5, 8.0), (80, 5, 9.5)], 5, 80.0, False),
+        # RPE 8.5 is neither easy nor a grind: hold.
+        ([(80, 5, 8.5)], 5, 80.0, False),
+        # No RPE can't show room to spare: hold, never raise.
+        ([(80, 5, None), (80, 5, 7.0)], 5, 80.0, False),
+        # The heaviest set sets the load (a back-off set doesn't lower it).
+        ([(80, 5, 7.0), (70, 5, 7.0)], 5, 82.5, True),
+    ],
+)
+def test_next_session_target_is_double_progression(
+    sets: list[tuple[float, int, float | None]], target_reps: int, weight_kg: float, increase: bool
+) -> None:
+    target = next_session_target(sets, target_reps)
+    assert target is not None
+    assert (target.weight_kg, target.reps, target.increase) == (weight_kg, target_reps, increase)
+
+
+@pytest.mark.parametrize(
+    ("sets", "target_reps"),
+    [
+        ([], 5),  # nothing done
+        ([(80, 5, 7.0)], None),  # no rep target to judge against
+        ([(80, 5, 7.0)], 0),
+        ([(0, 10, 7.0)], 10),  # bodyweight: no load to step up from
+    ],
+)
+def test_next_session_target_needs_something_to_judge(
+    sets: list[tuple[float, int, float | None]], target_reps: int | None
+) -> None:
+    assert next_session_target(sets, target_reps) is None
