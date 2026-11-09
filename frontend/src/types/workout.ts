@@ -126,6 +126,15 @@ export type UpdateWorkoutInput = {
   exercises: FinishWorkoutInput["exercises"]
 }
 
+/** What to aim for on an exercise next session, from how this one went. */
+export type NextTarget = {
+  exercise: string
+  weightKg: number
+  reps: number
+  /** True when the load goes up; false when it is held. */
+  increase: boolean
+}
+
 export type WorkoutSummary = {
   id: string
   name: string
@@ -133,6 +142,7 @@ export type WorkoutSummary = {
   setsCompleted: number
   volumeKg: number
   personalRecords: string[]
+  nextTargets: NextTarget[]
 }
 
 /** One logged workout in the history list. */

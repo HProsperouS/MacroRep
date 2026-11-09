@@ -31,7 +31,7 @@ const plan: PlannedWorkout = {
 beforeEach(() => {
   clearActiveWorkout()
   api.getToday.mockResolvedValue(plan)
-  api.finishSession.mockResolvedValue({ id: "w1", name: "Push day", durationSeconds: 60, setsCompleted: 1, volumeKg: 480, personalRecords: [] })
+  api.finishSession.mockResolvedValue({ id: "w1", name: "Push day", durationSeconds: 60, setsCompleted: 1, volumeKg: 480, personalRecords: [], nextTargets: [] })
 })
 
 describe("WorkoutPage pausing", () => {

@@ -1,4 +1,4 @@
-import { Trophy } from "lucide-react"
+import { Target, Trophy } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { Stat } from "@/components/layout/stat"
@@ -31,6 +31,29 @@ export function WorkoutSummary({ summary }: { summary: WorkoutSummaryData }) {
               </li>
             ))}
           </ul>
+        ) : null}
+        {summary.nextTargets.length > 0 ? (
+          <section aria-labelledby="next-time-heading" className="flex flex-col gap-2">
+            <h3 id="next-time-heading" className="text-sm font-medium">
+              Next time
+            </h3>
+            <ul className="flex flex-col gap-2">
+              {summary.nextTargets.map((target) => (
+                <li key={target.exercise} className="flex items-start gap-2 text-sm">
+                  <Target className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                  <span>
+                    <span className="font-medium">{target.exercise}:</span> {formatNumber(target.weightKg, 1)} kg ×{" "}
+                    {target.reps}
+                    <span className="block text-muted-foreground">
+                      {target.increase
+                        ? "Every rep came with room to spare, so go up."
+                        : "Stay here until every rep feels comfortable."}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
         ) : null}
       </CardContent>
       <CardFooter className="flex flex-col-reverse gap-2 border-t sm:flex-row sm:justify-end">
