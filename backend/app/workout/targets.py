@@ -12,6 +12,8 @@ import math
 from collections.abc import Sequence
 from typing import Any, Literal
 
+from app.analytics.training import NextTarget, next_session_target
+
 from .models import SetKind, WorkoutPlanEntry
 
 TargetField = Literal["working_sets", "target_weight_kg", "target_reps"]
@@ -81,6 +83,36 @@ def adjust_targets(
             steps = math.ceil(scaled - 1e-9) if value < current else math.floor(scaled + 1e-9)
             sets[index][field] = max(0.0, steps * load_step)
     return sets
+
+
+def suggested_loads(
+    planned_sets: Sequence[dict[str, Any]], previous_working: Sequence[tuple[float, int, float | None]]
+) -> tuple[list[dict[str, Any]], NextTarget | None]:
+    """``planned_sets`` with the heaviest working target raised to what last session's
+    sets earned, and that target when it did raise something (else None, sets unchanged).
+
+    ``previous_working`` are the (weight_kg, reps, rpe) of the last session's working sets.
+    A suggestion only ever raises a target: a routine target above it (say a check-in raised
+    it) stays, and a hold or a missing target leaves the sets as the routine has them. The
+    routine itself is never written; this shapes one session. A routine with no target weight
+    for the exercise takes the suggestion as its working weight.
+    """
+
+    routine = working_targets(planned_sets)
+    reps = routine["target_reps"]
+    target = next_session_target(previous_working, int(reps) if reps is not None else None)
+    if target is None or not target.increase:
+        return [dict(planned_set) for planned_set in planned_sets], None
+    routine_weight = routine["target_weight_kg"]
+    if routine_weight is None:
+        sets = [dict(planned_set) for planned_set in planned_sets]
+        for planned_set in sets:
+            if _is_working(planned_set):
+                planned_set["target_weight_kg"] = target.weight_kg
+        return sets, target
+    if target.weight_kg <= routine_weight:
+        return [dict(planned_set) for planned_set in planned_sets], None
+    return adjust_targets(planned_sets, "target_weight_kg", target.weight_kg), target
 
 
 def routine_revision(routine: WorkoutPlanEntry) -> str:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from app.workout.targets import adjust_targets, working_targets
+import pytest
+
+from app.workout.targets import adjust_targets, suggested_loads, working_targets
 
 WARMUP = {"kind": "warmup", "target_weight_kg": 40.0, "target_reps": 10}
 WORK = {"kind": "working", "target_weight_kg": 100.0, "target_reps": 5}
@@ -73,3 +75,50 @@ def test_rounding_to_plates_never_moves_a_light_set_past_the_whole_change() -> N
     # -10% overall: 20 kg scaled is 18, which no plate step reaches within 10%, so it stays at 20.
     assert [s["target_weight_kg"] for s in adjust_targets(sets, "target_weight_kg", 90.0)] == [20.0, 90.0]
     assert [s["target_weight_kg"] for s in adjust_targets(sets, "target_weight_kg", 110.0)] == [20.0, 110.0]
+
+
+def _sets(*working: tuple[float | None, int | None]) -> list[dict]:
+    return [
+        {"kind": "warmup", "target_weight_kg": 40, "target_reps": 10},
+        *({"kind": "working", "target_weight_kg": weight, "target_reps": reps} for weight, reps in working),
+    ]
+
+
+def test_a_comfortable_last_session_raises_the_routines_working_targets() -> None:
+    planned = _sets((80, 5), (80, 5))
+    sets, raised = suggested_loads(planned, [(80, 5, 7.0), (80, 5, 7.5)])
+    assert raised is not None and raised.weight_kg == 82.5
+    assert [s["target_weight_kg"] for s in sets] == [40, 82.5, 82.5]
+    # The routine's own sets are not touched.
+    assert [s["target_weight_kg"] for s in planned] == [40, 80, 80]
+
+
+def test_a_hard_last_session_leaves_the_routine_as_it_is() -> None:
+    planned = _sets((80, 5))
+    sets, raised = suggested_loads(planned, [(80, 5, 9.5)])
+    assert raised is None
+    assert sets == planned
+
+
+def test_a_suggestion_never_lowers_a_routine_target_a_check_in_raised() -> None:
+    # The check-in raised the target to 90; last time was done at 80 and was easy: 82.5 is below 90.
+    planned = _sets((90, 5))
+    sets, raised = suggested_loads(planned, [(80, 5, 7.0)])
+    assert raised is None
+    assert [s["target_weight_kg"] for s in sets] == [40, 90]
+
+
+def test_a_routine_with_no_weight_takes_the_suggestion_for_its_working_sets() -> None:
+    sets, raised = suggested_loads(_sets((None, 8), (None, 8)), [(60, 8, 7.0)])
+    assert raised is not None
+    assert [s["target_weight_kg"] for s in sets] == [40, 62.5, 62.5]
+
+
+@pytest.mark.parametrize("previous", [[], [(80, 5, None)]])
+def test_nothing_to_go_on_leaves_the_routine_as_it_is(
+    previous: list[tuple[float, int, float | None]],
+) -> None:
+    planned = _sets((80, 5))
+    sets, raised = suggested_loads(planned, previous)
+    assert raised is None
+    assert sets == planned

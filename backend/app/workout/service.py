@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import (
+    RPE_ROOM_TO_PROGRESS,
     best_estimated_one_rep_max,
     estimated_minutes,
     is_personal_record,
@@ -47,6 +48,7 @@ from .schemas import (
     WorkoutHistoryItem,
     WorkoutSummary,
 )
+from .targets import suggested_loads
 
 
 def _to_exercise_read(exercise: Exercise, last_session: LastSession | None) -> ExerciseRead:
@@ -197,7 +199,9 @@ class WorkoutService:
         plan_entry = await self.plans.get_for_day(actor.actor_id, day_of_week)
         if plan_entry is None:
             return None
-        return await self._build_planned_workout(plan_entry, actor)
+        # Today's session is the one place the last session's result shapes the targets; the
+        # routine editor and the week plan show the routine as saved.
+        return await self._build_planned_workout(plan_entry, actor, suggest_loads=True)
 
     async def _planned_workouts(
         self, actor: ActorContext, entries: list[WorkoutPlanEntry]
@@ -342,13 +346,15 @@ class WorkoutService:
         await self.session.commit()
 
     async def _build_planned_workout(
-        self, plan_entry: WorkoutPlanEntry, actor: ActorContext
+        self, plan_entry: WorkoutPlanEntry, actor: ActorContext, *, suggest_loads: bool = False
     ) -> PlannedWorkout:
         plan_exercises = await self.plans.list_exercises(plan_entry.id)
         exercise_ids = [plan_exercise.exercise_id for plan_exercise in plan_exercises]
         exercises_by_id = await self.exercises.get_many(exercise_ids)
         last_sessions = await self._last_sessions(actor, exercise_ids)
-        return self._assemble_planned_workout(plan_entry, plan_exercises, exercises_by_id, last_sessions)
+        return self._assemble_planned_workout(
+            plan_entry, plan_exercises, exercises_by_id, last_sessions, suggest_loads=suggest_loads
+        )
 
     def _assemble_planned_workout(
         self,
@@ -356,10 +362,15 @@ class WorkoutService:
         plan_exercises: list[WorkoutPlanExercise],
         exercises_by_id: dict[str, Exercise],
         last_sessions: dict[str, tuple[str, list[WorkoutSetLog]]],
+        *,
+        suggest_loads: bool = False,
     ) -> PlannedWorkout:
         """Pure assembly step, split out from :meth:`_build_planned_workout` so
         ``get_week_plan`` can batch the fetches for all 7 days up front and
-        call this once per day instead of running the fetches per day too."""
+        call this once per day instead of running the fetches per day too.
+
+        With ``suggest_loads``, each exercise's heaviest working target is raised to what its
+        last session earned (see :func:`suggested_loads`), with a note saying why."""
 
         exercises: list[PlannedExercise] = []
         for plan_exercise in plan_exercises:
@@ -371,13 +382,29 @@ class WorkoutService:
             # Match previous sets to planned sets by kind (warm-up vs. any other set), not
             # raw list position — a past session with a different set layout would otherwise
             # pair a planned warmup with what was actually a working set's numbers.
+            planned_sets = plan_exercise.planned_sets
+            note: str | None = None
+            if suggest_loads:
+                planned_sets, raised = suggested_loads(
+                    planned_sets,
+                    [
+                        (float(row.weight_kg), row.reps, float(row.rpe) if row.rpe is not None else None)
+                        for row in previous_sets
+                        if row.kind == SetKind.WORKING
+                    ],
+                )
+                if raised is not None:
+                    note = (
+                        f"Up to {raised.weight_kg:g} kg: last time every rep came with room to spare "
+                        f"(RPE {RPE_ROOM_TO_PROGRESS:g} or less)."
+                    )
             previous_by_kind: dict[SetKind, list[WorkoutSetLog]] = {}
             for row in previous_sets:
                 previous_by_kind.setdefault(_planning_kind(row.kind), []).append(row)
             next_index_by_kind: dict[SetKind, int] = {}
 
             sets: list[PlannedSet] = []
-            for index, planned in enumerate(plan_exercise.planned_sets):
+            for index, planned in enumerate(planned_sets):
                 kind = cast(SetKind, planned["kind"])
                 bucket_kind = _planning_kind(kind)
                 bucket = previous_by_kind.get(bucket_kind, [])
@@ -409,6 +436,7 @@ class WorkoutService:
                     equipment=exercise.equipment,
                     muscles=", ".join(exercise.muscles),
                     rest_seconds=plan_exercise.rest_seconds,
+                    note=note,
                     sets=sets,
                 )
             )

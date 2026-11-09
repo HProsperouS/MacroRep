@@ -390,6 +390,45 @@ def test_a_workout_without_a_routine_has_no_next_targets(client: TestClient) -> 
     assert body["nextTargets"] == []
 
 
+def _today_squat(client: TestClient, headers: dict[str, str]) -> dict:
+    today = client.get("/api/v1/workouts/today", headers=headers)
+    assert today.status_code == 200
+    return today.json()["exercises"][0]
+
+
+def test_todays_session_starts_a_step_heavier_after_an_easy_session(client: TestClient) -> None:
+    headers = register_user(client)
+    plan_every_day(client, headers)
+    routine = client.get("/api/v1/workouts/routines", headers=headers).json()[0]
+    _finish_leg_day(
+        client, headers, routine["id"], [{"kind": "working", "weightKg": 80, "reps": 5, "rpe": 7}]
+    )
+
+    squat = _today_squat(client, headers)
+    working = [s for s in squat["sets"] if s["kind"] == "working"]
+    assert [s["targetWeightKg"] for s in working] == [82.5]
+    assert "82.5" in squat["note"]
+    # The routine as saved, which the editor shows and re-saves, is not changed by the suggestion.
+    saved = client.get("/api/v1/workouts/routines", headers=headers).json()[0]
+    assert [s["targetWeightKg"] for s in saved["exercises"][0]["sets"] if s["kind"] == "working"] == [80]
+    assert saved["exercises"][0]["note"] is None
+    week = client.get("/api/v1/workouts/plan", headers=headers).json()
+    assert all(day["plan"]["exercises"][0]["note"] is None for day in week)
+
+
+def test_todays_session_keeps_the_routines_weight_after_a_hard_session(client: TestClient) -> None:
+    headers = register_user(client)
+    plan_every_day(client, headers)
+    routine = client.get("/api/v1/workouts/routines", headers=headers).json()[0]
+    _finish_leg_day(
+        client, headers, routine["id"], [{"kind": "working", "weightKg": 80, "reps": 5, "rpe": 9.5}]
+    )
+
+    squat = _today_squat(client, headers)
+    assert [s["targetWeightKg"] for s in squat["sets"] if s["kind"] == "working"] == [80]
+    assert squat["note"] is None
+
+
 def test_create_update_and_delete_a_routine(client: TestClient) -> None:
     headers = register_user(client)
     created = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload())
