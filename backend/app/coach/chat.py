@@ -57,6 +57,7 @@ EARLIER_CHECK_IN = (
 NO_SNAPSHOT = (
     "This check-in doesn't have the week's figures saved, so I can't revise it. Start a new one instead."
 )
+NUTRITION_SKIPPED = "There's too little data this week for a calorie review, so the target stays as it is."
 
 
 class CoachChat:
@@ -152,6 +153,9 @@ class CoachChat:
             return "answer", EARLIER_CHECK_IN
         if "target_calories" not in snapshot:
             return "answer", NO_SNAPSHOT
+        # A training-only week: the chat can't make the calorie change the check-in held back.
+        if kind == ProposalKind.NUTRITION and snapshot.get("nutrition_skipped"):
+            return "answer", f"{NUTRITION_SKIPPED} {snapshot['nutrition_skipped']}"
         mine = [proposal for proposal in proposals if proposal.kind == kind]
         if any(proposal.status in (ProposalStatus.APPLIED, ProposalStatus.EDITED) for proposal in mine):
             return "answer", ALREADY_APPLIED[kind]
