@@ -174,6 +174,13 @@ def test_estimated_minutes(exercises: list[tuple[int, int]], expected: int) -> N
         ([(80, 5, None), (80, 5, 7.0)], 5, 80.0, False),
         # The heaviest set sets the load (a back-off set doesn't lower it).
         ([(80, 5, 7.0), (70, 5, 7.0)], 5, 82.5, True),
+        # Only the top sets are judged: a lighter set's missing RPE or missed rep doesn't hold it back...
+        ([(80, 5, 7.0), (70, 5, None)], 5, 82.5, True),
+        ([(80, 5, 7.0), (70, 3, 9.0)], 5, 82.5, True),
+        # ...but a ramp-up whose top set was hard still holds.
+        ([(40, 8, 5.0), (42.5, 8, 6.5), (45, 8, 9.0)], 8, 45.0, False),
+        # A ramp-up whose top set was comfortable goes up from the top.
+        ([(40, 8, 5.0), (42.5, 8, 6.5), (45, 8, 8.0)], 8, 47.5, True),
     ],
 )
 def test_next_session_target_is_double_progression(
