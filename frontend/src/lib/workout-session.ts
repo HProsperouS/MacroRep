@@ -1,3 +1,4 @@
+import { adviseWeight } from "@/lib/find-weight"
 import { EQUIPMENT_LABELS, MUSCLE_LABELS, SET_KIND_LABELS, type Exercise, type FinishWorkoutInput, type PlannedExercise, type PlannedSet, type PlannedWorkout, type SetKind } from "@/types/workout"
 
 /** Pure state for a live workout. Inputs are kept as strings so "57." can be typed. */
@@ -13,8 +14,10 @@ export type SessionSet = {
   done: boolean
 }
 
-/** `id` is unique within the session (the same exercise can be added twice); `exerciseId` is the library id. */
-export type SessionExercise = Omit<PlannedExercise, "sets"> & { exerciseId: string; sets: SessionSet[] }
+/** `id` is unique within the session (the same exercise can be added twice); `exerciseId` is the library id.
+ *  `finding` marks an exercise with no history and no target weight, where the lifter finds their
+ *  weight by feel (see lib/find-weight.ts). Absent on workouts saved before it existed. */
+export type SessionExercise = Omit<PlannedExercise, "sets"> & { exerciseId: string; sets: SessionSet[]; finding?: boolean }
 
 export type RestTimer = { endsAt: number; totalSeconds: number }
 
@@ -55,6 +58,7 @@ export function initSession(plan: PlannedWorkout | null): SessionState {
     exercises: plan.exercises.map(({ sets, ...exercise }) => ({
       ...exercise,
       exerciseId: exercise.id,
+      finding: isFirstTime(sets),
       sets: sets.map((set) => ({
         id: set.id,
         kind: set.kind,
@@ -68,6 +72,12 @@ export function initSession(plan: PlannedWorkout | null): SessionState {
   }
 }
 
+/** No past session and no target weight for any working set: nothing to say what to lift. */
+function isFirstTime(sets: PlannedSet[]) {
+  const working = sets.filter((set) => set.kind !== "warmup")
+  return working.length > 0 && working.every((set) => set.previous == null && (set.targetWeightKg ?? 0) <= 0)
+}
+
 /** A library exercise becomes session rows pre-filled from its last session (or 3 blank sets). */
 function exerciseToSession(exercise: Exercise, instanceId: string): SessionExercise {
   const last = exercise.lastSession?.sets ?? []
@@ -79,6 +89,7 @@ function exerciseToSession(exercise: Exercise, instanceId: string): SessionExerc
     equipment: EQUIPMENT_LABELS[exercise.equipment],
     muscles: exercise.muscles.map((muscle) => MUSCLE_LABELS[muscle]).join(", "),
     restSeconds: DEFAULT_REST_SECONDS,
+    finding: last.length === 0,
     sets: Array.from({ length: count }, (_, index) => {
       const previous = last[index] ?? last[last.length - 1]
       return {
@@ -117,6 +128,21 @@ export function isSetCompletable(set: Pick<SessionSet, "weight" | "reps" | "rpe"
   return parseSet(set) !== null && parseRpe(set.rpe) !== undefined
 }
 
+/** While finding a weight, a completed working set with an RPE sets the next one's weight, unless the
+ *  lifter already chose a different weight for it. */
+function fillNextWeight(exercises: SessionExercise[], exerciseId: string, completed: SessionSet) {
+  const rpe = parseRpe(completed.rpe)
+  const advice = completed.kind === "working" && rpe != null ? adviseWeight(Number(completed.weight), rpe) : null
+  if (!advice) return exercises
+  return exercises.map((exercise) => {
+    if (exercise.id !== exerciseId) return exercise
+    const index = exercise.sets.findIndex((s) => s.kind === "working" && !s.done && s.id !== completed.id)
+    const next = exercise.sets[index]
+    if (!next || (next.weight.trim() !== "" && Number(next.weight) !== Number(completed.weight))) return exercise
+    return { ...exercise, sets: exercise.sets.map((s, i) => (i === index ? { ...s, weight: String(advice.weightKg) } : s)) }
+  })
+}
+
 function updateSet(state: SessionState, exerciseId: string, setId: string, update: (set: SessionSet, exercise: SessionExercise) => SessionSet) {
   return state.exercises.map((exercise) =>
     exercise.id === exerciseId ? { ...exercise, sets: exercise.sets.map((set) => (set.id === setId ? update(set, exercise) : set)) } : exercise,
@@ -136,7 +162,8 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       const set = exercise?.sets.find((s) => s.id === action.setId)
       if (!exercise || !set) return state
       if (!set.done && !isSetCompletable(set)) return state
-      const exercises = updateSet(state, action.exerciseId, action.setId, (s) => ({ ...s, done: !s.done }))
+      let exercises = updateSet(state, action.exerciseId, action.setId, (s) => ({ ...s, done: !s.done }))
+      if (!set.done && exercise.finding) exercises = fillNextWeight(exercises, exercise.id, set)
       // Completing a set starts the rest timer; un-ticking leaves it alone.
       const rest = set.done ? state.rest : { endsAt: action.now + exercise.restSeconds * 1000, totalSeconds: exercise.restSeconds }
       return { ...state, exercises, rest }

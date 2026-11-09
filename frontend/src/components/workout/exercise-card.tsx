@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Dumbbell, Ellipsis, Minus, NotebookText, Plus, Trash2 } from "lucide-react"
 
+import { FindWeightHint } from "@/components/workout/find-weight-hint"
 import { SET_GRID, SetRow } from "@/components/workout/set-row"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -83,6 +84,8 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
             {exercise.note}
           </p>
         ) : null}
+
+        <FindWeightHint exercise={exercise} />
 
         <div className={cn(SET_GRID, "text-[11px] font-semibold tracking-widest text-muted-foreground uppercase")} aria-hidden>
           <span>Set</span>

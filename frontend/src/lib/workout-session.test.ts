@@ -160,3 +160,91 @@ describe("sessionTotals and toFinishInput", () => {
     expect(toFinishInput(started(), 0, 1).exercises).toEqual([])
   })
 })
+
+
+describe("finding a first weight", () => {
+  const newLift: PlannedWorkout = {
+    id: "plan-2",
+    name: "Legs",
+    estimatedMinutes: 30,
+    exercises: [
+      {
+        id: "leg-press",
+        name: "Leg Press",
+        equipment: "Machine",
+        muscles: "Quads",
+        restSeconds: 90,
+        sets: [
+          { id: "lp-0", kind: "working", targetWeightKg: null, targetReps: 10 },
+          { id: "lp-1", kind: "working", targetWeightKg: null, targetReps: 10 },
+          { id: "lp-2", kind: "working", targetWeightKg: null, targetReps: 10 },
+        ],
+      },
+    ],
+  }
+
+  const edit = (state: SessionState, setId: string, field: "weight" | "reps" | "rpe", value: string) =>
+    sessionReducer(state, { type: "edit", exerciseId: "leg-press", setId, field, value })
+  const done = (state: SessionState, setId: string) =>
+    sessionReducer(state, { type: "toggle", exerciseId: "leg-press", setId, now: 0 })
+  const weights = (state: SessionState) => state.exercises[0].sets.map((set) => set.weight)
+
+  it("marks an exercise with no weight and no history as one to find a weight for", () => {
+    expect(initSession(newLift).exercises[0].finding).toBe(true)
+    expect(initSession(plan).exercises[0].finding).toBe(false)
+  })
+
+  it("is not first-time once there is a past session, even without a target weight", () => {
+    const seen: PlannedWorkout = {
+      ...newLift,
+      exercises: [
+        {
+          ...newLift.exercises[0],
+          sets: newLift.exercises[0].sets.map((set) => ({ ...set, previous: { weightKg: 100, reps: 10 } })),
+        },
+      ],
+    }
+    expect(initSession(seen).exercises[0].finding).toBe(false)
+  })
+
+  it("sets the next set's weight from how the last one felt", () => {
+    let state = initSession(newLift)
+    state = edit(edit(state, "lp-0", "weight", "100"), "lp-0", "rpe", "6")
+    state = done(state, "lp-0")
+    // Two points easy: 6% of 100 kg, to the nearest 2.5 kg step.
+    expect(weights(state)).toEqual(["100", "105", ""])
+
+    state = edit(state, "lp-1", "rpe", "8")
+    state = done(state, "lp-1")
+    expect(weights(state)).toEqual(["100", "105", "105"])
+  })
+
+  it("leaves a weight the lifter chose themselves alone", () => {
+    let state = initSession(newLift)
+    state = edit(edit(state, "lp-0", "weight", "100"), "lp-0", "rpe", "6")
+    state = edit(state, "lp-1", "weight", "120")
+    state = done(state, "lp-0")
+    expect(weights(state)).toEqual(["100", "120", ""])
+  })
+
+  it("does nothing without an RPE", () => {
+    let state = initSession(newLift)
+    state = done(edit(state, "lp-0", "weight", "100"), "lp-0")
+    expect(weights(state)).toEqual(["100", "", ""])
+  })
+
+  it("does not touch the weights of an exercise that has a target", () => {
+    let state = started()
+    state = sessionReducer(state, { type: "edit", exerciseId: "bench", setId: "bench-1", field: "rpe", value: "5" })
+    state = sessionReducer(state, { type: "toggle", exerciseId: "bench", setId: "bench-1", now: 0 })
+    expect(state.exercises[0].sets.map((set) => set.weight)).toEqual(["40", "60"])
+  })
+
+  it("starts a library exercise with no past session as one to find a weight for", () => {
+    const state = sessionReducer(initSession(null), {
+      type: "add-exercises",
+      exercises: [{ id: "squat", name: "Squat", equipment: "barbell", muscles: ["quads"], source: "library" }],
+    })
+    expect(state.exercises[0].finding).toBe(true)
+  })
+})
