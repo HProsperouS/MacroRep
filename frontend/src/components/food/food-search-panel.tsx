@@ -1,4 +1,4 @@
-import { Camera, Search, SearchX, Zap } from "lucide-react"
+import { Camera, ImageUp, Search, SearchX, Zap } from "lucide-react"
 import { useState, type Ref } from "react"
 
 import { MealPicker } from "@/components/food/meal-picker"
@@ -23,7 +23,10 @@ export type FoodSearchPanelProps = {
   onAdd: (entry: Omit<FoodEntry, "id">) => void
   onQuickAdd: () => void
   onCreateCustom: (name?: string) => void
+  /** Opens the camera directly. */
   onScanPhoto: () => void
+  /** Opens a picker that offers the photo library as well. */
+  onChoosePhoto: () => void
   searchInputRef?: Ref<HTMLInputElement>
   autoFocus?: boolean
 }
@@ -40,6 +43,7 @@ export function FoodSearchPanel({
   onQuickAdd,
   onCreateCustom,
   onScanPhoto,
+  onChoosePhoto,
   searchInputRef,
   autoFocus,
 }: FoodSearchPanelProps) {
@@ -83,10 +87,14 @@ export function FoodSearchPanel({
         ) : null}
       </InputGroup>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <Button variant="outline" className="h-10" onClick={onScanPhoto}>
           <Camera data-icon="inline-start" />
           Scan
+        </Button>
+        <Button variant="outline" className="h-10" onClick={onChoosePhoto}>
+          <ImageUp data-icon="inline-start" />
+          Upload
         </Button>
         <Button variant="outline" className="h-10" onClick={onQuickAdd}>
           <Zap data-icon="inline-start" />

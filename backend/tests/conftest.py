@@ -132,12 +132,12 @@ async def _add_a_finished_check_in() -> None:
 
 @pytest.fixture(autouse=True)
 def _fresh_rate_limits() -> None:
-    """Each test starts with no sign-in or sign-up attempts counted."""
+    """Each test starts with no sign-in or sign-up attempts counted. (The per-user AI counts
+    are rows in the database, which each test starts empty.)"""
 
-    from app.shared.rate_limit import limiter, user_limiter
+    from app.shared.rate_limit import limiter
 
     limiter.reset()
-    user_limiter.reset()
 
 
 @pytest.fixture

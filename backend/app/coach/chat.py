@@ -28,6 +28,7 @@ from .agents.chat import (
     revise_proposal,
 )
 from .agents.model import CoachModel
+from .agents.moderation import Moderator
 from .models import CheckIn as CheckInModel
 from .models import CheckInStatus, MessageRole, ProposalKind, ProposalStatus
 from .models import CoachMessage as CoachMessageModel
@@ -58,17 +59,33 @@ NO_SNAPSHOT = (
     "This check-in doesn't have the week's figures saved, so I can't revise it. Start a new one instead."
 )
 NUTRITION_SKIPPED = "There's too little data this week for a calorie review, so the target stays as it is."
+# Fixed refusals: for these intents the model's own words are never shown, so a reply that
+# slipped off topic under a refusal can't reach the user.
+MEDICAL_REPLY = (
+    "I can't advise on injuries, pain, illness, medication, pregnancy or eating concerns. "
+    "Please talk to a doctor or another qualified professional. "
+    "I can explain this week's figures and proposals."
+)
+OUT_OF_SCOPE_REPLY = "I can only help with this week's check-in: your eating, weight trend and training."
+FIXED_REPLIES = {"medical": MEDICAL_REPLY, "out_of_scope": OUT_OF_SCOPE_REPLY}
+# A message moderation flagged as harmful: answered without asking the coach.
+FLAGGED_REPLY = "I can't help with that. I can answer questions about this week's check-in."
 
 
 class CoachChat:
     """Answers questions about a check-in, and revises its proposals on request."""
 
     def __init__(
-        self, session: AsyncSession, repository: CoachRepository, model: Callable[[], CoachModel]
+        self,
+        session: AsyncSession,
+        repository: CoachRepository,
+        model: Callable[[], CoachModel],
+        moderator: Callable[[], Moderator],
     ) -> None:
         self.session = session
         self.repository = repository
         self.model = model
+        self.moderator = moderator
 
     async def list_messages(self, check_in_id: str) -> list[CoachMessage]:
         return [
@@ -94,18 +111,22 @@ class CoachChat:
         turns = [
             {"role": message.role.value, "text": message.text, "kind": message.kind} for message in history
         ]
+        # Nothing is written before the answer; ending the read transaction now frees its
+        # connection for the seconds moderation and the model take.
+        await self.session.commit()
+        # None (moderation couldn't answer) lets the question through: see agents/moderation.py.
+        if await self.moderator().flagged(text):
+            return await self._store(check_in, actor, text, FLAGGED_REPLY, "answer")
+
         context = chat_context(
             snapshot, check_in.summary, [proposal_for_chat(p) for p in proposals], turns, text
         )
-        # Nothing is written before the answer; ending the read transaction now frees its
-        # connection for the seconds the model takes.
-        await self.session.commit()
         model = self.model()
         answer = await answer_question(model, context, check_in_id)
         if answer is None:
             raise Unavailable(CHAT_UNAVAILABLE)
 
-        kind, reply_text = "answer", answer.reply
+        kind, reply_text = "answer", FIXED_REPLIES.get(answer.intent, answer.reply)
         if answer.intent in ("adjust_nutrition", "adjust_workout"):
             if answer.request is None:
                 # One question at a time, and not forever: then say how to ask.
@@ -121,10 +142,17 @@ class CoachChat:
                     check_in, snapshot, proposals, proposal_kind, answer.request, model
                 )
 
-        for role, message_text in ((MessageRole.USER, text), (MessageRole.COACH, reply_text)):
+        return await self._store(check_in, actor, text, reply_text, kind)
+
+    async def _store(
+        self, check_in: CheckInModel, actor: ActorContext, question: str, answer: str, kind: str
+    ) -> CoachMessage:
+        """Keep the question and its answer together, and return the answer."""
+
+        for role, message_text in ((MessageRole.USER, question), (MessageRole.COACH, answer)):
             reply = await self.repository.add_message(
                 CoachMessageModel(
-                    check_in_id=check_in_id,
+                    check_in_id=check_in.id,
                     owner_id=actor.actor_id,
                     role=role,
                     text=message_text,

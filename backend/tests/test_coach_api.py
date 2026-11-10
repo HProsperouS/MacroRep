@@ -19,6 +19,7 @@ from tests.helpers import (
     ready_check_in,
     start_check_in,
     training_check_in,
+    usage_count,
     week_with_a_proposal,
     weigh_in,
 )
@@ -1210,7 +1211,7 @@ def test_check_ins_per_user_are_limited(client: TestClient) -> None:
 
 
 def test_a_failed_check_in_doesnt_use_one_up(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.shared.rate_limit import CHECK_INS_PER_USER, user_limiter
+    from app.shared.rate_limit import CHECK_INS_PER_USER
 
     headers = _new_user(client)
     week_with_a_proposal(client, headers)
@@ -1223,13 +1224,12 @@ def test_a_failed_check_in_doesnt_use_one_up(client: TestClient, monkeypatch: py
         assert start_check_in(client, headers, f"fails-{index}").status_code == 201
         assert client.get(f"{CHECK_INS}/current", headers=headers).json()["status"] == "failed"
 
-    assert all(not hits for key, hits in user_limiter._hits.items() if key[0] == "check_in")  # noqa: SLF001
+    assert usage_count(client, "check_in") == 0
 
 
 def test_a_check_in_that_couldnt_be_saved_doesnt_use_one_up(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from app.shared.rate_limit import user_limiter
 
     headers = _new_user(client)
     week_with_a_proposal(client, headers)
@@ -1241,13 +1241,13 @@ def test_a_check_in_that_couldnt_be_saved_doesnt_use_one_up(
     with pytest.raises(RuntimeError):
         start_check_in(client, headers, "not-saved")
 
-    assert all(not hits for key, hits in user_limiter._hits.items() if key[0] == "check_in")  # noqa: SLF001
+    assert usage_count(client, "check_in") == 0
 
 
 def test_switched_off_check_ins_are_not_limited(client: TestClient) -> None:
     from app.core.config import get_settings
     from app.main import app
-    from app.shared.rate_limit import CHECK_INS_PER_USER, user_limiter
+    from app.shared.rate_limit import CHECK_INS_PER_USER
 
     headers = _new_user(client)
     week_with_a_proposal(client, headers)
@@ -1258,7 +1258,7 @@ def test_switched_off_check_ins_are_not_limited(client: TestClient) -> None:
             assert _start_and_reject(client, headers, f"k{index}").status_code == 201
     finally:
         app.dependency_overrides.pop(get_settings)
-    assert user_limiter._hits == {}  # noqa: SLF001
+    assert usage_count(client) == 0
 
 
 def test_the_snapshot_records_the_users_training_experience(client: TestClient) -> None:

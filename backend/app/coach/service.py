@@ -18,14 +18,9 @@ from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
 from app.profile.service import zone_of
 from app.shared.exceptions import Conflict, Invalid, NotFound
-from app.shared.rate_limit import (
-    CHAT_QUESTIONS_PER_USER,
-    CHECK_INS_PER_USER,
-    count_attempt,
-    counted_attempt,
-    user_limiter,
-)
+from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, CHECK_INS_PER_USER
 from app.shared.timezones import local_today
+from app.shared.usage import counted_usage, give_back, give_back_latest, spend
 
 from .agents.graph import run_agents
 from .agents.metrics import RunMetrics, RunOutcome, elapsed_ms
@@ -80,10 +75,6 @@ RUNNING_PIPELINE: list[dict[str, str]] = [
 ]
 
 logger = logging.getLogger(__name__)
-
-
-def _check_in_count(owner_id: str) -> tuple[str, str]:
-    return ("check_in", owner_id)
 
 
 def _failed_pipeline(steps: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -194,13 +185,13 @@ class CoachService:
         snapshot = await self.week.gather(actor.actor_id, profile, start, today, zone)
         # Counted before the row is written, so starts sent at once can't all slip under the
         # limit, and given back unless the row is written: then no run, and no model calls.
-        count_key = _check_in_count(actor.actor_id)
-        if self.rate_limits:
-            count_attempt(
-                (count_key, CHECK_INS_PER_USER),
-                reason="That's a lot of check-ins for today.",
-                counts=user_limiter,
+        counted = (
+            await spend(
+                "check_in", actor.actor_id, CHECK_INS_PER_USER, reason="That's a lot of check-ins for today."
             )
+            if self.rate_limits
+            else None
+        )
         created = False
         try:
             check_in = CheckInModel(
@@ -230,8 +221,8 @@ class CoachService:
             await self.session.commit()
             created = True
         finally:
-            if self.rate_limits and not created:
-                user_limiter.undo(count_key)
+            if counted is not None and not created:
+                await give_back(counted)
         return await self._to_read(check_in), True
 
     async def generate(self, check_in_id: str) -> None:
@@ -293,7 +284,11 @@ class CoachService:
             # Our failure, not the user's: it doesn't use up one of their check-ins. (Only one
             # runs at a time, so the latest count is this run's.)
             if self.rate_limits:
-                user_limiter.undo(_check_in_count(check_in.owner_id))
+                try:
+                    await give_back_latest("check_in", check_in.owner_id)
+                except Exception:
+                    # Still mark the run failed below: a lost give-back only costs the user one count.
+                    logger.warning("couldn't give back a check-in count", extra={"check_in_id": check_in_id})
             await self.session.rollback()
             await self._mark_failed(check_in_id, steps, FAILED_REASON)
         except asyncio.CancelledError:
@@ -382,11 +377,11 @@ class CoachService:
         if check_in.status in (CheckInStatus.RUNNING, CheckInStatus.FAILED):
             raise Conflict(CHAT_NOT_READY)
         # Counted from here on, where the paid model call is made.
-        with counted_attempt(
-            ("chat", actor.actor_id),
+        async with counted_usage(
+            "chat",
+            actor.actor_id,
             CHAT_QUESTIONS_PER_USER,
             reason="That's a lot of questions for now.",
-            counts=user_limiter,
             enabled=self.rate_limits,
         ):
             return await self.chat.ask(check_in, text, actor)

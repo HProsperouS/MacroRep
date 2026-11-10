@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.food import models as food_models  # noqa: F401
 from app.identity import models as identity_models  # noqa: F401
 from app.profile import models as profile_models  # noqa: F401
+from app.shared import usage as usage_models  # noqa: F401
 from app.shared.persistence import Base
 from app.workout import models as workout_models  # noqa: F401
 

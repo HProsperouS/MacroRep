@@ -11,7 +11,8 @@ from app.coach.agents.model import CoachModel
 from app.coach.agents.schemas import PhotoEstimate
 from app.coach.agents.vision import estimate_photo
 from app.shared.exceptions import Invalid, Unavailable
-from app.shared.rate_limit import PHOTOS_PER_USER, counted_attempt, user_limiter
+from app.shared.rate_limit import PHOTOS_PER_USER
+from app.shared.usage import counted_usage
 
 from .photo import UnreadablePhoto, reencode_photo
 
@@ -33,11 +34,11 @@ class PhotoService:
         except UnreadablePhoto as exc:
             raise Invalid(str(exc)) from None
 
-        with counted_attempt(
-            ("photo", user_id),
+        async with counted_usage(
+            "photo",
+            user_id,
             PHOTOS_PER_USER,
             reason="That's a lot of photos for now.",
-            counts=user_limiter,
             enabled=self.rate_limits,
         ):
             estimate = await estimate_photo(self.model, image, user_id)

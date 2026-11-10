@@ -287,3 +287,22 @@ def decide(
 
 def ask_coach(client: TestClient, headers: dict[str, str], check_in_id: str, text: str) -> Response:
     return client.post(f"{CHECK_INS}/{check_in_id}/messages", headers=headers, json={"text": text})
+
+
+def usage_count(client: TestClient, kind: str | None = None) -> int:
+    """How many paid AI calls are counted against users' limits (app/shared/usage.py)."""
+
+    from sqlalchemy import func, select
+
+    from app.core.database import get_session_factory
+    from app.shared.usage import UsageEvent
+
+    async def count() -> int:
+        query = select(func.count()).select_from(UsageEvent)
+        if kind is not None:
+            query = query.where(UsageEvent.kind == kind)
+        async with get_session_factory()() as session:
+            return int((await session.execute(query)).scalar_one())
+
+    assert client.portal is not None
+    return client.portal.call(count)

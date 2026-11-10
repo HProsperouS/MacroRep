@@ -10,7 +10,7 @@ from typing import Any
 import openai
 from openai.types.shared import ReasoningEffort
 
-from .model import AgentTask, ModelReply, ModelUnavailableError, T
+from .model import MAX_OUTPUT_TOKENS, AgentTask, ModelReply, ModelUnavailableError, T
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,8 @@ class OpenAICoachModel:
                 },
                 # Omitted, not sent as null, for a model without reasoning.
                 reasoning_effort=self.reasoning_effort or openai.omit,
+                # Bounds what one answer can cost; reasoning tokens count towards it.
+                max_completion_tokens=MAX_OUTPUT_TOKENS[task.agent],
             )
         # A timeout is a connection error too.
         except openai.APIConnectionError as error:
@@ -93,12 +95,17 @@ _RETRYABLE_STATUSES = frozenset({408, 409, 429})
 
 
 @lru_cache(maxsize=1)
-def cached_openai_model(
-    api_key: str, model: str, timeout_seconds: float, reasoning_effort: ReasoningEffort
-) -> OpenAICoachModel:
-    """One client per configuration, so its connection pool is reused across check-ins."""
+def cached_openai_client(api_key: str, timeout_seconds: float) -> openai.AsyncOpenAI:
+    """One client per configuration, so its connection pool is reused across calls (the
+    coach model's and moderation's)."""
 
     # The client doesn't retry: the callers do, within their own time limits (LangGraph's retry
     # policy for check-in steps, ask_with_retry for chat and photos).
-    client = openai.AsyncOpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0)
-    return OpenAICoachModel(client, model, reasoning_effort)
+    return openai.AsyncOpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0)
+
+
+@lru_cache(maxsize=1)
+def cached_openai_model(
+    api_key: str, model: str, timeout_seconds: float, reasoning_effort: ReasoningEffort
+) -> OpenAICoachModel:
+    return OpenAICoachModel(cached_openai_client(api_key, timeout_seconds), model, reasoning_effort)

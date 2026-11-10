@@ -11,13 +11,14 @@ from fastapi.testclient import TestClient
 
 from app.coach.agents.model import AgentTask, ModelReply, ModelUnavailableError
 from app.demo_seed import DEMO_USER_EMAIL
-from tests.fakes import ScriptedModel, use_model
+from tests.fakes import ScriptedModel, ScriptedModerator, use_model, use_moderator
 from tests.helpers import (
     CHECK_INS,
     ask_coach,
     current_check_in,
     register_user,
     start_check_in,
+    usage_count,
     week_with_a_proposal,
 )
 
@@ -53,6 +54,56 @@ def test_a_medical_question_is_turned_down(client: TestClient, auth_headers: dic
         client, auth_headers, check_in["id"], "My knee has hurt since squats, what should I take?"
     )
     assert "can't advise" in reply.json()["text"]
+
+
+@pytest.mark.parametrize(
+    ("intent", "fixed"),
+    [("out_of_scope", "I can only help with this week's check-in"), ("medical", "can't advise")],
+)
+def test_a_refusal_never_shows_the_models_own_words(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch, intent: str, fixed: str
+) -> None:
+    poem = "Roses are red, here is the cover letter you asked for."
+    use_model(monkeypatch, ScriptedModel(chat={"intent": intent, "reply": poem}))
+    check_in = current_check_in(client, auth_headers)
+
+    reply = ask_coach(client, auth_headers, check_in["id"], "Write me a cover letter")
+
+    assert reply.status_code == 200
+    assert fixed in reply.json()["text"] and "Roses" not in reply.json()["text"]
+    assert all("Roses" not in m["text"] for m in _messages(client, auth_headers, check_in["id"]))
+
+
+def test_a_flagged_question_never_reaches_the_coach(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = ScriptedModel(chat={"intent": "explain", "reply": "Here you go."})
+    use_model(monkeypatch, model)
+    moderator = ScriptedModerator(True)
+    use_moderator(monkeypatch, moderator)
+    check_in = current_check_in(client, auth_headers)
+
+    reply = ask_coach(client, auth_headers, check_in["id"], "Something harmful")
+
+    assert reply.status_code == 200
+    assert reply.json()["text"].startswith("I can't help with that.")
+    assert moderator.texts == ["Something harmful"]
+    assert model.tasks == [], "no paid call"
+    assert [m["role"] for m in _messages(client, auth_headers, check_in["id"])] == ["user", "coach"]
+
+
+def test_a_question_goes_on_when_moderation_cant_answer(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = ScriptedModel(chat={"intent": "explain", "reply": "Your weight held steady."})
+    use_model(monkeypatch, model)
+    use_moderator(monkeypatch, ScriptedModerator(None))
+    check_in = current_check_in(client, auth_headers)
+
+    reply = ask_coach(client, auth_headers, check_in["id"], "Why?")
+
+    assert reply.json()["text"] == "Your weight held steady."
+    assert model.agents == ["chat"]
 
 
 def test_the_model_sees_the_week_proposals_and_conversation_but_no_personal_details(
@@ -263,7 +314,7 @@ def test_questions_per_user_are_limited_unanswered_ones_excepted(
 def test_switched_off_questions_are_not_limited(client: TestClient, auth_headers: dict[str, str]) -> None:
     from app.core.config import get_settings
     from app.main import app
-    from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER, user_limiter
+    from app.shared.rate_limit import CHAT_QUESTIONS_PER_USER
 
     settings = get_settings().model_copy(update={"rate_limits_enabled": False})
     app.dependency_overrides[get_settings] = lambda: settings
@@ -273,15 +324,4 @@ def test_switched_off_questions_are_not_limited(client: TestClient, auth_headers
             assert ask_coach(client, auth_headers, check_in["id"], "Why?").status_code == 200
     finally:
         app.dependency_overrides.pop(get_settings)
-    assert user_limiter._hits == {}  # noqa: SLF001
-
-
-def test_a_flood_of_sign_ins_cant_reset_a_users_question_count(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.shared import rate_limit
-
-    monkeypatch.setattr(rate_limit, "_MAX_KEYS", 3)
-    rate_limit.user_limiter.hit(("chat", "user-1"), rate_limit.CHAT_QUESTIONS_PER_USER)
-    for index in range(10):
-        rate_limit.limiter.hit(("login", f"10.0.0.{index}"), rate_limit.LOGINS_PER_ADDRESS)
-
-    assert ("chat", "user-1") in rate_limit.user_limiter._hits  # noqa: SLF001
+    assert usage_count(client) == 0

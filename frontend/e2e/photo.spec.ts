@@ -15,7 +15,7 @@ test("estimates a meal photo, then logs only what the user confirms", async ({ p
   // buttons, since the page behind is locked while it's open.
   await page.setViewportSize({ width: 1280, height: 500 })
   const sent = page.waitForRequest((request) => request.url().endsWith("/food/photo-estimates"))
-  await page.getByLabel("Meal photo").setInputFiles(PHOTO)
+  await page.getByLabel("Choose a meal photo").setInputFiles(PHOTO)
   const image = (await sent).postDataJSON().image as string
 
   expect(image.startsWith("data:image/jpeg;base64,")).toBe(true)

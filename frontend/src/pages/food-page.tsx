@@ -1,6 +1,6 @@
 import { addDays, format, isToday, isYesterday, parseISO } from "date-fns"
-import { Camera, ChevronLeft, ChevronRight, Search, Zap } from "lucide-react"
-import { useMemo, useRef, useState } from "react"
+import { Camera, ChevronLeft, ChevronRight, ImageUp, Search, Zap } from "lucide-react"
+import { useMemo, useRef, useState, type Ref } from "react"
 import { toast } from "sonner"
 
 import { apiErrorMessage } from "@/api/client"
@@ -44,6 +44,33 @@ type ManualState = {
   draftKey: number
 }
 
+type PhotoInputProps = {
+  ref: Ref<HTMLInputElement>
+  label: string
+  /** "environment" opens the rear camera directly on a phone; without it the photo library is offered too. */
+  capture?: "environment"
+  onChosen: (file: File | undefined) => void
+}
+
+/** A hidden file input, opened by a button: browsers only show their camera and photo pickers this way. */
+function PhotoInput({ ref, label, capture, onChosen }: PhotoInputProps) {
+  return (
+    <input
+      ref={ref}
+      type="file"
+      accept="image/*"
+      capture={capture}
+      className="sr-only"
+      tabIndex={-1}
+      aria-label={label}
+      onChange={(event) => {
+        onChosen(event.target.files?.[0])
+        event.target.value = "" // so the same photo can be chosen again
+      }}
+    />
+  )
+}
+
 function dayTitle(date: Date) {
   if (isToday(date)) return "Today"
   if (isYesterday(date)) return "Yesterday"
@@ -67,7 +94,9 @@ export default function FoodPage() {
   const updateEntry = useUpdateFoodEntry()
   const createCustomFood = useCreateCustomFood()
   const [editing, setEditing] = useState<{ entry: FoodEntry; layout: OverlayLayout } | null>(null)
-  const photoInputRef = useRef<HTMLInputElement>(null)
+  // Scan opens the camera straight away; Upload also offers the photo library.
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const libraryInputRef = useRef<HTMLInputElement>(null)
   const [photoLayout, setPhotoLayout] = useState<OverlayLayout | null>(null)
   const photo = usePhotoEstimate()
 
@@ -88,7 +117,12 @@ export default function FoodPage() {
 
   function scanPhoto() {
     setSearchOpen(false)
-    photoInputRef.current?.click()
+    cameraInputRef.current?.click()
+  }
+
+  function choosePhoto() {
+    setSearchOpen(false)
+    libraryInputRef.current?.click()
   }
 
   function photoChosen(file: File | undefined) {
@@ -178,6 +212,7 @@ export default function FoodPage() {
     onQuickAdd: () => openManual("quick"),
     onCreateCustom: (name) => openManual("custom", name ? { name } : undefined),
     onScanPhoto: scanPhoto,
+    onChoosePhoto: choosePhoto,
   }
 
   return (
@@ -228,10 +263,14 @@ export default function FoodPage() {
                 <Search data-icon="inline-start" />
                 Search foods and dishes
               </Button>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Button variant="outline" className="h-11" onClick={scanPhoto}>
                   <Camera data-icon="inline-start" />
                   Scan
+                </Button>
+                <Button variant="outline" className="h-11" onClick={choosePhoto}>
+                  <ImageUp data-icon="inline-start" />
+                  Upload
                 </Button>
                 <Button variant="outline" className="h-11" onClick={() => openManual("quick")}>
                   <Zap data-icon="inline-start" />
@@ -293,19 +332,8 @@ export default function FoodPage() {
         onCustomSubmit={handleCustomSubmit}
       />
 
-      <input
-        ref={photoInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="sr-only"
-        tabIndex={-1}
-        aria-label="Meal photo"
-        onChange={(event) => {
-          photoChosen(event.target.files?.[0])
-          event.target.value = "" // so the same photo can be chosen again
-        }}
-      />
+      <PhotoInput ref={cameraInputRef} label="Take a meal photo" capture="environment" onChosen={photoChosen} />
+      <PhotoInput ref={libraryInputRef} label="Choose a meal photo" onChosen={photoChosen} />
 
       <ResponsiveOverlay
         open={photoLayout !== null}
@@ -324,12 +352,17 @@ export default function FoodPage() {
             <p className="text-sm text-destructive" role="alert">
               {apiErrorMessage(photo.error)}
             </p>
-            <Button variant="outline" onClick={scanPhoto}>
-              Choose another photo
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={choosePhoto}>
+                Choose another photo
+              </Button>
+              <Button variant="ghost" onClick={scanPhoto}>
+                Retake
+              </Button>
+            </div>
           </div>
         ) : photo.data ? (
-          <PhotoReview key={photo.submittedAt} estimate={photo.data} defaultMeal={meal} onLog={logPhotoItems} onRetake={scanPhoto} />
+          <PhotoReview key={photo.submittedAt} estimate={photo.data} defaultMeal={meal} onLog={logPhotoItems} onRetake={scanPhoto} onChoosePhoto={choosePhoto} />
         ) : null}
       </ResponsiveOverlay>
 

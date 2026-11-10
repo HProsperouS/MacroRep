@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, get_args
 
 import httpx2
 import openai
@@ -15,9 +15,10 @@ from app.coach.agents import openai_model as openai_module
 from app.coach.agents import provider as provider_module
 from app.coach.agents.graph import run_agents
 from app.coach.agents.metrics import RunMetrics
-from app.coach.agents.model import AgentTask, ModelUnavailableError
+from app.coach.agents.model import MAX_OUTPUT_TOKENS, AgentName, AgentTask, ModelUnavailableError
+from app.coach.agents.moderation import NoModerator, OpenAIModerator
 from app.coach.agents.openai_model import OpenAICoachModel
-from app.coach.agents.provider import get_coach_model
+from app.coach.agents.provider import get_coach_model, get_moderator
 from app.coach.agents.schemas import NutritionAdvice
 from app.core.config import Settings
 
@@ -89,6 +90,20 @@ async def test_sends_the_instructions_context_and_output_schema() -> None:
     assert NutritionAdvice.model_validate_json(reply.output).new_calorie_target == 2100  # type: ignore[arg-type]
     assert (reply.input_tokens, reply.output_tokens) == (100, 20)
     assert request["reasoning_effort"] is openai.omit, "not sent unless set"
+
+
+async def test_every_answer_has_a_token_cap() -> None:
+    client = StubClient()
+    model = OpenAICoachModel(client, "gpt-test")  # type: ignore[arg-type]
+    await run_agents(snapshot(), model, metrics=RunMetrics(model=model.name))
+
+    caps = {r["response_format"]["json_schema"]["name"]: r["max_completion_tokens"] for r in client.requests}
+    assert caps == {
+        "NutritionAdvice": MAX_OUTPUT_TOKENS["nutrition"],
+        "WorkoutAdvice": MAX_OUTPUT_TOKENS["workout"],
+        "Review": MAX_OUTPUT_TOKENS["reviewer"],
+    }
+    assert set(MAX_OUTPUT_TOKENS) == set(get_args(AgentName)), "every agent has a cap"
 
 
 async def test_asks_for_the_configured_reasoning_effort() -> None:
@@ -184,6 +199,7 @@ def test_openai_needs_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_the_configured_provider_is_used_and_the_key_stays_hidden(monkeypatch: pytest.MonkeyPatch) -> None:
     configured = settings(COACH_MODEL_PROVIDER="openai", OPENAI_API_KEY="sk-secret", OPENAI_MODEL="gpt-test")
     monkeypatch.setattr(provider_module, "get_settings", lambda: configured)
+    openai_module.cached_openai_client.cache_clear()
     openai_module.cached_openai_model.cache_clear()
 
     model = get_coach_model()
@@ -195,12 +211,14 @@ def test_the_configured_provider_is_used_and_the_key_stays_hidden(monkeypatch: p
     assert model.reasoning_effort == "low"  # the default
     assert get_coach_model() is model  # one client, reused
     assert "sk-secret" not in repr(configured)
+    openai_module.cached_openai_client.cache_clear()
     openai_module.cached_openai_model.cache_clear()
 
 
 async def test_a_blank_reasoning_effort_is_not_sent(monkeypatch: pytest.MonkeyPatch) -> None:
     configured = settings(COACH_MODEL_PROVIDER="openai", OPENAI_API_KEY="sk-x", OPENAI_REASONING_EFFORT="")
     monkeypatch.setattr(provider_module, "get_settings", lambda: configured)
+    openai_module.cached_openai_client.cache_clear()
     openai_module.cached_openai_model.cache_clear()
     model = get_coach_model()
     assert isinstance(model, OpenAICoachModel)
@@ -209,9 +227,62 @@ async def test_a_blank_reasoning_effort_is_not_sent(monkeypatch: pytest.MonkeyPa
     try:
         await model.generate(task())
     finally:
+        openai_module.cached_openai_client.cache_clear()
         openai_module.cached_openai_model.cache_clear()
     assert client.requests[0]["reasoning_effort"] is openai.omit
 
 
 def test_the_fake_needs_no_key() -> None:
     assert settings().coach_model_provider == "fake"
+
+
+class StubModerations:
+    """Stands in for ``client.moderations``: flags, passes, or raises."""
+
+    def __init__(self, flagged: bool = False, error: Exception | None = None) -> None:
+        self.flagged = flagged
+        self.error = error
+        self.requests: list[dict[str, Any]] = []
+
+    async def create(self, **request: Any) -> Any:
+        self.requests.append(request)
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(results=[SimpleNamespace(flagged=self.flagged)])
+
+
+@pytest.mark.parametrize("flagged", [True, False])
+async def test_moderation_reports_what_openai_flags(flagged: bool) -> None:
+    moderations = StubModerations(flagged=flagged)
+    moderator = OpenAIModerator(SimpleNamespace(moderations=moderations))  # type: ignore[arg-type]
+
+    assert await moderator.flagged("hello") is flagged
+    assert moderations.requests == [{"model": "omni-moderation-latest", "input": "hello"}]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [openai.APIConnectionError(request=REQUEST), TimeoutError()],
+    ids=["connection", "timeout"],
+)
+async def test_moderation_that_cant_answer_says_so(error: Exception) -> None:
+    moderator = OpenAIModerator(SimpleNamespace(moderations=StubModerations(error=error)))  # type: ignore[arg-type]
+    assert await moderator.flagged("hello") is None
+
+
+def test_moderation_follows_the_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(provider_module, "get_settings", lambda: settings())
+    assert isinstance(get_moderator(), NoModerator)
+
+    configured = settings(COACH_MODEL_PROVIDER="openai", OPENAI_API_KEY="sk-x")
+    monkeypatch.setattr(provider_module, "get_settings", lambda: configured)
+    openai_module.cached_openai_client.cache_clear()
+    openai_module.cached_openai_model.cache_clear()
+    try:
+        moderator = get_moderator()
+        model = get_coach_model()
+        assert isinstance(moderator, OpenAIModerator) and isinstance(model, OpenAICoachModel)
+        assert moderator.client is model.client, "one client, shared"
+    finally:
+        openai_module.cached_openai_client.cache_clear()
+        openai_module.cached_openai_model.cache_clear()
