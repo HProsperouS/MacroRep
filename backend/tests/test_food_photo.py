@@ -18,7 +18,7 @@ from app.coach.agents.schemas import PhotoEstimate
 from app.food.photo import MAX_PHOTO_BYTES, MAX_PHOTO_PIXELS, MAX_PHOTO_SIDE
 from app.shared.rate_limit import PHOTOS_PER_USER
 from tests.fakes import ScriptedModel, use_model
-from tests.helpers import register_user
+from tests.helpers import register_user, usage_count
 
 PHOTOS = "/api/v1/food/photo-estimates"
 
@@ -203,7 +203,6 @@ def _noisy_jpeg() -> bytes:
 def test_a_photo_that_isnt_a_whole_image_is_refused(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, data: bytes, reason: str
 ) -> None:
-    from app.shared.rate_limit import user_limiter
 
     kind = "png" if data.startswith(b"\x89PNG") else "jpeg"
     assert len(data) <= MAX_PHOTO_BYTES, "it gets past the size check"
@@ -215,7 +214,7 @@ def test_a_photo_that_isnt_a_whole_image_is_refused(
     assert response.status_code == 422
     assert reason in response.text
     assert model.tasks == [], "the model never sees it"
-    assert all(not hits for key, hits in user_limiter._hits.items() if key[0] == "photo")  # noqa: SLF001
+    assert usage_count(client, "photo") == 0
 
 
 def test_calories_far_below_the_macros_are_raised_to_match(
@@ -357,13 +356,12 @@ def test_raised_calories_stay_within_the_limit(client: TestClient, monkeypatch: 
 
 
 def test_a_failed_estimate_doesnt_use_up_a_photo(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.shared.rate_limit import user_limiter
 
     use_model(monkeypatch, ScriptedModel(food_photo=ModelUnavailableError("down")))
     headers = register_user(client)
     assert client.post(PHOTOS, headers=headers, json={"image": data_url("jpeg", JPEG)}).status_code == 503
 
-    assert all(not hits for key, hits in user_limiter._hits.items() if key[0] == "photo")  # noqa: SLF001
+    assert usage_count(client, "photo") == 0
 
 
 def test_no_retry_once_half_the_time_is_gone(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

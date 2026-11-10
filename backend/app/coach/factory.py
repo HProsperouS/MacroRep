@@ -10,7 +10,7 @@ from app.progress.repository import ProgressRepository
 from app.workout.repository import WorkoutPlanRepository
 
 from .agents.checkpoint import get_checkpointer
-from .agents.provider import get_coach_model
+from .agents.provider import get_coach_model, get_moderator
 from .apply import ProposalApplier
 from .chat import CoachChat
 from .repository import CoachRepository
@@ -27,7 +27,7 @@ def build_coach_service(session: AsyncSession, settings: Settings) -> CoachServi
         profiles,
         WeekSnapshot(ProgressRepository(session), profiles),
         ProposalApplier(session, profiles, WorkoutPlanRepository(session)),
-        chat=CoachChat(session, CoachRepository(session), model),
+        chat=CoachChat(session, CoachRepository(session), model, get_moderator),
         model=model,
         checkpointer=get_checkpointer,
         rate_limits=settings.rate_limits_enabled,

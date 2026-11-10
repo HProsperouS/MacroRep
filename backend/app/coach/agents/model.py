@@ -20,6 +20,18 @@ from pydantic import BaseModel
 T = TypeVar("T", bound=BaseModel)
 AgentName = Literal["nutrition", "workout", "reviewer", "chat", "food_photo"]
 
+# Most tokens one answer may take, reasoning included (OPENAI_REASONING_EFFORT is low by
+# default). Normal answers are far smaller: a whole check-in, input included, averages about
+# 2,800 tokens across its three calls (docs/agent-evaluation.md). The cap only stops a runaway
+# answer, which is cut off, rejected as not fitting the schema, and asked once more at most.
+MAX_OUTPUT_TOKENS: dict[AgentName, int] = {
+    "nutrition": 1_500,
+    "workout": 2_000,
+    "reviewer": 1_500,
+    "chat": 1_200,
+    "food_photo": 2_000,
+}
+
 
 class ModelUnavailableError(Exception):
     """A transient failure talking to the model (timeout, rate limit, 5xx): worth retrying."""

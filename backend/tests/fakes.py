@@ -61,3 +61,21 @@ def use_model(monkeypatch: pytest.MonkeyPatch, model: Any) -> None:
 
     monkeypatch.setattr("app.coach.factory.get_coach_model", lambda: model)
     monkeypatch.setattr("app.food.router.get_coach_model", lambda: model)
+
+
+class ScriptedModerator:
+    """Flags every message (``True``), none (``False``), or can't tell (``None``). Keeps each one."""
+
+    def __init__(self, verdict: bool | None) -> None:
+        self.verdict = verdict
+        self.texts: list[str] = []
+
+    async def flagged(self, text: str) -> bool | None:
+        self.texts.append(text)
+        return self.verdict
+
+
+def use_moderator(monkeypatch: pytest.MonkeyPatch, moderator: Any) -> None:
+    """Make Coach Chat screen its questions with ``moderator``."""
+
+    monkeypatch.setattr("app.coach.factory.get_moderator", lambda: moderator)

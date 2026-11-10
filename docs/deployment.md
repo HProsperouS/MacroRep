@@ -218,8 +218,13 @@ creating anything. A model provider's API calls would add a per-check-in cost.
 
 Gaps that would matter for real users, tracked in [`follow-ups.md`](follow-ups.md):
 
+- **Set a monthly budget on the OpenAI project** (OpenAI dashboard → Limits). The app bounds
+  each user's AI calls (5 check-ins a day, 30 chat questions and 20 photos an hour, counted in
+  Postgres by `app/shared/usage.py`, so they hold across restarts and tasks) and caps each
+  answer's tokens, but only the provider's budget caps the total across every account.
 - **Sign-in limits count per task, by the connecting address.** `app/shared/rate_limit.py`
-  keeps its counts in memory, so with two tasks an account gets twice the attempts. And
+  keeps its sign-in and sign-up counts in memory, so with two tasks an account gets twice the
+  attempts. And
   behind CloudFront and the ALB the connecting address is the ALB's, so every user would
   share one count. The client's own address has to be passed through: have CloudFront send
   its `CloudFront-Viewer-Address` header to the origin and read that, or run uvicorn with
