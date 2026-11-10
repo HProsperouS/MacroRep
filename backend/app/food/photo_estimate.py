@@ -1,12 +1,19 @@
-"""Estimating the foods in a meal photo with the model. Nothing is logged and the photo isn't kept."""
+"""Estimating the foods in a meal photo with the model. Nothing is logged and the photo isn't kept.
+
+The model only ever sees the photo as re-encoded here (photo.py): a fresh JPEG of its pixels.
+"""
 
 from __future__ import annotations
+
+import asyncio
 
 from app.coach.agents.model import CoachModel
 from app.coach.agents.schemas import PhotoEstimate
 from app.coach.agents.vision import estimate_photo
-from app.shared.exceptions import Unavailable
+from app.shared.exceptions import Invalid, Unavailable
 from app.shared.rate_limit import PHOTOS_PER_USER, counted_attempt, user_limiter
+
+from .photo import UnreadablePhoto, reencode_photo
 
 
 class PhotoService:
@@ -18,6 +25,13 @@ class PhotoService:
 
     async def estimate(self, image: str, user_id: str) -> PhotoEstimate:
         """Estimate the foods in a meal photo, for the user to correct before logging any of them."""
+
+        # First, so a photo that can't be read doesn't use one up; in a thread, so decoding
+        # doesn't hold up other requests.
+        try:
+            image = await asyncio.to_thread(reencode_photo, image)
+        except UnreadablePhoto as exc:
+            raise Invalid(str(exc)) from None
 
         with counted_attempt(
             ("photo", user_id),

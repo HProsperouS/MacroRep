@@ -19,6 +19,8 @@ dependencies = [
   "langgraph>=1.2,<2",
   "langgraph-checkpoint-postgres>=3.2,<4",
   "openai>=3.24,<3.25",
+  # Re-encodes meal photos to plain JPEG before they reach the model (app/food/photo.py).
+  "pillow>=12.3,<14",
 ]
 
 [dependency-groups]

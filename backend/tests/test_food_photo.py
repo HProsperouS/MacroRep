@@ -4,28 +4,65 @@ from __future__ import annotations
 
 import base64
 from datetime import date
+from io import BytesIO
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import ExifTags, Image
 
 from app.coach.agents.fake_model import FAKE_PHOTO_ESTIMATE
 from app.coach.agents.model import AgentTask, ModelReply, ModelUnavailableError
 from app.coach.agents.openai_model import _user_content
 from app.coach.agents.schemas import PhotoEstimate
-from app.food.photo import MAX_PHOTO_BYTES
+from app.food.photo import MAX_PHOTO_BYTES, MAX_PHOTO_PIXELS, MAX_PHOTO_SIDE
 from app.shared.rate_limit import PHOTOS_PER_USER
 from tests.fakes import ScriptedModel, use_model
 from tests.helpers import register_user
 
 PHOTOS = "/api/v1/food/photo-estimates"
-JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 200
-PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 200
-WEBP = b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 200
+
+
+def image_bytes(
+    kind: str = "JPEG",
+    size: tuple[int, int] = (64, 48),
+    mode: str = "RGB",
+    color: Any = (200, 120, 40),
+    **save: Any,
+) -> bytes:
+    """A real, decodable image, saved with ``save`` (e.g. ``exif=``)."""
+
+    out = BytesIO()
+    Image.new(mode, size, color).save(out, kind, **save)
+    return out.getvalue()
+
+
+JPEG = image_bytes("JPEG")
+PNG = image_bytes("PNG")
+WEBP = image_bytes("WEBP")
+# A valid JPEG marker with nothing decodable behind it.
+FAKE_JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 200
 
 
 def data_url(kind: str, data: bytes) -> str:
     return f"data:image/{kind};base64,{base64.b64encode(data).decode()}"
+
+
+def decoded(url: str) -> bytes:
+    prefix = "data:image/jpeg;base64,"
+    assert url.startswith(prefix), "the model only ever gets a JPEG"
+    return base64.b64decode(url[len(prefix) :])
+
+
+def what_the_model_sees(client: TestClient, monkeypatch: pytest.MonkeyPatch, kind: str, data: bytes) -> bytes:
+    """The bytes of the image the model was given for an upload of ``data``."""
+
+    model = ScriptedModel(food_photo={"items": [], "note": "No food here."})
+    use_model(monkeypatch, model)
+    response = client.post(PHOTOS, headers=register_user(client), json={"image": data_url(kind, data)})
+    assert response.status_code == 200, response.text
+    [task] = model.tasks
+    return decoded(task.images[0])
 
 
 @pytest.mark.parametrize(("kind", "data"), [("jpeg", JPEG), ("png", PNG), ("webp", WEBP)])
@@ -79,13 +116,106 @@ def test_the_model_sees_the_photo_and_nothing_about_the_user(
     model = ScriptedModel(food_photo={"items": [], "note": "No food here."})
     use_model(monkeypatch, model)
     headers = register_user(client)
-    image = data_url("jpeg", JPEG)
 
-    response = client.post(PHOTOS, headers=headers, json={"image": image})
+    response = client.post(PHOTOS, headers=headers, json={"image": data_url("jpeg", JPEG)})
 
     assert response.json() == {"items": [], "note": "No food here."}
     [task] = model.tasks
-    assert (task.agent, task.images, task.context) == ("food_photo", (image,), {})
+    assert (task.agent, task.context) == ("food_photo", {})
+    [image] = task.images
+    with Image.open(BytesIO(decoded(image))) as seen:
+        assert (seen.format, seen.size) == ("JPEG", (64, 48))
+
+
+def test_the_model_never_sees_the_photos_metadata(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exif = Image.Exif()
+    exif[ExifTags.Base.Make] = "PhoneMaker"
+    exif.get_ifd(ExifTags.IFD.GPSInfo)[ExifTags.GPS.GPSLatitudeRef] = "N"
+    exif.get_ifd(ExifTags.IFD.GPSInfo)[ExifTags.GPS.GPSLatitude] = (1.0, 17.0, 30.0)
+    original = image_bytes("JPEG", exif=exif)
+    with Image.open(BytesIO(original)) as uploaded:
+        assert uploaded.getexif().get_ifd(ExifTags.IFD.GPSInfo), "the upload does carry a location"
+
+    seen = what_the_model_sees(client, monkeypatch, "jpeg", original)
+
+    assert b"Exif" not in seen and b"PhoneMaker" not in seen
+    with Image.open(BytesIO(seen)) as image:
+        assert not image.getexif()
+        assert "exif" not in image.info and "icc_profile" not in image.info
+
+
+def test_data_hidden_after_the_image_is_dropped(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = what_the_model_sees(client, monkeypatch, "jpeg", JPEG + b"<script>alert(1)</script>")
+
+    assert b"<script>" not in seen
+
+
+@pytest.mark.parametrize(("kind", "data"), [("png", PNG), ("webp", WEBP)])
+def test_every_photo_reaches_the_model_as_a_jpeg(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, kind: str, data: bytes
+) -> None:
+    with Image.open(BytesIO(what_the_model_sees(client, monkeypatch, kind, data))) as image:
+        assert (image.format, image.mode) == ("JPEG", "RGB")
+
+
+def test_transparency_is_laid_on_white(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    clear = image_bytes("PNG", mode="RGBA", color=(0, 0, 0, 0))
+
+    with Image.open(BytesIO(what_the_model_sees(client, monkeypatch, "png", clear))) as image:
+        assert all(channel > 245 for channel in image.convert("RGB").getpixel((10, 10)))
+
+
+def test_a_large_photo_is_scaled_down_like_the_app_does(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    large = image_bytes("JPEG", size=(3000, 2000))
+
+    with Image.open(BytesIO(what_the_model_sees(client, monkeypatch, "jpeg", large))) as image:
+        assert image.size == (MAX_PHOTO_SIDE, 683)
+
+
+def test_a_turned_phone_photo_stays_upright(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    exif = Image.Exif()
+    exif[ExifTags.Base.Orientation] = 6  # "rotate 90° clockwise to view"
+    turned = image_bytes("JPEG", size=(40, 20), exif=exif)
+
+    with Image.open(BytesIO(what_the_model_sees(client, monkeypatch, "jpeg", turned))) as image:
+        assert image.size == (20, 40)
+
+
+def _noisy_jpeg() -> bytes:
+    out = BytesIO()
+    Image.effect_noise((256, 256), 64).convert("RGB").save(out, "JPEG")
+    return out.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("data", "reason"),
+    [
+        (_noisy_jpeg()[:2000], "couldn't be read"),
+        (FAKE_JPEG, "couldn't be read"),
+        (image_bytes("PNG", size=(8000, MAX_PHOTO_PIXELS // 8000 + 1), mode="1", color=1), "too many pixels"),
+    ],
+    ids=["truncated", "header-only", "decompression-bomb"],
+)
+def test_a_photo_that_isnt_a_whole_image_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, data: bytes, reason: str
+) -> None:
+    from app.shared.rate_limit import user_limiter
+
+    kind = "png" if data.startswith(b"\x89PNG") else "jpeg"
+    assert len(data) <= MAX_PHOTO_BYTES, "it gets past the size check"
+    model = ScriptedModel(food_photo={"items": [], "note": "x"})
+    use_model(monkeypatch, model)
+
+    response = client.post(PHOTOS, headers=register_user(client), json={"image": data_url(kind, data)})
+
+    assert response.status_code == 422
+    assert reason in response.text
+    assert model.tasks == [], "the model never sees it"
+    assert all(not hits for key, hits in user_limiter._hits.items() if key[0] == "photo")  # noqa: SLF001
 
 
 def test_calories_far_below_the_macros_are_raised_to_match(
