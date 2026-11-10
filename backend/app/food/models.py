@@ -55,6 +55,9 @@ class FoodEntry(TimestampMixin, Base):
     log never changes when a food's catalog values do. An entry logged from a
     saved food also keeps ``food_id`` and its quantity, which is what lets it
     be re-scaled later; quick adds have neither and are edited value by value.
+    Such an entry may also carry a ``detail``, the user's own words for which
+    version of the food it was ("roasted, less rice"). It is shown in the log
+    and read by nothing else; a quick add puts that in its name instead.
     """
 
     __tablename__ = "food_entries"
@@ -79,3 +82,4 @@ class FoodEntry(TimestampMixin, Base):
     quantity_unit: Mapped[str | None] = mapped_column(
         SAEnum(*QUANTITY_UNITS, name="quantity_unit"), nullable=True
     )
+    detail: Mapped[str | None] = mapped_column(String(64), nullable=True)

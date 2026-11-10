@@ -1,3 +1,5 @@
+import { useState } from "react"
+
 import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
@@ -6,7 +8,7 @@ import { amountLabelFor, MAX_AMOUNT, useServingAmount, type ServingAmount } from
 import { formatNumber } from "@/lib/format"
 import type { Nutrition } from "@/lib/macros"
 import { cn } from "@/lib/utils"
-import { MEAL_LABELS, type Food, type FoodEntry, type MealType, type QuantityUnit } from "@/types/food"
+import { MAX_DETAIL_LENGTH, MEAL_LABELS, type Food, type FoodEntry, type MealType, type QuantityUnit } from "@/types/food"
 
 const NUTRIENT_TILES = [
   { key: "calories", label: "kcal", dot: "bg-calories", unit: "" },
@@ -67,6 +69,22 @@ export function NutrientTiles({ nutrition }: { nutrition: Nutrition | null }) {
   )
 }
 
+/** Which version of a saved food this was ("roasted, less rice"); its name always comes from the food. */
+export function DetailField({ id, value, onChange, disabled }: { id: string; value: string; onChange: (value: string) => void; disabled?: boolean }) {
+  return (
+    <TextField
+      id={id}
+      label="Detail"
+      description="Optional — e.g. roasted, less rice"
+      maxLength={MAX_DETAIL_LENGTH}
+      autoComplete="off"
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  )
+}
+
 type ServingEditorProps = {
   food: Food
   meal: MealType
@@ -77,10 +95,13 @@ type ServingEditorProps = {
 /** Mount with `key={food.id}` so amount state resets per food without effects. */
 export function ServingEditor({ food, meal, onAdd, onCancel }: ServingEditorProps) {
   const amount = useServingAmount(food)
+  const [detail, setDetail] = useState("")
 
   function handleAdd() {
     if (!amount.scaled || amount.value === undefined) return
+    const trimmed = detail.trim()
     onAdd({
+      ...(trimmed && { detail: trimmed }),
       meal,
       name: food.name,
       amountLabel: amountLabelFor(food, amount.value, amount.unit),
@@ -97,6 +118,7 @@ export function ServingEditor({ food, meal, onAdd, onCancel }: ServingEditorProp
       <h3 className="truncate text-base font-medium">{food.name}</h3>
       <AmountFields food={food} amount={amount} idPrefix="serving" />
       <NutrientTiles nutrition={amount.scaled} />
+      <DetailField id="serving-detail" value={detail} onChange={setDetail} />
       <div className="flex gap-2">
         <Button variant="outline" size="lg" className="h-10" onClick={onCancel}>
           Cancel

@@ -27,6 +27,8 @@ from app.analytics.nutrition import calories_implausibly_low, macro_calories
 MAX_NAME_LENGTH = 60
 MIN_EXERCISE_NAME_LENGTH = 2
 MAX_LABEL_LENGTH = 64
+# A saved food's variant on one log entry, e.g. "roasted, less rice": short enough to sit beside the name.
+MAX_DETAIL_LENGTH = 40
 MAX_SEARCH_LENGTH = 100
 MAX_CHAT_LENGTH = 500
 

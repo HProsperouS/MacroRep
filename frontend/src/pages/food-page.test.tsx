@@ -129,7 +129,9 @@ describe("FoodPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Add food to Dinner" }))
     await user.type(screen.getByRole("searchbox", { name: "Search foods" }), "chicken")
-    await user.click(await screen.findByRole("button", { name: /Chicken breast/ }))
+    // Wait for the search to replace the suggestions, or the click lands on a button that's gone.
+    await screen.findByText("1 result for “chicken”")
+    await user.click(screen.getByRole("button", { name: /Chicken breast/ }))
 
     const editor = screen.getByRole("region", { name: "Amount of Chicken breast" })
     await user.clear(within(editor).getByLabelText("Amount"))
@@ -141,6 +143,37 @@ describe("FoodPage", () => {
       expect(api.addEntry).toHaveBeenCalledWith({ date: today, meal: "dinner", foodId: "f-chicken", quantity: 200, quantityUnit: "g" }),
     )
     expect(toast.success).toHaveBeenCalledWith("Added Chicken breast to Dinner", { description: "330 kcal" })
+  })
+
+  it("logs a saved food with a detail saying which version it was", async () => {
+    api.addEntry.mockImplementation((input) => Promise.resolve({ ...input, id: "e-new", name: "Chicken breast", amountLabel: "100 g", source: "database", calories: 165, protein: 31, carbs: 0, fat: 3.6 }))
+    const user = userEvent.setup()
+    renderWithQuery(<FoodPage />)
+    await screen.findByText("Chicken rice")
+
+    await user.click(screen.getByRole("button", { name: "Add food to Dinner" }))
+    await user.type(screen.getByRole("searchbox", { name: "Search foods" }), "chicken")
+    // Wait for the search to replace the suggestions, or the click lands on a button that's gone.
+    await screen.findByText("1 result for “chicken”")
+    await user.click(screen.getByRole("button", { name: /Chicken breast/ }))
+
+    const editor = screen.getByRole("region", { name: "Amount of Chicken breast" })
+    await user.type(within(editor).getByLabelText("Detail"), "  roasted, skin on  ")
+    await user.click(within(editor).getByRole("button", { name: "Add to Dinner" }))
+
+    await waitFor(() =>
+      expect(api.addEntry).toHaveBeenCalledWith({ date: today, meal: "dinner", foodId: "f-chicken", quantity: 100, quantityUnit: "g", detail: "roasted, skin on" }),
+    )
+  })
+
+  it("shows a saved food's detail beside its name in the log", async () => {
+    const logged: FoodEntry = { ...rice, id: "e-chicken", name: "Chicken breast", detail: "roasted", source: "database", foodId: "f-chicken", quantity: 100, quantityUnit: "g" }
+    api.getFoodLog.mockResolvedValue({ date: today, entries: [logged] })
+    renderWithQuery(<FoodPage />)
+
+    expect(await screen.findByText("· roasted")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Edit Chicken breast (roasted)" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Remove Chicken breast (roasted)" })).toBeInTheDocument()
   })
 
   it("offers quick add and a custom food when a search finds nothing", async () => {
@@ -369,6 +402,24 @@ describe("FoodPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
 
     await waitFor(() => expect(api.updateEntry).toHaveBeenCalledWith("e-chicken", { quantity: 150 }))
+  })
+
+  it("changes or clears a saved food's detail", async () => {
+    const logged: FoodEntry = { ...rice, id: "e-chicken", name: "Chicken breast", detail: "roasted", amountLabel: "100 g", source: "database", foodId: "f-chicken", quantity: 100, quantityUnit: "g" }
+    api.getFoodLog.mockResolvedValue({ date: today, entries: [logged] })
+    api.getFood.mockResolvedValue(chicken)
+    api.updateEntry.mockResolvedValue({ ...logged, detail: null })
+    const user = userEvent.setup()
+    renderWithQuery(<FoodPage />)
+
+    await user.click(await screen.findByRole("button", { name: "Edit Chicken breast (roasted)" }))
+    const dialog = await screen.findByRole("dialog", { name: "Edit food" })
+    const detail = await within(dialog).findByLabelText("Detail")
+    expect(detail).toHaveValue("roasted")
+    await user.clear(detail)
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
+
+    await waitFor(() => expect(api.updateEntry).toHaveBeenCalledWith("e-chicken", { detail: "" }))
   })
 
   it("removes an entry at once and puts it back if the server refuses", async () => {

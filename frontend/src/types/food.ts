@@ -44,7 +44,12 @@ export type FoodEntry = Nutrition & {
   foodId?: string | null
   quantity?: number | null
   quantityUnit?: QuantityUnit | null
+  /** A saved food's entry only: which version of the food it was, e.g. "roasted, less rice". */
+  detail?: string | null
 }
+
+/** Matches the server's MAX_DETAIL_LENGTH (backend/app/shared/validation.py). */
+export const MAX_DETAIL_LENGTH = 40
 
 export type DailyTargets = Nutrition
 
