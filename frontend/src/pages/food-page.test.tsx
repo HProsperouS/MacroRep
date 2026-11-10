@@ -464,12 +464,43 @@ describe("Meal photos", () => {
   }
   const photoFile = () => new File([new Uint8Array([0xff, 0xd8, 0xff])], "meal.jpg", { type: "image/jpeg" })
 
-  async function scan(user: ReturnType<typeof userEvent.setup>) {
+  async function scan(user: ReturnType<typeof userEvent.setup>, input = "Take a meal photo") {
     renderWithQuery(<FoodPage />)
     await screen.findByText("Chicken rice")
-    await user.upload(screen.getByLabelText("Meal photo"), photoFile())
+    await user.upload(screen.getByLabelText(input), photoFile())
     return screen.findByRole("dialog", { name: "Check the photo estimate" })
   }
+
+  it("opens the camera for Scan, and offers the photo library for Upload", async () => {
+    const user = userEvent.setup()
+    renderWithQuery(<FoodPage />)
+    await screen.findByText("Chicken rice")
+
+    const camera = screen.getByLabelText("Take a meal photo")
+    const library = screen.getByLabelText("Choose a meal photo")
+    expect(camera).toHaveAttribute("capture", "environment")
+    expect(library).not.toHaveAttribute("capture")
+    for (const input of [camera, library]) expect(input).toHaveAttribute("accept", "image/*")
+
+    const cameraClick = vi.spyOn(camera, "click")
+    const libraryClick = vi.spyOn(library, "click")
+    const panel = screen.getByText("Add food", { selector: "[data-slot=card-title]" }).closest<HTMLElement>("[data-slot=card]")!
+    await user.click(within(panel).getByRole("button", { name: "Scan" }))
+    expect(cameraClick).toHaveBeenCalledOnce()
+    await user.click(within(panel).getByRole("button", { name: "Upload" }))
+    expect(libraryClick).toHaveBeenCalledOnce()
+    expect(cameraClick).toHaveBeenCalledOnce()
+  })
+
+  it("estimates a photo chosen from the library too", async () => {
+    api.estimatePhoto.mockResolvedValue(plate)
+    const user = userEvent.setup()
+    const dialog = await scan(user, "Choose a meal photo")
+
+    expect(await within(dialog).findByRole("listitem", { name: "Chicken rice" })).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Take another" })).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Choose another" })).toBeInTheDocument()
+  })
 
   it("shows the estimate, scales an item by its amount, and logs what's kept", async () => {
     api.estimatePhoto.mockResolvedValue(plate)
@@ -573,5 +604,6 @@ describe("Meal photos", () => {
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Try again in 20 minutes.")
     expect(within(dialog).getByRole("button", { name: "Choose another photo" })).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Retake" })).toBeInTheDocument()
   })
 })

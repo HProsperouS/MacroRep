@@ -1,4 +1,4 @@
-import { Camera, Plus, Trash2 } from "lucide-react"
+import { Camera, ImageUp, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 
 import { MealPicker } from "@/components/food/meal-picker"
@@ -69,11 +69,14 @@ type PhotoReviewProps = {
   defaultMeal: MealType
   /** Logs the items in order; resolves with how many were logged before any failure. */
   onLog: (meal: MealType, items: PhotoItem[]) => Promise<number>
+  /** Takes another photo with the camera. */
   onRetake: () => void
+  /** Picks another photo, from the library or the camera. */
+  onChoosePhoto: () => void
 }
 
 /** The model's estimate, for the user to correct before anything is logged (plan.md §7). */
-export function PhotoReview({ estimate, defaultMeal, onLog, onRetake }: PhotoReviewProps) {
+export function PhotoReview({ estimate, defaultMeal, onLog, onRetake, onChoosePhoto }: PhotoReviewProps) {
   const [meal, setMeal] = useState<MealType>(defaultMeal)
   const [drafts, setDrafts] = useState<Draft[]>(() => estimate.items.map(draftFrom))
   const [nextKey, setNextKey] = useState(estimate.items.length)
@@ -169,7 +172,11 @@ export function PhotoReview({ estimate, defaultMeal, onLog, onRetake }: PhotoRev
         </Button>
         <Button variant="ghost" className="h-10" disabled={logging} onClick={onRetake}>
           <Camera data-icon="inline-start" />
-          Another photo
+          Take another
+        </Button>
+        <Button variant="ghost" className="h-10" disabled={logging} onClick={onChoosePhoto}>
+          <ImageUp data-icon="inline-start" />
+          Choose another
         </Button>
       </div>
 
