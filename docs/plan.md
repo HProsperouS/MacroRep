@@ -844,6 +844,7 @@ POST   /api/v1/coach/check-ins/{check_in_id}/messages
 - Store secrets in environment configuration or a cloud secret manager.
 - Enforce HTTPS in deployed environments.
 - Validate MIME type, size, and ownership of uploaded images. *Type checked by content, at most 4 MB, 20 per user an hour.*
+- Sanitise uploaded images. *Each meal photo is decoded and re-encoded on the server as a fresh JPEG of at most 1024 px ([photo.py](../backend/app/food/photo.py)), so the model gets only its pixels: no EXIF or GPS, nothing appended or embedded. A truncated file or one with over 50 MP is refused before the model sees it. There is no antivirus scan: the photo is never stored, served to anyone or opened beyond this decode, and re-encoding removes anything a file could hide. Revisit if photos are ever kept or shared.*
 - Use signed or protected object URLs for private images. *Not needed: meal photos are estimated and dropped, never stored.*
 - Restrict CORS to the deployed frontend origin.
 - Add login and AI-endpoint rate limits if infrastructure permits.

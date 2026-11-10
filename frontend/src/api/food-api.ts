@@ -7,17 +7,22 @@ export type FoodLogResponse = {
   entries: FoodEntry[]
 }
 
-/** A saved food and an amount: the server derives the name, label and nutrition from the food. */
-export type LogSavedFoodInput = { date: string; meal: MealType; foodId: string; quantity: number; quantityUnit: QuantityUnit }
+/**
+ * A saved food and an amount: the server derives the name, label and nutrition from the food.
+ * `detail` optionally says which version of the food it was.
+ */
+export type LogSavedFoodInput = { date: string; meal: MealType; foodId: string; quantity: number; quantityUnit: QuantityUnit; detail?: string }
 /** A quick add: the values exactly as entered. */
 export type LogEnteredValuesInput = Nutrition & { date: string; meal: MealType; name: string; amountLabel: string; source: FoodEntry["source"] }
 export type CreateFoodEntryInput = LogSavedFoodInput | LogEnteredValuesInput
 
 /**
  * Fields to change. `date` and `meal` apply to any entry; a saved food's entry changes its
- * quantity, a quick add its values.
+ * quantity and detail (`""` clears it), a quick add its values.
  */
-export type UpdateFoodEntryInput = Partial<Nutrition & { date: string; meal: MealType; name: string; quantity: number; quantityUnit: QuantityUnit }>
+export type UpdateFoodEntryInput = Partial<
+  Nutrition & { date: string; meal: MealType; name: string; quantity: number; quantityUnit: QuantityUnit; detail: string }
+>
 
 export type CreateCustomFoodInput = Omit<Food, "id" | "source">
 

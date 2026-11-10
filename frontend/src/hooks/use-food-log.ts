@@ -14,7 +14,14 @@ type NewFoodEntry = Omit<FoodEntry, "id">
  */
 function toCreateInput(entry: NewFoodEntry, date: string): CreateFoodEntryInput {
   if (entry.foodId && entry.quantity != null) {
-    return { date, meal: entry.meal, foodId: entry.foodId, quantity: entry.quantity, quantityUnit: entry.quantityUnit ?? "serving" }
+    return {
+      date,
+      meal: entry.meal,
+      foodId: entry.foodId,
+      quantity: entry.quantity,
+      quantityUnit: entry.quantityUnit ?? "serving",
+      ...(entry.detail && { detail: entry.detail }),
+    }
   }
   const { meal, name, amountLabel, source, calories, protein, carbs, fat } = entry
   return { date, meal, name, amountLabel, source, calories, protein, carbs, fat }

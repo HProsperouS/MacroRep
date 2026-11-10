@@ -109,6 +109,7 @@ def _to_entry_read(entry: FoodEntry) -> FoodEntryRead:
         food_id=entry.food_id,
         quantity=float(entry.quantity) if entry.quantity is not None else None,
         quantity_unit=cast("QuantityUnit | None", entry.quantity_unit),
+        detail=entry.detail,
     )
 
 
@@ -187,6 +188,7 @@ class FoodService:
         if payload.food_id is not None:
             food = await self._visible_food(payload.food_id, actor)
             _apply_food_quantity(entry, food, cast(float, payload.quantity), payload.quantity_unit)
+            entry.detail = payload.detail
         else:
             # The schema guarantees every entered value is present without a food_id.
             entry.name = cast(str, payload.name)
@@ -235,11 +237,16 @@ class FoodService:
                 )
                 unit = payload.quantity_unit or cast(QuantityUnit, entry.quantity_unit)
                 _apply_food_quantity(entry, food, quantity, unit)
+            if payload.detail is not None:
+                # An empty detail clears it.
+                entry.detail = payload.detail or None
         else:
             if payload.changes_quantity():
                 raise Invalid(
                     "This entry has no saved food to scale: edit its calories and macros instead.",
                 )
+            if payload.detail is not None:
+                raise Invalid("This entry has no saved food: say what it was in its name instead.")
             for field, value in payload.entered_values().items():
                 setattr(entry, field, value)
             # Checked on the merged result: an edit may change calories or one macro alone.

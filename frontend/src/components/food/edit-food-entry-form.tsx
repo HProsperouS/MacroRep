@@ -6,7 +6,7 @@ import { z } from "zod"
 import type { UpdateFoodEntryInput } from "@/api/food-api"
 import { TextField } from "@/components/ui/text-field"
 import { MealPicker } from "@/components/food/meal-picker"
-import { AmountFields, NutrientTiles } from "@/components/food/serving-editor"
+import { AmountFields, DetailField, NutrientTiles } from "@/components/food/serving-editor"
 import { QueryError } from "@/components/layout/query-error"
 import { Button } from "@/components/ui/button"
 import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
@@ -57,11 +57,15 @@ function SavedFoodLoader({ foodId, ...props }: EditFoodEntryFormProps & { foodId
 function SavedFoodForm({ entry, food, date, submitting, onCancel, onSubmit }: EditFoodEntryFormProps & { food: Food }) {
   const [meal, setMeal] = useState<MealType>(entry.meal)
   const [day, setDay] = useState(date)
+  const [detail, setDetail] = useState(entry.detail ?? "")
   const amount = useServingAmount(food, entry.quantity != null ? { quantity: entry.quantity, unit: entry.quantityUnit ?? "serving" } : undefined)
 
   const dayValid = isLoggableDay(day)
+  const trimmedDetail = detail.trim()
   const changes: UpdateFoodEntryInput = {
     ...(meal !== entry.meal && { meal }),
+    // An empty detail clears it on the server.
+    ...(trimmedDetail !== (entry.detail ?? "") && { detail: trimmedDetail }),
     ...(day !== date && { date: day }),
     ...(amount.value !== undefined && amount.value !== entry.quantity && { quantity: amount.value }),
     ...(amount.unit !== entry.quantityUnit && { quantityUnit: amount.unit }),
@@ -82,6 +86,7 @@ function SavedFoodForm({ entry, food, date, submitting, onCancel, onSubmit }: Ed
         <MealAndDay meal={meal} onMealChange={setMeal} day={day} onDayChange={setDay} dayError={dayValid ? undefined : DAY_ERROR} disabled={submitting} />
         <AmountFields food={food} amount={amount} idPrefix="edit-entry" />
         <NutrientTiles nutrition={amount.scaled} />
+        <DetailField id="edit-entry-detail" value={detail} onChange={setDetail} disabled={submitting} />
       </FieldGroup>
       <FormActions submitting={submitting} canSave={canSave} onCancel={onCancel} />
     </form>

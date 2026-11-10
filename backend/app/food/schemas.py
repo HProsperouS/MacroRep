@@ -10,6 +10,7 @@ from pydantic import Field, field_validator, model_validator
 from app.shared.schema import CamelModel, validate_choice
 from app.shared.validation import (
     MAX_CALORIES,
+    MAX_DETAIL_LENGTH,
     MAX_LABEL_LENGTH,
     MAX_MACRO_G,
     MAX_NAME_LENGTH,
@@ -80,6 +81,8 @@ _MAX_QUANTITY = MAX_SERVING_SIZE
 # Fields a quick add supplies itself; a saved food's entry derives them instead.
 _ENTERED_VALUE_FIELDS = ("name", "amount_label", "calories", "protein", "carbs", "fat")
 
+_NO_DETAIL_WITHOUT_FOOD = "a detail is only for a saved food; a quick add can say it in its name"
+
 
 class FoodEntryRead(CamelModel):
     id: str
@@ -95,13 +98,16 @@ class FoodEntryRead(CamelModel):
     food_id: str | None = None
     quantity: float | None = None
     quantity_unit: QuantityUnit | None = None
+    # A saved food's entry only: which version of the food it was, in the user's words.
+    detail: str | None = None
 
 
 class CreateFoodEntryInput(CamelModel):
     """Either a saved food and a quantity, or a quick add's values as entered.
 
     For a saved food the server derives the name, amount label, and nutrition
-    from the food, so they must not be sent.
+    from the food, so they must not be sent. A saved food may add a ``detail``;
+    a quick add names itself, so it may not.
     """
 
     date: LogDate
@@ -109,6 +115,7 @@ class CreateFoodEntryInput(CamelModel):
     food_id: Identifier | None = None
     quantity: float | None = Field(default=None, gt=0, le=_MAX_QUANTITY)
     quantity_unit: QuantityUnit = "serving"
+    detail: PlainText | None = Field(default=None, min_length=1, max_length=MAX_DETAIL_LENGTH)
     name: PlainText | None = Field(default=None, min_length=1, max_length=MAX_NAME_LENGTH)
     amount_label: PlainText | None = Field(default=None, min_length=1, max_length=MAX_LABEL_LENGTH)
     source: FoodSource | None = None
@@ -134,6 +141,8 @@ class CreateFoodEntryInput(CamelModel):
             missing = [field for field in (*_ENTERED_VALUE_FIELDS, "source") if getattr(self, field) is None]
             if missing:
                 raise ValueError(f"required without a foodId: {', '.join(missing)}")
+            if self.detail is not None:
+                raise ValueError(_NO_DETAIL_WITHOUT_FOOD)
             ensure_plausible_calories(
                 cast(int, self.calories),
                 cast(float, self.protein),
@@ -148,13 +157,15 @@ class UpdateFoodEntryInput(CamelModel):
 
     ``date`` and ``meal`` apply to every entry. A saved food's entry changes
     its ``quantity``/``quantity_unit`` (nutrition is re-scaled from the food);
-    a quick add changes its values directly.
+    a quick add changes its values directly. A saved food's entry may also set
+    its ``detail``; an empty one clears it.
     """
 
     date: LogDate | None = None
     meal: str | None = None
     quantity: float | None = Field(default=None, gt=0, le=_MAX_QUANTITY)
     quantity_unit: QuantityUnit | None = None
+    detail: PlainText | None = Field(default=None, max_length=MAX_DETAIL_LENGTH)
     name: PlainText | None = Field(default=None, min_length=1, max_length=MAX_NAME_LENGTH)
     amount_label: PlainText | None = Field(default=None, min_length=1, max_length=MAX_LABEL_LENGTH)
     calories: int | None = Field(default=None, ge=0, le=MAX_CALORIES)

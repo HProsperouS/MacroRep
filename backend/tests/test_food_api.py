@@ -333,6 +333,60 @@ def test_a_saved_foods_nutrition_cant_be_overwritten_directly(client: TestClient
     assert response.status_code == 422
 
 
+def test_a_saved_food_can_say_which_version_it_was(client: TestClient) -> None:
+    headers = register_user(client)
+    entry = log_food(client, headers, foodId=EGG, quantity=2, detail="  fried, runny yolk  ")
+    assert entry["detail"] == "fried, runny yolk"
+    assert entry["name"] == "Egg, whole"  # the name still comes from the food
+
+    log = client.get("/api/v1/food-log", headers=headers, params={"date": TODAY}).json()
+    assert [row["detail"] for row in log["entries"]] == ["fried, runny yolk"]
+
+    # Changing the quantity, meal or day leaves the detail alone.
+    rescaled = client.patch(f"{ENTRIES}/{entry['id']}", headers=headers, json={"quantity": 3})
+    assert rescaled.json()["detail"] == "fried, runny yolk"
+
+    changed = client.patch(f"{ENTRIES}/{entry['id']}", headers=headers, json={"detail": "boiled"})
+    assert changed.status_code == 200
+    assert changed.json()["detail"] == "boiled"
+
+    cleared = client.patch(f"{ENTRIES}/{entry['id']}", headers=headers, json={"detail": "  "})
+    assert cleared.status_code == 200
+    assert cleared.json()["detail"] is None
+
+
+def test_an_entry_has_no_detail_unless_one_is_given(client: TestClient) -> None:
+    headers = register_user(client)
+    assert log_food(client, headers, foodId=EGG, quantity=1)["detail"] is None
+    assert quick_add(client, headers)["detail"] is None
+
+
+def test_a_detail_is_short_and_only_for_a_saved_food(client: TestClient) -> None:
+    headers = register_user(client)
+    base = {"date": TODAY, "meal": "lunch"}
+    too_long = client.post(
+        ENTRIES, headers=headers, json={**base, "foodId": EGG, "quantity": 1, "detail": "x" * 41}
+    )
+    assert too_long.status_code == 422
+    blank = client.post(ENTRIES, headers=headers, json={**base, "foodId": EGG, "quantity": 1, "detail": " "})
+    assert blank.status_code == 422
+
+    quick = {
+        **base,
+        "name": "Hawker lunch",
+        "amountLabel": "Quick add",
+        "source": "quick-add",
+        "calories": 650,
+        "protein": 30,
+        "carbs": 80,
+        "fat": 20,
+    }
+    assert client.post(ENTRIES, headers=headers, json={**quick, "detail": "spicy"}).status_code == 422
+    entry = quick_add(client, headers)
+    edited = client.patch(f"{ENTRIES}/{entry['id']}", headers=headers, json={"detail": "spicy"})
+    assert edited.status_code == 422
+
+
 def test_another_users_entry_cannot_be_edited(client: TestClient) -> None:
     owner = register_user(client)
     entry = quick_add(client, owner)
