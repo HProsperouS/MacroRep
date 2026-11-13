@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -13,10 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import estimated_one_rep_max_sql
 from app.shared.db import name_search
+from app.shared.persistence.mixins import utc_now
 from app.shared.timezones import local_date
 
 from .models import (
     Exercise,
+    ExerciseNote,
     SetKind,
     WorkoutPlanEntry,
     WorkoutPlanExercise,
@@ -62,6 +65,43 @@ class ExerciseRepository:
         self.session.add(exercise)
         await self.session.flush()
         return exercise
+
+    async def notes_bulk(self, owner_id: str, exercise_ids: list[str]) -> dict[str, str]:
+        """The user's own notes for several exercises, keyed by exercise id."""
+
+        if not exercise_ids:
+            return {}
+        rows = await self.session.execute(
+            select(ExerciseNote.exercise_id, ExerciseNote.body).where(
+                ExerciseNote.owner_id == owner_id, ExerciseNote.exercise_id.in_(exercise_ids)
+            )
+        )
+        return {exercise_id: body for exercise_id, body in rows}
+
+    async def set_note(self, owner_id: str, exercise_id: str, body: str) -> None:
+        """Write the user's note on an exercise; an empty body removes it.
+
+        One INSERT ... ON CONFLICT UPDATE, so two quick saves can't both insert a row."""
+
+        if not body:
+            await self.session.execute(
+                delete(ExerciseNote).where(
+                    ExerciseNote.owner_id == owner_id, ExerciseNote.exercise_id == exercise_id
+                )
+            )
+            return
+        now = utc_now()
+        statement = (
+            pg_insert(ExerciseNote)
+            .values(
+                id=uuid.uuid4().hex, owner_id=owner_id, exercise_id=exercise_id, body=body, created_utc=now
+            )
+            .on_conflict_do_update(
+                index_elements=[ExerciseNote.owner_id, ExerciseNote.exercise_id],
+                set_={"body": body, "updated_utc": now},
+            )
+        )
+        await self.session.execute(statement)
 
     async def last_session_sets_bulk(
         self, owner_id: str, exercise_ids: list[str], zone: ZoneInfo

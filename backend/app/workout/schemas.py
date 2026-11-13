@@ -9,6 +9,7 @@ from pydantic import AwareDatetime, Field, field_validator, model_validator
 from app.shared.schema import CamelModel, validate_choice
 from app.shared.validation import (
     CLOCK_SKEW,
+    MAX_EXERCISE_NOTE_LENGTH,
     MAX_EXERCISES_PER_WORKOUT,
     MAX_MUSCLES_PER_EXERCISE,
     MAX_NAME_LENGTH,
@@ -17,6 +18,7 @@ from app.shared.validation import (
     MAX_SETS_PER_EXERCISE,
     MIN_EXERCISE_NAME_LENGTH,
     Identifier,
+    MultilineText,
     PlainText,
     ensure_unique,
 )
@@ -42,6 +44,8 @@ class ExerciseRead(CamelModel):
     muscles: list[str]
     source: str
     last_session: LastSession | None = None
+    # The user's own note on this exercise, carried from session to session.
+    user_note: str | None = None
 
 
 class CreateExerciseInput(CamelModel):
@@ -60,6 +64,17 @@ class CreateExerciseInput(CamelModel):
         return ensure_unique([validate_choice(item, MUSCLE_GROUPS, "muscles") for item in value], "muscles")
 
 
+class ExerciseNoteInput(CamelModel):
+    """A user's note on an exercise. Blank clears it."""
+
+    body: MultilineText = Field(max_length=MAX_EXERCISE_NOTE_LENGTH)
+
+
+class ExerciseNoteRead(CamelModel):
+    exercise_id: str
+    body: str
+
+
 class PlannedSet(CamelModel):
     id: str
     kind: SetKind
@@ -74,7 +89,10 @@ class PlannedExercise(CamelModel):
     equipment: str
     muscles: str
     rest_seconds: int
+    # Generated progression hint for this session.
     note: str | None = None
+    # The user's own note on this exercise, carried from session to session.
+    user_note: str | None = None
     tag: str | None = None
     sets: list[PlannedSet]
 

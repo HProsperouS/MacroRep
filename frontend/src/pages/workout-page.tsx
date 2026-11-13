@@ -23,7 +23,7 @@ import { DESKTOP_QUERY, useMediaQuery, useOverlayLayout } from "@/hooks/use-medi
 import { useFinishWorkout, useRoutines, useTodayWorkout } from "@/hooks/use-workout"
 import { beginWorkout, clearActiveWorkout, pauseWorkout, resumeWorkout, updateActiveSession, type ActiveWorkout } from "@/lib/active-workout-store"
 import { savedTimes } from "@/lib/workout-clock"
-import { sessionReducer, sessionTotals, toFinishInput, type SessionAction, type SessionExercise } from "@/lib/workout-session"
+import { sessionReducer, sessionTotals, suggestedRestSeconds, toFinishInput, type SessionAction, type SessionExercise } from "@/lib/workout-session"
 import type { Exercise, WorkoutSummary as WorkoutSummaryData } from "@/types/workout"
 
 const dispatch = (action: SessionAction) => updateActiveSession((session) => sessionReducer(session, action))
@@ -105,6 +105,7 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
   const finish = useFinishWorkout()
 
   const totals = useMemo(() => sessionTotals(state.exercises), [state.exercises])
+  const suggestedRest = suggestedRestSeconds(state)
   const remainingSets = totals.total - totals.done
   const percentDone = totals.total > 0 ? (totals.done / totals.total) * 100 : 0
 
@@ -227,7 +228,7 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
 
           <div className="grid items-start gap-4 lg:grid-cols-12 lg:gap-6">
             <div className="flex min-w-0 flex-col gap-4 lg:col-span-8">
-              <RestTimer rest={state.rest} dispatch={dispatch} className="sticky top-3 z-10 lg:hidden" />
+              {isDesktop ? null : <RestTimer rest={state.rest} suggestedSeconds={suggestedRest} dispatch={dispatch} className="sticky top-3 z-10" />}
               {state.exercises.length === 0 ? (
                 <Empty className="border">
                   <EmptyHeader>
@@ -270,7 +271,7 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
 
             {isDesktop ? (
               <aside className="sticky top-7 flex flex-col gap-4 lg:col-span-4">
-                <RestTimer rest={state.rest} dispatch={dispatch} />
+                <RestTimer rest={state.rest} suggestedSeconds={suggestedRest} dispatch={dispatch} />
                 <SessionOverview clock={active} exercises={state.exercises} totals={totals} />
                 {plan?.highlight ? <StrengthHighlightCard highlight={plan.highlight} /> : null}
               </aside>

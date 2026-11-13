@@ -40,6 +40,15 @@ export function useCreateExercise() {
   })
 }
 
+/** Notes show on routines, today's plan and exercise search, so all of them refresh. */
+export function useSaveExerciseNote() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ exerciseId, body }: { exerciseId: string; body: string }) => workoutApi.saveExerciseNote(exerciseId, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workoutKeys.all }),
+  })
+}
+
 export function useWeekPlan() {
   return useQuery({
     queryKey: workoutKeys.plan(),

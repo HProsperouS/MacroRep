@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Dumbbell, Ellipsis, Minus, NotebookText, Plus, Trash2 } from "lucide-react"
 
+import { ExerciseNote } from "@/components/workout/exercise-note"
 import { FindWeightHint } from "@/components/workout/find-weight-hint"
 import { SET_GRID, SetRow } from "@/components/workout/set-row"
 import { Badge } from "@/components/ui/badge"
@@ -78,6 +79,8 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        <ExerciseNote exercise={exercise} dispatch={dispatch} />
+
         {exercise.note ? (
           <p className="flex items-start gap-2 text-sm text-muted-foreground">
             <NotebookText className="mt-0.5 size-4 shrink-0" aria-hidden />

@@ -8,6 +8,7 @@ import {
   sessionReducer,
   sessionTotals,
   setLabels,
+  suggestedRestSeconds,
   toFinishInput,
   type SessionState,
 } from "@/lib/workout-session"
@@ -90,10 +91,23 @@ describe("sessionReducer", () => {
     expect(next.exercises[0].sets.map((set) => set.kind)).toEqual(["warmup", "failure"])
   })
 
-  it("ticking a valid set marks it done and starts the rest timer", () => {
+  it("ticking a valid set marks it done without starting the rest timer", () => {
     const next = sessionReducer(started(), { type: "toggle", exerciseId: "bench", setId: "bench-1", now: 1_000 })
     expect(next.exercises[0].sets[1].done).toBe(true)
-    expect(next.rest).toEqual({ endsAt: 1_000 + 120_000, totalSeconds: 120 })
+    expect(next.rest).toBeNull()
+    expect(next.lastCompletedExerciseId).toBe("bench")
+    expect(suggestedRestSeconds(next)).toBe(120)
+  })
+
+  it("starts a rest of the chosen length, kept within 5 s and 10 min", () => {
+    expect(sessionReducer(started(), { type: "start-rest", seconds: 75, now: 1_000 }).rest).toEqual({ endsAt: 76_000, totalSeconds: 75 })
+    expect(sessionReducer(started(), { type: "start-rest", seconds: 9_999, now: 0 }).rest?.totalSeconds).toBe(600)
+    expect(sessionReducer(started(), { type: "start-rest", seconds: 0, now: 0 }).rest?.totalSeconds).toBe(5)
+  })
+
+  it("suggests the first exercise's rest before any set is ticked, and 90 s with no exercises", () => {
+    expect(suggestedRestSeconds(started())).toBe(120)
+    expect(suggestedRestSeconds(initSession(null))).toBe(90)
   })
 
   it("won't tick a set with missing values", () => {
@@ -104,10 +118,25 @@ describe("sessionReducer", () => {
   })
 
   it("un-ticking a set leaves the rest timer alone", () => {
-    const ticked = sessionReducer(started(), { type: "toggle", exerciseId: "bench", setId: "bench-1", now: 1_000 })
+    const resting = sessionReducer(started(), { type: "start-rest", seconds: 90, now: 500 })
+    const ticked = sessionReducer(resting, { type: "toggle", exerciseId: "bench", setId: "bench-1", now: 1_000 })
     const next = sessionReducer(ticked, { type: "toggle", exerciseId: "bench", setId: "bench-1", now: 2_000 })
     expect(next.exercises[0].sets[1].done).toBe(false)
     expect(next.rest).toEqual(ticked.rest)
+  })
+
+  it("carries the exercise's note in and edits it on every instance of that exercise", () => {
+    const withNote = initSession({ ...plan, exercises: [{ ...plan.exercises[0], userNote: "Seat on 4" }] })
+    expect(withNote.exercises[0].userNote).toBe("Seat on 4")
+    expect(started().exercises[0].userNote).toBe("")
+
+    const twice = sessionReducer(withNote, {
+      type: "add-exercises",
+      exercises: [{ id: "bench", name: "Bench Press", equipment: "barbell", muscles: ["chest"], source: "library", userNote: "Seat on 4" }],
+    })
+    expect(twice.exercises[1].userNote).toBe("Seat on 4")
+    const edited = sessionReducer(twice, { type: "edit-note", exerciseId: "bench", value: "Seat on 5" })
+    expect(edited.exercises.map((exercise) => exercise.userNote)).toEqual(["Seat on 5", "Seat on 5"])
   })
 
   it("adds a set copying the last one's numbers, but won't remove a completed last set", () => {

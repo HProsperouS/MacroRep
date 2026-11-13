@@ -857,3 +857,69 @@ def test_other_users_cannot_edit_or_delete_a_session(client: TestClient) -> None
     assert client.put(f"/api/v1/workouts/sessions/{session_id}", headers=other, json=edit).status_code == 404
     assert client.delete(f"/api/v1/workouts/sessions/{session_id}", headers=other).status_code == 404
     assert client.get(f"/api/v1/workouts/sessions/{session_id}", headers=owner).json()["name"] == "Mine"
+
+
+def test_an_exercise_note_follows_the_exercise_everywhere(client: TestClient) -> None:
+    headers = register_user(client)
+    plan_every_day(client, headers)
+    saved = client.put(
+        "/api/v1/exercises/exercise-squat/note",
+        headers=headers,
+        json={"body": "  Belt on.\nHeels on plates  "},
+    )
+    assert saved.status_code == 200
+    assert saved.json() == {"exerciseId": "exercise-squat", "body": "Belt on.\nHeels on plates"}
+
+    today = client.get("/api/v1/workouts/today", headers=headers).json()
+    assert today["exercises"][0]["userNote"] == "Belt on.\nHeels on plates"
+    routine = client.get("/api/v1/workouts/routines", headers=headers).json()[0]
+    assert routine["exercises"][0]["userNote"] == "Belt on.\nHeels on plates"
+    week = client.get("/api/v1/workouts/plan", headers=headers).json()
+    assert week[0]["plan"]["exercises"][0]["userNote"] == "Belt on.\nHeels on plates"
+    found = client.get("/api/v1/exercises", headers=headers, params={"q": "squat", "limit": 100}).json()
+    assert next(e for e in found if e["id"] == "exercise-squat")["userNote"] == "Belt on.\nHeels on plates"
+
+    updated = client.put("/api/v1/exercises/exercise-squat/note", headers=headers, json={"body": "Belt on"})
+    assert updated.status_code == 200
+    assert (
+        client.get("/api/v1/workouts/today", headers=headers).json()["exercises"][0]["userNote"] == "Belt on"
+    )
+
+
+def test_a_blank_exercise_note_clears_it(client: TestClient) -> None:
+    headers = register_user(client)
+    plan_every_day(client, headers)
+    client.put("/api/v1/exercises/exercise-squat/note", headers=headers, json={"body": "Belt on"})
+    cleared = client.put("/api/v1/exercises/exercise-squat/note", headers=headers, json={"body": "   "})
+    assert cleared.status_code == 200
+    assert client.get("/api/v1/workouts/today", headers=headers).json()["exercises"][0]["userNote"] is None
+
+
+def test_exercise_notes_are_private_to_their_owner(client: TestClient) -> None:
+    owner, other = register_user(client), register_user(client)
+    client.put("/api/v1/exercises/exercise-squat/note", headers=owner, json={"body": "Mine"})
+    found = client.get("/api/v1/exercises", headers=other, params={"q": "squat", "limit": 100}).json()
+    assert next(e for e in found if e["id"] == "exercise-squat")["userNote"] is None
+
+    custom = client.post(
+        "/api/v1/exercises",
+        headers=owner,
+        json={"name": "Cable Fly", "equipment": "cable", "muscles": ["chest"]},
+    ).json()
+    response = client.put(f"/api/v1/exercises/{custom['id']}/note", headers=other, json={"body": "Hi"})
+    assert response.status_code == 404
+
+
+def test_exercise_note_rejects_unknown_exercise_and_long_text(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    assert (
+        client.put(
+            "/api/v1/exercises/does-not-exist/note", headers=auth_headers, json={"body": "x"}
+        ).status_code
+        == 404
+    )
+    too_long = client.put(
+        "/api/v1/exercises/exercise-squat/note", headers=auth_headers, json={"body": "x" * 501}
+    )
+    assert too_long.status_code == 422

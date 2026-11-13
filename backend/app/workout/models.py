@@ -11,6 +11,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.persistence import Base, TimestampMixin
+from app.shared.validation import MAX_EXERCISE_NOTE_LENGTH
 
 EQUIPMENT = ("barbell", "dumbbell", "cable", "machine", "bodyweight", "kettlebell", "band")
 MUSCLE_GROUPS = (
@@ -49,6 +50,19 @@ class Exercise(TimestampMixin, Base):
     @property
     def source(self) -> str:
         return "custom" if self.owner_id else "library"
+
+
+class ExerciseNote(TimestampMixin, Base):
+    """A user's own note on an exercise, e.g. "seat on 4". One per user and exercise, so it
+    follows the exercise into every routine and freestyle workout."""
+
+    __tablename__ = "exercise_notes"
+    __table_args__ = (Index("uq_exercise_notes_owner_exercise", "owner_id", "exercise_id", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    exercise_id: Mapped[str] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False)
+    body: Mapped[str] = mapped_column(String(MAX_EXERCISE_NOTE_LENGTH), nullable=False)
 
 
 class WorkoutPlanEntry(TimestampMixin, Base):

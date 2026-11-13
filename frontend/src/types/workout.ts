@@ -62,6 +62,8 @@ export type Exercise = {
   source: "library" | "custom"
   /** Most recent logged session of this exercise, used for "Previous" and pre-filled sets. */
   lastSession?: { date: string; sets: PreviousSet[] }
+  /** The user's own note on this exercise, carried from session to session. */
+  userNote?: string | null
 }
 
 export type ExerciseFilters = {
@@ -81,6 +83,8 @@ export type PlannedExercise = {
   restSeconds: number
   /** Progression hint from the last session, e.g. "Last time: 57.5 kg × 8, 8, 7. Try +2.5 kg." */
   note?: string
+  /** The user's own note on this exercise (cues, machine settings), carried from session to session. */
+  userNote?: string | null
   /** Shown as a badge, e.g. "PR pace". */
   tag?: string
   sets: PlannedSet[]

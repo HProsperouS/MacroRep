@@ -31,6 +31,12 @@ export const workoutApi = {
     return data
   },
 
+  /** Save the user's own note on an exercise; a blank note clears it. */
+  async saveExerciseNote(exerciseId: string, body: string) {
+    const { data } = await apiClient.put<{ exerciseId: string; body: string }>(`/exercises/${encodeURIComponent(exerciseId)}/note`, { body })
+    return data
+  },
+
   async finishSession(input: FinishWorkoutInput) {
     const { data } = await apiClient.post<WorkoutSummary>("/workouts/sessions", input)
     return data

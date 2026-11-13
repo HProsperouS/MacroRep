@@ -17,6 +17,8 @@ from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessio
 from .schemas import (
     AssignDayInput,
     CreateExerciseInput,
+    ExerciseNoteInput,
+    ExerciseNoteRead,
     ExerciseRead,
     FinishWorkoutInput,
     PlannedWorkout,
@@ -73,6 +75,18 @@ async def create_exercise(
     payload: CreateExerciseInput, actor: ActorDep, service: WorkoutServiceDep
 ) -> ExerciseRead:
     return await service.create_exercise(payload, actor)
+
+
+@router.put("/exercises/{exercise_id}/note", response_model=ExerciseNoteRead)
+async def set_exercise_note(
+    exercise_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+    payload: ExerciseNoteInput,
+    actor: ActorDep,
+    service: WorkoutServiceDep,
+) -> ExerciseNoteRead:
+    """Save the user's own note on an exercise; a blank note removes it."""
+
+    return await service.set_exercise_note(actor, exercise_id, payload.body)
 
 
 @router.post("/workouts/sessions", response_model=WorkoutSummary, status_code=status.HTTP_201_CREATED)

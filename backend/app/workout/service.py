@@ -29,6 +29,7 @@ from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessio
 from .schemas import (
     AssignDayInput,
     CreateExerciseInput,
+    ExerciseNoteRead,
     ExerciseRead,
     FinishWorkoutExercise,
     FinishWorkoutInput,
@@ -51,7 +52,9 @@ from .schemas import (
 from .targets import suggested_loads
 
 
-def _to_exercise_read(exercise: Exercise, last_session: LastSession | None) -> ExerciseRead:
+def _to_exercise_read(
+    exercise: Exercise, last_session: LastSession | None, user_note: str | None = None
+) -> ExerciseRead:
     return ExerciseRead(
         id=exercise.id,
         name=exercise.name,
@@ -59,6 +62,7 @@ def _to_exercise_read(exercise: Exercise, last_session: LastSession | None) -> E
         muscles=list(exercise.muscles),
         source=exercise.source,
         last_session=last_session,
+        user_note=user_note,
     )
 
 
@@ -160,6 +164,7 @@ class WorkoutService:
         rows = await self.exercises.search(actor.actor_id, query, muscle, equipment, limit)
 
         last_sessions = await self._last_sessions(actor, [row.id for row in rows])
+        notes = await self.exercises.notes_bulk(actor.actor_id, [row.id for row in rows])
         results = []
         for row in rows:
             found = last_sessions.get(row.id)
@@ -178,7 +183,7 @@ class WorkoutService:
                 if found is not None
                 else None
             )
-            results.append(_to_exercise_read(row, last_session))
+            results.append(_to_exercise_read(row, last_session, notes.get(row.id)))
         return results
 
     async def create_exercise(self, payload: CreateExerciseInput, actor: ActorContext) -> ExerciseRead:
@@ -193,6 +198,12 @@ class WorkoutService:
         await self.session.commit()
         await self.session.refresh(exercise)
         return _to_exercise_read(exercise, None)
+
+    async def set_exercise_note(self, actor: ActorContext, exercise_id: str, body: str) -> ExerciseNoteRead:
+        await self._verify_exercises_owned(actor, [exercise_id])
+        await self.exercises.set_note(actor.actor_id, exercise_id, body)
+        await self.session.commit()
+        return ExerciseNoteRead(exercise_id=exercise_id, body=body)
 
     async def get_today(self, actor: ActorContext) -> PlannedWorkout | None:
         day_of_week = local_today(await self._zone(actor)).weekday()
@@ -212,9 +223,10 @@ class WorkoutService:
         all_exercise_ids = [pe.exercise_id for pes in plan_exercises_by_entry.values() for pe in pes]
         exercises_by_id = await self.exercises.get_many(all_exercise_ids)
         last_sessions = await self._last_sessions(actor, all_exercise_ids)
+        notes = await self.exercises.notes_bulk(actor.actor_id, all_exercise_ids)
         return {
             entry.id: self._assemble_planned_workout(
-                entry, plan_exercises_by_entry[entry.id], exercises_by_id, last_sessions
+                entry, plan_exercises_by_entry[entry.id], exercises_by_id, last_sessions, notes
             )
             for entry in entries
         }
@@ -352,8 +364,9 @@ class WorkoutService:
         exercise_ids = [plan_exercise.exercise_id for plan_exercise in plan_exercises]
         exercises_by_id = await self.exercises.get_many(exercise_ids)
         last_sessions = await self._last_sessions(actor, exercise_ids)
+        notes = await self.exercises.notes_bulk(actor.actor_id, exercise_ids)
         return self._assemble_planned_workout(
-            plan_entry, plan_exercises, exercises_by_id, last_sessions, suggest_loads=suggest_loads
+            plan_entry, plan_exercises, exercises_by_id, last_sessions, notes, suggest_loads=suggest_loads
         )
 
     def _assemble_planned_workout(
@@ -362,6 +375,7 @@ class WorkoutService:
         plan_exercises: list[WorkoutPlanExercise],
         exercises_by_id: dict[str, Exercise],
         last_sessions: dict[str, tuple[str, list[WorkoutSetLog]]],
+        notes: dict[str, str],
         *,
         suggest_loads: bool = False,
     ) -> PlannedWorkout:
@@ -437,6 +451,7 @@ class WorkoutService:
                     muscles=", ".join(exercise.muscles),
                     rest_seconds=plan_exercise.rest_seconds,
                     note=note,
+                    user_note=notes.get(exercise.id),
                     sets=sets,
                 )
             )
