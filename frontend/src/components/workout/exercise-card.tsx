@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { setLabels, type SessionAction, type SessionExercise } from "@/lib/workout-session"
+import { equipmentKind, setLabels, type SessionAction, type SessionExercise } from "@/lib/workout-session"
 
 type ExerciseCardProps = {
   exercise: SessionExercise
@@ -30,6 +30,7 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
   const labels = setLabels(exercise.sets)
   const lastSet = exercise.sets[exercise.sets.length - 1]
   const canRemoveSet = exercise.sets.length > 1 && lastSet !== undefined && !lastSet.done
+  const weightMode = equipmentKind(exercise)
 
   return (
     <Card>
@@ -93,7 +94,8 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
         <div className={cn(SET_GRID, "text-[11px] font-semibold tracking-widest text-muted-foreground uppercase")} aria-hidden>
           <span>Set</span>
           <span>Previous</span>
-          <span className="text-center">kg</span>
+          {/* A bodyweight move's kg is what's added to the lifter's bodyweight. */}
+          <span className="text-center">{weightMode === "bodyweight" ? "+kg" : "kg"}</span>
           <span className="text-center">Reps</span>
           <span className="text-center">RPE</span>
           <span />
@@ -105,6 +107,7 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
               <SetRow
                 key={set.id}
                 exerciseName={exercise.name}
+                weightMode={weightMode}
                 set={set}
                 label={labels[index]}
                 active={set.id === activeSetId}

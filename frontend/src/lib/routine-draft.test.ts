@@ -121,4 +121,11 @@ describe("saving", () => {
     expect(rangeError("8.5", ROUTINE_LIMITS.reps)).toBe("Whole number")
     expect(rangeError("101", ROUTINE_LIMITS.reps)).toBe("1–100")
   })
+
+  it("keeps no target weight for a band exercise", () => {
+    const band = { ...routine, exercises: [{ ...routine.exercises[0], equipment: "band" }] }
+    const draft = draftFromRoutine(band)
+    const withWeight = routineDraftReducer(draft, { type: "edit-set", instanceId: draft.exercises[0].instanceId, setId: draft.exercises[0].sets[0].id, patch: { targetWeightKg: "25" } })
+    expect(toSaveRoutineInput(withWeight).exercises[0].sets.every((set) => set.targetWeightKg === null)).toBe(true)
+  })
 })

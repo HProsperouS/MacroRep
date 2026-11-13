@@ -6,7 +6,17 @@ import type { Exercise, PlannedWorkout, SaveRoutineInput, SetKind } from "@/type
 export type DraftSet = { id: string; kind: SetKind; targetWeightKg: string; targetReps: string }
 
 /** `instanceId` is unique within the routine (the same exercise can be added twice). */
-export type DraftExercise = { instanceId: string; exerciseId: string; name: string; restSeconds: string; sets: DraftSet[] }
+export type DraftExercise = {
+  instanceId: string
+  exerciseId: string
+  name: string
+  /** Raw equipment ("band", "barbell"…): a band has no target weight, its kg would be a guess. */
+  equipment: string
+  restSeconds: string
+  sets: DraftSet[]
+}
+
+export const isBandExercise = (exercise: Pick<DraftExercise, "equipment">) => exercise.equipment.trim().toLowerCase() === "band"
 
 export type RoutineDraft = {
   name: string
@@ -51,6 +61,7 @@ export function draftFromRoutine(plan: PlannedWorkout | null): RoutineDraft {
       instanceId: `${exercise.id}-${index}`,
       exerciseId: exercise.id,
       name: exercise.name,
+      equipment: exercise.equipment,
       restSeconds: String(exercise.restSeconds),
       sets: exercise.sets.map((set) => ({
         id: set.id,
@@ -84,6 +95,7 @@ export function routineDraftReducer(draft: RoutineDraft, action: DraftAction): R
           instanceId,
           exerciseId: exercise.id,
           name: exercise.name,
+          equipment: exercise.equipment,
           restSeconds: String(DEFAULT_REST_SECONDS),
           sets: [newSet("warmup", `${instanceId}-w1`), newSet("working", `${instanceId}-s1`), newSet("working", `${instanceId}-s2`)],
         }
@@ -130,7 +142,7 @@ export function canSaveDraft(draft: RoutineDraft) {
   const outOfRange = draft.exercises.some(
     (exercise) =>
       rangeError(exercise.restSeconds, ROUTINE_LIMITS.rest) !== undefined ||
-      exercise.sets.some((set) => rangeError(set.targetWeightKg, ROUTINE_LIMITS.weight) !== undefined || rangeError(set.targetReps, ROUTINE_LIMITS.reps) !== undefined),
+      exercise.sets.some((set) => (!isBandExercise(exercise) && rangeError(set.targetWeightKg, ROUTINE_LIMITS.weight) !== undefined) ||rangeError(set.targetReps, ROUTINE_LIMITS.reps) !== undefined),
   )
   return draft.name.trim() !== "" && !outOfRange && draft.exercises.length > 0 && draft.exercises.every((exercise) => exercise.sets.length > 0)
 }
@@ -143,7 +155,7 @@ export function toSaveRoutineInput(draft: RoutineDraft): SaveRoutineInput {
       restSeconds: toNumber(exercise.restSeconds) ?? DEFAULT_REST_SECONDS,
       sets: exercise.sets.map((set) => ({
         kind: set.kind,
-        targetWeightKg: toNumber(set.targetWeightKg) ?? null,
+        targetWeightKg: isBandExercise(exercise) ? null : (toNumber(set.targetWeightKg) ?? null),
         targetReps: toNumber(set.targetReps) ?? null,
       })),
     })),

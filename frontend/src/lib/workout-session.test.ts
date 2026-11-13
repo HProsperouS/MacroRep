@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  equipmentKind,
   historySetLabels,
   initSession,
   isSetCompletable,
@@ -168,7 +169,7 @@ describe("sessionTotals and toFinishInput", () => {
 
   it("counts every completed set except warm-ups toward volume", () => {
     // 60 x 8 (working) + 60 x 8 (failure) + 40 x 8 (drop); the 40 x 10 warm-up is excluded.
-    expect(sessionTotals(sessionWithMixedSets().exercises)).toEqual({ done: 4, total: 4, volumeKg: 480 + 480 + 320 })
+    expect(sessionTotals(sessionWithMixedSets().exercises)).toEqual({ done: 4, total: 4, volumeKg: 480 + 480 + 320, repBasedReps: 0 })
   })
 
   it("sends only completed sets, with their type and RPE", () => {
@@ -275,5 +276,40 @@ describe("finding a first weight", () => {
       exercises: [{ id: "squat", name: "Squat", equipment: "barbell", muscles: ["quads"], source: "library" }],
     })
     expect(state.exercises[0].finding).toBe(true)
+  })
+})
+
+describe("bodyweight and band exercises", () => {
+  const exercise = (id: string, equipment: string, weight: string, reps: string) => ({
+    id,
+    exerciseId: id,
+    name: id,
+    equipment,
+    muscles: "",
+    restSeconds: 60,
+    sets: [{ id: `${id}-1`, kind: "working" as const, weight, reps, rpe: "", done: true }],
+  })
+
+  it("counts bodyweight plus the added kg, and band sets by reps", () => {
+    const exercises = [exercise("push-up", "bodyweight", "0", "10"), exercise("dip", "Bodyweight", "10", "5"), exercise("band-row", "Band", "", "15")]
+    expect(sessionTotals(exercises, 70)).toEqual({ done: 3, total: 3, volumeKg: 700 + 400, repBasedReps: 15 })
+    // Without a weigh-in, bodyweight sets count what was typed.
+    expect(sessionTotals(exercises, null)).toMatchObject({ volumeKg: 50, repBasedReps: 15 })
+  })
+
+  it("lets a band set be done without a weight, and ignores any weight left in it", () => {
+    expect(isSetCompletable({ weight: "", reps: "15", rpe: "" }, true)).toBe(true)
+    expect(isSetCompletable({ weight: "", reps: "15", rpe: "" })).toBe(false)
+    // E.g. a weight carried over from a plan or a session logged before bands lost theirs.
+    const state = { name: "x", planId: null, rest: null, seq: 0, exercises: [{ ...exercise("band-row", "band", "", "15"), sets: [{ id: "b1", kind: "working" as const, weight: "20", reps: "15", rpe: "", done: false }] }] }
+    const ticked = sessionReducer(state, { type: "toggle", exerciseId: "band-row", setId: "b1", now: 1 })
+    expect(ticked.exercises[0].sets[0].done).toBe(true)
+    expect(toFinishInput(ticked, 0, 1).exercises[0].sets).toEqual([{ kind: "working", weightKg: 0, reps: 15, rpe: undefined }])
+  })
+
+  it("reads plan and library equipment alike", () => {
+    expect(equipmentKind({ equipment: "band" })).toBe("band")
+    expect(equipmentKind({ equipment: "Bodyweight" })).toBe("bodyweight")
+    expect(equipmentKind({ equipment: "Barbell" })).toBe("load")
   })
 })

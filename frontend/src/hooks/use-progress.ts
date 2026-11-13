@@ -12,6 +12,13 @@ export function useProgress(range: ProgressRange) {
   })
 }
 
+/** The latest scale weight in the past month, which bodyweight sets count as their load
+ *  during a workout (the server uses the latest weigh-in on record when it's saved). */
+export function useLatestBodyWeight() {
+  const progress = useProgress("1M")
+  return progress.data?.weight.points.findLast((point) => point.scaleKg != null)?.scaleKg ?? null
+}
+
 export function useDailyCalories(days: number) {
   return useQuery({
     queryKey: foodKeys.dailyCalories(days),

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import estimated_one_rep_max_sql
+from app.body.models import WeighIn
 from app.shared.db import name_search
 from app.shared.persistence.mixins import utc_now
 from app.shared.timezones import local_date
@@ -356,6 +357,42 @@ class WorkoutSessionRepository:
             )
         )
 
+    async def body_weight_on(self, owner_id: str, day: date) -> float | None:
+        """The latest weigh-in on or before ``day``: what bodyweight sets that day count."""
+
+        weight = await self.session.scalar(
+            select(WeighIn.weight_kg)
+            .where(WeighIn.owner_id == owner_id, WeighIn.log_date <= day)
+            .order_by(WeighIn.log_date.desc())
+            .limit(1)
+        )
+        return None if weight is None else float(weight)
+
+    async def best_reps_before(
+        self, owner_id: str, exercise_ids: list[str], before_session_id: str
+    ) -> dict[str, int]:
+        """The most reps in one set with no load (a band) per exercise, from sessions before
+        this one: the record a rep-based set is judged against. Warm-ups don't count."""
+
+        if not exercise_ids:
+            return {}
+        statement = (
+            select(WorkoutSetLog.exercise_id, func.max(WorkoutSetLog.reps))
+            .where(
+                WorkoutSetLog.owner_id == owner_id,
+                WorkoutSetLog.exercise_id.in_(exercise_ids),
+                WorkoutSetLog.session_id != before_session_id,
+                WorkoutSetLog.kind != SetKind.WARMUP,
+                WorkoutSetLog.load_kg <= 0,
+            )
+            .group_by(WorkoutSetLog.exercise_id)
+        )
+        return {
+            exercise_id: int(best)
+            for exercise_id, best in await self.session.execute(statement)
+            if exercise_id is not None and best is not None
+        }
+
     async def best_e1rms_before(
         self, owner_id: str, exercise_ids: list[str], before_session_id: str
     ) -> dict[str, float]:
@@ -370,7 +407,7 @@ class WorkoutSessionRepository:
 
         if not exercise_ids:
             return {}
-        e1rm = estimated_one_rep_max_sql(WorkoutSetLog.weight_kg, WorkoutSetLog.reps)
+        e1rm = estimated_one_rep_max_sql(WorkoutSetLog.load_kg, WorkoutSetLog.reps)
         statement = (
             select(WorkoutSetLog.exercise_id, func.max(e1rm))
             .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)

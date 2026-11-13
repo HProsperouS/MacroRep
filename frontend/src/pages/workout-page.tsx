@@ -19,6 +19,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { useActiveWorkout } from "@/hooks/use-active-workout"
+import { useLatestBodyWeight } from "@/hooks/use-progress"
 import { DESKTOP_QUERY, useMediaQuery, useOverlayLayout } from "@/hooks/use-media-query"
 import { useFinishWorkout, useRoutines, useTodayWorkout } from "@/hooks/use-workout"
 import { beginWorkout, clearActiveWorkout, pauseWorkout, resumeWorkout, updateActiveSession, type ActiveWorkout } from "@/lib/active-workout-store"
@@ -104,7 +105,8 @@ function WorkoutSession({ active, onFinished }: WorkoutSessionProps) {
   const [confirm, setConfirm] = useState<Confirm>(null)
   const finish = useFinishWorkout()
 
-  const totals = useMemo(() => sessionTotals(state.exercises), [state.exercises])
+  const bodyWeightKg = useLatestBodyWeight()
+  const totals = useMemo(() => sessionTotals(state.exercises, bodyWeightKg), [state.exercises, bodyWeightKg])
   const suggestedRest = suggestedRestSeconds(state)
   const remainingSets = totals.total - totals.done
   const percentDone = totals.total > 0 ? (totals.done / totals.total) * 100 : 0

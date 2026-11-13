@@ -15,9 +15,11 @@ type SessionStatsLineProps = {
   done: number
   total: number
   volumeKg: number
+  /** Band reps, which kg volume can't count. */
+  repBasedReps?: number
 }
 
-export function SessionStatsLine({ clock, done, total, volumeKg }: SessionStatsLineProps) {
+export function SessionStatsLine({ clock, done, total, volumeKg, repBasedReps = 0 }: SessionStatsLineProps) {
   return (
     <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
       <span className="flex items-center gap-1">
@@ -29,6 +31,7 @@ export function SessionStatsLine({ clock, done, total, volumeKg }: SessionStatsL
         {done} / {total} sets
       </span>
       <span>{formatNumber(volumeKg)} kg volume</span>
+      {repBasedReps > 0 ? <span>{formatNumber(repBasedReps)} band reps</span> : null}
     </p>
   )
 }

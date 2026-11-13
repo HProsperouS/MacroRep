@@ -174,7 +174,7 @@ function ProgressContent({ data }: { data: ProgressResponse }) {
       </div>
 
       <div className="grid items-start gap-4 lg:grid-cols-2 lg:gap-6">
-        <StrengthList lifts={data.strength} />
+        <StrengthList lifts={data.strength} repLifts={data.repLifts} />
         <CheckInHistory items={data.checkIns} />
         <WeighInList from={data.from} to={data.to} />
       </div>

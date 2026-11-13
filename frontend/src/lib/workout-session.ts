@@ -121,9 +121,19 @@ function exerciseToSession(exercise: Exercise, instanceId: string): SessionExerc
   }
 }
 
-/** Weight may be 0 (bodyweight); reps must be a positive whole number. */
-function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
-  const weightKg = set.weight.trim() === "" ? Number.NaN : Number(set.weight)
+/** How an exercise's sets are counted (see the backend's effective_load_kg): a band's kg is a
+ *  guess, so its sets are counted by reps; a bodyweight set moves the lifter's bodyweight plus
+ *  the kg typed (added weight). Plans carry the raw equipment ("band"), added exercises its label ("Band"). */
+export function equipmentKind(exercise: Pick<SessionExercise, "equipment">): "band" | "bodyweight" | "load" {
+  const equipment = exercise.equipment.trim().toLowerCase()
+  return equipment === "band" ? "band" : equipment === "bodyweight" ? "bodyweight" : "load"
+}
+
+/** Weight may be 0 (bodyweight); reps must be a positive whole number. A `band` set has no
+ *  weight at all (its kg would be a guess): whatever a plan or an old session left there is
+ *  ignored and it counts as 0. */
+function parseSet(set: Pick<SessionSet, "weight" | "reps">, band = false) {
+  const weightKg = band ? 0 : set.weight.trim() === "" ? Number.NaN : Number(set.weight)
   const reps = set.reps.trim() === "" ? Number.NaN : Number(set.reps)
   const valid = Number.isFinite(weightKg) && weightKg >= 0 && weightKg <= 1000 && Number.isInteger(reps) && reps > 0 && reps <= 100
   return valid ? { weightKg, reps } : null
@@ -140,8 +150,8 @@ export function parseRpe(rpe: string): number | null | undefined {
 /** The single definition of "can this set be marked done" — an out-of-range RPE must
  * block completion too, or toFinishInput silently drops it on save. Shared by the
  * "toggle" reducer case and the row's disabled state so they can't drift apart. */
-export function isSetCompletable(set: Pick<SessionSet, "weight" | "reps" | "rpe">) {
-  return parseSet(set) !== null && parseRpe(set.rpe) !== undefined
+export function isSetCompletable(set: Pick<SessionSet, "weight" | "reps" | "rpe">, band = false) {
+  return parseSet(set, band) !== null && parseRpe(set.rpe) !== undefined
 }
 
 /** While finding a weight, a completed working set with an RPE sets the next one's weight, unless the
@@ -187,7 +197,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       const exercise = state.exercises.find((e) => e.id === action.exerciseId)
       const set = exercise?.sets.find((s) => s.id === action.setId)
       if (!exercise || !set) return state
-      if (!set.done && !isSetCompletable(set)) return state
+      if (!set.done && !isSetCompletable(set, equipmentKind(exercise) === "band")) return state
       let exercises = updateSet(state, action.exerciseId, action.setId, (s) => ({ ...s, done: !s.done }))
       if (!set.done && exercise.finding) exercises = fillNextWeight(exercises, exercise.id, set)
       // The rest timer is started by hand (each set may want a different rest); completing a set
@@ -288,20 +298,26 @@ export function historySetLabels(sets: Pick<SessionSet, "kind">[]) {
   return sets.map((set, index) => (set.kind === "working" ? `Set ${letters[index]}` : SET_KIND_LABELS[set.kind]))
 }
 
-export function sessionTotals(exercises: SessionExercise[]) {
+/** Sets done, and the volume they moved: bodyweight sets count `bodyWeightKg` plus the kg typed
+ *  (just the kg typed without a weigh-in), band sets count their reps instead (`repBasedReps`). */
+export function sessionTotals(exercises: SessionExercise[], bodyWeightKg?: number | null) {
   let done = 0
   let total = 0
   let volumeKg = 0
+  let repBasedReps = 0
   for (const exercise of exercises) {
+    const kind = equipmentKind(exercise)
     for (const set of exercise.sets) {
       total += 1
       if (!set.done) continue
       done += 1
-      const parsed = parseSet(set)
-      if (parsed && set.kind !== "warmup") volumeKg += parsed.weightKg * parsed.reps
+      const parsed = parseSet(set, kind === "band")
+      if (!parsed || set.kind === "warmup") continue
+      if (kind === "band") repBasedReps += parsed.reps
+      else volumeKg += (parsed.weightKg + (kind === "bodyweight" ? (bodyWeightKg ?? 0) : 0)) * parsed.reps
     }
   }
-  return { done, total, volumeKg }
+  return { done, total, volumeKg, repBasedReps }
 }
 
 export function toFinishInput(state: SessionState, startedAt: number, finishedAt: number): FinishWorkoutInput {
@@ -315,7 +331,7 @@ export function toFinishInput(state: SessionState, startedAt: number, finishedAt
         exerciseId: exercise.exerciseId,
         name: exercise.name,
         sets: exercise.sets.flatMap((set) => {
-          const parsed = set.done ? parseSet(set) : null
+          const parsed = set.done ? parseSet(set, equipmentKind(exercise) === "band") : null
           if (!parsed) return []
           const rpe = parseRpe(set.rpe)
           return [{ kind: set.kind, ...parsed, rpe: rpe ?? undefined }]

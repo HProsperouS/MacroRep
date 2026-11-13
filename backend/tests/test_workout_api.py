@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from app.core.database import get_session_factory
 from app.workout.catalog import SYSTEM_EXERCISES, ensure_system_exercises
 from app.workout.models import Exercise
-from tests.helpers import iso_days_ago, log_bench, plan_every_day, register_user
+from tests.helpers import iso_days_ago, log_bench, plan_every_day, register_user, weigh_in
 
 
 def test_today_plan_seeded(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -976,3 +976,129 @@ def test_history_rejects_a_backwards_or_ancient_range(
     assert client.get("/api/v1/workouts/sessions", headers=auth_headers, params=backwards).status_code == 422
     ancient = {"from": "1999-12-31"}
     assert client.get("/api/v1/workouts/sessions", headers=auth_headers, params=ancient).status_code == 422
+
+
+def _finish(
+    client: TestClient, headers: dict[str, str], exercise_id: str, sets: list[dict[str, object]]
+) -> dict:
+    payload = _session_payload(exercise_id, sets)
+    payload["exercises"][0]["name"] = exercise_id
+    response = client.post("/api/v1/workouts/sessions", headers=headers, json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_bodyweight_sets_count_the_lifters_bodyweight(client: TestClient) -> None:
+    headers = register_user(client)
+    weigh_in(client, headers, 1, 70)
+    summary = _finish(client, headers, "exercise-push-up", [{"kind": "working", "weightKg": 0, "reps": 10}])
+    assert summary["volumeKg"] == 700.0
+    assert summary["bodyWeightKg"] == 70.0
+    assert summary["repBasedReps"] == 0
+    assert summary["personalRecords"] == ["exercise-push-up — new estimated 1RM 93.3 kg"]
+    assert summary["exercises"][0]["equipment"] == "bodyweight"
+
+    # A weighted dip moves bodyweight and the plate.
+    dip = _finish(client, headers, "exercise-chest-dip", [{"kind": "working", "weightKg": 10, "reps": 5}])
+    assert dip["volumeKg"] == 400.0
+
+
+def test_bodyweight_sets_without_a_weigh_in_count_what_was_typed(client: TestClient) -> None:
+    headers = register_user(client)
+    summary = _finish(client, headers, "exercise-chest-dip", [{"kind": "working", "weightKg": 10, "reps": 5}])
+    assert summary["volumeKg"] == 50.0
+    assert summary["bodyWeightKg"] is None
+
+
+def test_band_sets_are_tracked_by_reps(client: TestClient) -> None:
+    headers = register_user(client)
+    band = "exercise-band-pull-apart"
+    first = _finish(client, headers, band, [{"kind": "working", "weightKg": 20, "reps": 15}] * 2)
+    # The kg typed for a band is a guess: no volume, the reps are counted instead.
+    assert first["volumeKg"] == 0.0
+    assert first["repBasedReps"] == 30
+    assert first["personalRecords"] == [f"{band} — new best 15 reps"]
+
+    same = _finish(client, headers, band, [{"kind": "working", "weightKg": 0, "reps": 15}])
+    assert same["personalRecords"] == []
+    better = _finish(client, headers, band, [{"kind": "working", "weightKg": 0, "reps": 18}])
+    assert better["personalRecords"] == [f"{band} — new best 18 reps"]
+
+    history = client.get("/api/v1/workouts/sessions", headers=headers).json()
+    assert [item["repBasedReps"] for item in history] == [18, 15, 30]
+
+
+def test_a_band_exercise_in_a_routine_progresses_by_reps(client: TestClient) -> None:
+    headers = register_user(client)
+    routine = client.post(
+        "/api/v1/workouts/routines",
+        headers=headers,
+        json={
+            "name": "Shoulders",
+            "exercises": [
+                {
+                    "exerciseId": "exercise-band-pull-apart",
+                    "restSeconds": 60,
+                    "sets": [{"kind": "working", "targetWeightKg": None, "targetReps": 15}],
+                }
+            ],
+        },
+    ).json()
+    payload = _session_payload(
+        "exercise-band-pull-apart",
+        [{"kind": "working", "weightKg": 0, "reps": 16, "rpe": 7}],
+        plan_id=routine["id"],
+    )
+    summary = client.post("/api/v1/workouts/sessions", headers=headers, json=payload).json()
+    assert summary["nextTargets"] == [
+        {"exercise": "Barbell Bench Press", "weightKg": 0.0, "reps": 17, "increase": True}
+    ]
+
+
+def test_editing_a_workout_keeps_the_bodyweight_it_was_logged_at(client: TestClient) -> None:
+    headers = register_user(client)
+    weigh_in(client, headers, 1, 70)
+    summary = _finish(client, headers, "exercise-push-up", [{"kind": "working", "weightKg": 0, "reps": 10}])
+    weigh_in(client, headers, 0, 90)
+
+    edited = client.put(
+        f"/api/v1/workouts/sessions/{summary['id']}",
+        headers=headers,
+        json={
+            "name": "Push",
+            "exercises": [
+                {
+                    "exerciseId": "exercise-push-up",
+                    "name": "Push-Up",
+                    "sets": [{"kind": "working", "weightKg": 0, "reps": 12}],
+                }
+            ],
+        },
+    )
+    assert edited.status_code == 200
+    assert edited.json()["volumeKg"] == 840.0
+    assert edited.json()["bodyWeightKg"] == 70.0
+
+
+def test_a_band_has_no_weight_even_if_one_is_sent(client: TestClient) -> None:
+    headers = register_user(client)
+    summary = _finish(client, headers, "exercise-band-row", [{"kind": "working", "weightKg": 25, "reps": 12}])
+    detail = client.get(f"/api/v1/workouts/sessions/{summary['id']}", headers=headers).json()
+    assert detail["exercises"][0]["sets"][0]["weightKg"] == 0.0
+
+    routine = client.post(
+        "/api/v1/workouts/routines",
+        headers=headers,
+        json={
+            "name": "Back",
+            "exercises": [
+                {
+                    "exerciseId": "exercise-band-row",
+                    "restSeconds": 60,
+                    "sets": [{"kind": "working", "targetWeightKg": 25, "targetReps": 12}],
+                }
+            ],
+        },
+    )
+    assert routine.status_code == 201
+    assert routine.json()["exercises"][0]["sets"][0]["targetWeightKg"] is None

@@ -149,6 +149,10 @@ export type WorkoutSummary = {
   nextTargets: NextTarget[]
   /** What was done, in order. Absent from servers older than this field. */
   exercises?: HistoryExercise[]
+  /** Working reps of band sets, which have no load for kg volume to count. */
+  repBasedReps?: number
+  /** The weigh-in bodyweight sets were counted at; null without one. */
+  bodyWeightKg?: number | null
 }
 
 /** Local days (yyyy-MM-dd), inclusive; a missing end is open. */
@@ -164,6 +168,9 @@ export type WorkoutHistoryItem = {
   exerciseCount: number
   setsCompleted: number
   volumeKg: number
+  /** As on WorkoutSummary. */
+  repBasedReps?: number
+  bodyWeightKg?: number | null
 }
 
 export type HistorySet = {
@@ -177,6 +184,8 @@ export type HistoryExercise = {
   /** Null only if the exercise was removed from the catalog after it was logged. */
   exerciseId: string | null
   name: string
+  /** "bodyweight" sets are bodyweight plus the kg shown, "band" sets are reps. Null if the exercise was removed. */
+  equipment?: Equipment | null
   sets: HistorySet[]
 }
 

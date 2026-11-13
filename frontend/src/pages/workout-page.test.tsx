@@ -11,6 +11,8 @@ const api = vi.hoisted(() => ({ getToday: vi.fn(), finishSession: vi.fn() }))
 vi.mock("@/api/workout-api", () => ({ workoutApi: api }))
 // Desktop layout: the mobile drawer needs browser layout APIs jsdom lacks.
 vi.mock("@/hooks/use-media-query")
+// No weigh-in: bodyweight sets count what was typed.
+vi.mock("@/hooks/use-progress", () => ({ useLatestBodyWeight: () => null }))
 
 const plan: PlannedWorkout = {
   id: "plan-1",

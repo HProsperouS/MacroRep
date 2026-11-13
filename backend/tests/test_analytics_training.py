@@ -9,9 +9,11 @@ from app.analytics.training import (
     average_rpe_by_week,
     best_estimated_one_rep_max,
     completion_percent,
+    effective_load_kg,
     estimated_minutes,
     estimated_one_rep_max,
     is_personal_record,
+    is_rep_based,
     next_session_target,
     percent_change,
     planned_sessions,
@@ -197,10 +199,46 @@ def test_next_session_target_is_double_progression(
         ([], 5),  # nothing done
         ([(80, 5, 7.0)], None),  # no rep target to judge against
         ([(80, 5, 7.0)], 0),
-        ([(0, 10, 7.0)], 10),  # bodyweight: no load to step up from
     ],
 )
 def test_next_session_target_needs_something_to_judge(
     sets: list[tuple[float, int, float | None]], target_reps: int | None
 ) -> None:
     assert next_session_target(sets, target_reps) is None
+
+
+@pytest.mark.parametrize(
+    ("sets", "target_reps", "reps", "increase"),
+    [
+        # Every top set made the reps with room to spare: one more than the fewest made.
+        ([(0, 12, 7.0), (0, 13, 8.0)], 12, 13, True),
+        # A missed rep or a grind holds the target.
+        ([(0, 12, 7.0), (0, 10, 8.0)], 12, 12, False),
+        ([(0, 12, 9.5)], 12, 12, False),
+        ([(0, 12, None)], 12, 12, False),
+    ],
+)
+def test_next_session_target_adds_reps_without_a_load(
+    sets: list[tuple[float, int, float | None]], target_reps: int, reps: int, increase: bool
+) -> None:
+    target = next_session_target(sets, target_reps)
+    assert target is not None
+    assert (target.weight_kg, target.reps, target.increase) == (0.0, reps, increase)
+
+
+@pytest.mark.parametrize(
+    ("equipment", "typed_kg", "body_weight_kg", "load_kg"),
+    [
+        ("barbell", 60, 72, 60.0),
+        ("band", 20, 72, 0.0),  # a band's kg is a guess: tracked by reps
+        ("bodyweight", 0, 72, 72.0),
+        ("bodyweight", 10, 72, 82.0),  # a weighted dip moves bodyweight and the plate
+        ("bodyweight", 10, None, 10.0),  # no weigh-in yet: what was typed
+        (None, 40, 72, 40.0),  # exercise since removed from the catalog
+    ],
+)
+def test_effective_load(
+    equipment: str | None, typed_kg: float, body_weight_kg: float | None, load_kg: float
+) -> None:
+    assert effective_load_kg(equipment, typed_kg, body_weight_kg) == load_kg
+    assert is_rep_based(load_kg) is (load_kg == 0)

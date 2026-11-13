@@ -14,6 +14,7 @@ import { WorkoutEditForm } from "@/components/workout/workout-edit-form"
 import { useOverlayLayout } from "@/hooks/use-media-query"
 import { useDeleteWorkout, useUpdateWorkout, useWorkoutDetail } from "@/hooks/use-workout"
 import { formatDuration, formatNumber } from "@/lib/format"
+import { bandRepsSuffix, bodyWeightNote } from "@/lib/load-labels"
 import { toEditable } from "@/lib/workout-edit"
 import { cn } from "@/lib/utils"
 import type { UpdateWorkoutInput, WorkoutHistoryItem } from "@/types/workout"
@@ -69,6 +70,7 @@ export function HistoryRow({ workout }: { workout: WorkoutHistoryItem }) {
           </span>
           <span className="truncate text-sm text-muted-foreground">
             {workout.exerciseCount} exercise{workout.exerciseCount === 1 ? "" : "s"} · {workout.setsCompleted} sets · {formatNumber(workout.volumeKg)} kg
+            {bandRepsSuffix(workout.repBasedReps)}
           </span>
         </span>
         <ChevronDown className={cn("size-5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} aria-hidden />
@@ -82,6 +84,9 @@ export function HistoryRow({ workout }: { workout: WorkoutHistoryItem }) {
             <WorkoutEditForm initial={editable} saving={update.isPending} onSave={save} onCancel={() => setEditing(false)} />
           ) : detail.data ? (
             <div className="flex flex-col gap-4">
+              {bodyWeightNote(detail.data.bodyWeightKg, detail.data.exercises) ? (
+                <p className="text-sm text-muted-foreground">{bodyWeightNote(detail.data.bodyWeightKg, detail.data.exercises)}</p>
+              ) : null}
               {detail.data.exercises.map((exercise, index) => (
                 <ExerciseSets key={`${index}-${exercise.name}`} exercise={exercise} />
               ))}

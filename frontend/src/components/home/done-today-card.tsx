@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ExerciseSets } from "@/components/workout/exercise-sets"
 import { useWorkoutDetail, useWorkoutHistory } from "@/hooks/use-workout"
 import { formatDuration, formatNumber } from "@/lib/format"
+import { bandRepsSuffix, bodyWeightNote } from "@/lib/load-labels"
 import { rangeFor } from "@/lib/history-range"
 import type { WorkoutHistoryItem } from "@/types/workout"
 
@@ -49,10 +50,14 @@ function DoneWorkout({ workout }: { workout: WorkoutHistoryItem }) {
         <span className="font-medium">{workout.name}</span>
         <CardDescription>
           {format(parseISO(workout.startedAt), "HH:mm")} · {formatDuration(workout.durationSeconds)} · {workout.setsCompleted} sets · {formatNumber(workout.volumeKg)} kg
+          {bandRepsSuffix(workout.repBasedReps)}
         </CardDescription>
       </div>
       {detail.data ? (
         <div className="flex flex-col gap-3">
+          {bodyWeightNote(detail.data.bodyWeightKg, detail.data.exercises) ? (
+            <p className="text-xs text-muted-foreground">{bodyWeightNote(detail.data.bodyWeightKg, detail.data.exercises)}</p>
+          ) : null}
           {detail.data.exercises.map((exercise, index) => (
             <ExerciseSets key={`${index}-${exercise.name}`} exercise={exercise} compact />
           ))}

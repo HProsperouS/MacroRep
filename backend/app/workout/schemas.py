@@ -171,6 +171,10 @@ class WorkoutSummary(CamelModel):
     volume_kg: float
     personal_records: list[str]
     next_targets: list[NextTargetRead] = Field(default_factory=list)
+    # Working reps of band sets, which have no load for kg volume to count.
+    rep_based_reps: int = 0
+    # The weigh-in bodyweight sets were counted at; null without one.
+    body_weight_kg: float | None = None
     # What was done, in order: the same shape as a history entry's exercises.
     exercises: list[HistoryExercise] = Field(default_factory=list)
 
@@ -183,6 +187,9 @@ class WorkoutHistoryItem(CamelModel):
     exercise_count: int
     sets_completed: int
     volume_kg: float
+    # As on WorkoutSummary.
+    rep_based_reps: int = 0
+    body_weight_kg: float | None = None
 
 
 class HistorySet(CamelModel):
@@ -196,6 +203,9 @@ class HistoryExercise(CamelModel):
     # Null only if the exercise was removed from the catalog after it was logged.
     exercise_id: str | None
     name: str
+    # How its sets read: "bodyweight" sets are bodyweight plus the kg shown, "band" sets
+    # are reps. Null if the exercise was removed from the catalog.
+    equipment: str | None = None
     sets: list[HistorySet]
 
 

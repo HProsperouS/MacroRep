@@ -129,12 +129,12 @@ class ProgressRepository:
     async def volume_entries(
         self, owner_id: str, start: date_, end: date_, zone: ZoneInfo
     ) -> list[tuple[date_, float, int]]:
-        """(session date, weight kg, reps) of each working set logged in the window,
+        """(session date, load kg, reps) of each working set logged in the window,
         in no particular order; the caller groups them (by week, over whatever days)."""
 
         since, until = utc_bounds(start, end, zone)
         statement = (
-            select(WorkoutSetLog.weight_kg, WorkoutSetLog.reps, WorkoutSession.started_at)
+            select(WorkoutSetLog.load_kg, WorkoutSetLog.reps, WorkoutSession.started_at)
             .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
             .where(
                 WorkoutSetLog.owner_id == owner_id,
@@ -162,7 +162,7 @@ class ProgressRepository:
         """
 
         since, until = utc_bounds(start, end, zone)
-        e1rm = estimated_one_rep_max_sql(WorkoutSetLog.weight_kg, WorkoutSetLog.reps)
+        e1rm = estimated_one_rep_max_sql(WorkoutSetLog.load_kg, WorkoutSetLog.reps)
         statement = (
             select(
                 WorkoutSetLog.exercise_name,
@@ -185,6 +185,36 @@ class ProgressRepository:
                 continue
             current = float(current)
             lifts[name] = (float(before) if before is not None else current, current)
+        return lifts
+
+    async def rep_lifts(
+        self, owner_id: str, start: date_, end: date_, zone: ZoneInfo
+    ) -> dict[str, tuple[int, int]]:
+        """Most reps in one set with no load (a band) per exercise, before vs. within the
+        range: the rep-based counterpart of :meth:`strength_lifts`."""
+
+        since, until = utc_bounds(start, end, zone)
+        statement = (
+            select(
+                WorkoutSetLog.exercise_name,
+                func.max(WorkoutSetLog.reps).filter(WorkoutSession.started_at < since),
+                func.max(WorkoutSetLog.reps).filter(WorkoutSession.started_at >= since),
+            )
+            .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)
+            .where(
+                WorkoutSetLog.owner_id == owner_id,
+                WorkoutSetLog.kind != SetKind.WARMUP,
+                WorkoutSetLog.load_kg <= 0,
+                WorkoutSetLog.reps > 0,
+                WorkoutSession.started_at < until,
+            )
+            .group_by(WorkoutSetLog.exercise_name)
+        )
+        lifts: dict[str, tuple[int, int]] = {}
+        for name, before, current in await self.session.execute(statement):
+            if current is None:
+                continue
+            lifts[name] = (int(before) if before is not None else int(current), int(current))
         return lifts
 
     async def check_ins_in_range(
@@ -260,7 +290,7 @@ class ProgressRepository:
         rows = await self.session.execute(
             select(
                 WorkoutSetLog.exercise_id,
-                WorkoutSetLog.weight_kg,
+                WorkoutSetLog.load_kg,
                 WorkoutSetLog.reps,
                 WorkoutSetLog.rpe,
                 WorkoutSetLog.kind,
@@ -277,12 +307,12 @@ class ProgressRepository:
             )
         )
         buckets: dict[str, dict[str, dict[str, list[object]]]] = {}
-        for exercise_id, weight_kg, reps, rpe, kind, session_id, started_at in rows:
+        for exercise_id, load_kg, reps, rpe, kind, session_id, started_at in rows:
             period = "recent" if local_date(started_at, zone) >= start else "prior"
             bucket = buckets.setdefault(exercise_id, {}).setdefault(
                 period, {"e1rm": [], "rpe": [], "sessions": []}
             )
-            e1rm = estimated_one_rep_max(float(weight_kg), reps)
+            e1rm = estimated_one_rep_max(float(load_kg), reps)
             if e1rm is not None:
                 bucket["e1rm"].append(e1rm)
             # Effort from working sets only: a failure set is RPE 10 by design and would skew it.

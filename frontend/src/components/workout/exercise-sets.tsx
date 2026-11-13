@@ -1,4 +1,5 @@
 import { formatNumber } from "@/lib/format"
+import { setLoadLabel } from "@/lib/load-labels"
 import { cn } from "@/lib/utils"
 import { historySetLabels } from "@/lib/workout-session"
 import type { HistoryExercise } from "@/types/workout"
@@ -15,9 +16,7 @@ export function ExerciseSets({ exercise, compact = false }: { exercise: HistoryE
         {exercise.sets.map((set, index) => (
           <li key={index} className={cn("flex items-center gap-3 text-sm", compact ? "py-1" : "py-1.5")}>
             <span className="w-20 shrink-0 text-muted-foreground">{labels[index]}</span>
-            <span className="flex-1 tabular-nums">
-              {formatNumber(set.weightKg, 2)} kg × {set.reps}
-            </span>
+            <span className="flex-1 tabular-nums">{setLoadLabel(exercise.equipment, set.weightKg, set.reps)}</span>
             {set.rpe != null ? <span className="shrink-0 text-muted-foreground tabular-nums">RPE {formatNumber(set.rpe, 1)}</span> : null}
           </li>
         ))}
