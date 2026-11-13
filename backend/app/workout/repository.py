@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -313,14 +314,26 @@ class WorkoutSessionRepository:
         await self.session.delete(workout_session)
         await self.session.flush()
 
-    async def list_sessions(self, owner_id: str, limit: int, offset: int) -> list[WorkoutSession]:
-        """Newest first; the id breaks ties so paging never repeats or skips a session."""
+    async def list_sessions(
+        self,
+        owner_id: str,
+        limit: int,
+        offset: int,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[WorkoutSession]:
+        """Newest first; the id breaks ties so paging never repeats or skips a session.
 
+        ``since``/``until`` keep sessions started in ``[since, until)``."""
+
+        statement = select(WorkoutSession).where(WorkoutSession.owner_id == owner_id)
+        if since is not None:
+            statement = statement.where(WorkoutSession.started_at >= since)
+        if until is not None:
+            statement = statement.where(WorkoutSession.started_at < until)
         return list(
             await self.session.scalars(
-                select(WorkoutSession)
-                .where(WorkoutSession.owner_id == owner_id)
-                .order_by(WorkoutSession.started_at.desc(), WorkoutSession.id)
+                statement.order_by(WorkoutSession.started_at.desc(), WorkoutSession.id)
                 .limit(limit)
                 .offset(offset)
             )

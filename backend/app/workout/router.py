@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.profile.repository import ProfileRepository
-from app.shared.validation import MAX_SEARCH_LENGTH
+from app.shared.validation import MAX_SEARCH_LENGTH, LogDate
 
 from .models import EQUIPMENT, MUSCLE_GROUPS
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
@@ -102,10 +102,15 @@ async def list_sessions(
     service: WorkoutServiceDep,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    date_from: Annotated[LogDate | None, Query(alias="from")] = None,
+    date_to: Annotated[LogDate | None, Query(alias="to")] = None,
 ) -> list[WorkoutHistoryItem]:
-    """Logged workouts, newest first."""
+    """Logged workouts, newest first. ``from``/``to`` (inclusive, in the user's own days) keep
+    only those started in that range."""
 
-    return await service.list_history(actor, limit, offset)
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "'from' must not be after 'to'")
+    return await service.list_history(actor, limit, offset, date_from, date_to)
 
 
 @router.get("/workouts/sessions/{session_id}", response_model=WorkoutDetail)

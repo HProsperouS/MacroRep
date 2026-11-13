@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, date
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -21,7 +21,7 @@ from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
 from app.profile.service import zone_of
 from app.shared.exceptions import Conflict, Invalid, NotFound
-from app.shared.timezones import local_today
+from app.shared.timezones import local_today, utc_bounds
 from app.shared.validation import MAX_CUSTOM_EXERCISES_PER_USER, MAX_ROUTINES_PER_USER
 
 from .models import Exercise, SetKind, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutSession, WorkoutSetLog
@@ -520,6 +520,7 @@ class WorkoutService:
             volume_kg=round(session_volume_kg, 1),
             personal_records=personal_records,
             next_targets=next_targets,
+            exercises=_history_exercises(set_logs),
         )
 
     async def _next_targets(self, plan_id: str | None, payload: FinishWorkoutInput) -> list[NextTargetRead]:
@@ -559,8 +560,25 @@ class WorkoutService:
                 )
         return targets
 
-    async def list_history(self, actor: ActorContext, limit: int, offset: int) -> list[WorkoutHistoryItem]:
-        sessions = await self.sessions.list_sessions(actor.actor_id, limit, offset)
+    async def list_history(
+        self,
+        actor: ActorContext,
+        limit: int,
+        offset: int,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[WorkoutHistoryItem]:
+        """Logged workouts newest first, optionally only those started on the user's local days
+        ``date_from`` to ``date_to`` (inclusive; either end may be open)."""
+
+        since = until = None
+        if date_from is not None or date_to is not None:
+            zone = await self._zone(actor)
+            if date_from is not None:
+                since = utc_bounds(date_from, date_from, zone)[0]
+            if date_to is not None:
+                until = utc_bounds(date_to, date_to, zone)[1]
+        sessions = await self.sessions.list_sessions(actor.actor_id, limit, offset, since, until)
         sets = await self.sessions.list_sets(actor.actor_id, [s.id for s in sessions])
         sets_by_session: dict[str, list[WorkoutSetLog]] = {}
         for logged in sets:

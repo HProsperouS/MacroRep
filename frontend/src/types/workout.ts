@@ -147,7 +147,12 @@ export type WorkoutSummary = {
   volumeKg: number
   personalRecords: string[]
   nextTargets: NextTarget[]
+  /** What was done, in order. Absent from servers older than this field. */
+  exercises?: HistoryExercise[]
 }
+
+/** Local days (yyyy-MM-dd), inclusive; a missing end is open. */
+export type HistoryRange = { from?: string; to?: string }
 
 /** One logged workout in the history list. */
 export type WorkoutHistoryItem = {

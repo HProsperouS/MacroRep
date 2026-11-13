@@ -1,5 +1,5 @@
 import type { ProgressRange } from "@/types/progress"
-import type { ExerciseFilters } from "@/types/workout"
+import type { ExerciseFilters, HistoryRange } from "@/types/workout"
 
 export const foodKeys = {
   all: ["food"] as const,
@@ -19,7 +19,7 @@ export const workoutKeys = {
   exercises: (filters: ExerciseFilters) => [...workoutKeys.all, "exercises", filters] as const,
   plan: () => [...workoutKeys.all, "plan"] as const,
   routines: () => [...workoutKeys.all, "routines"] as const,
-  history: () => [...workoutKeys.all, "history"] as const,
+  history: (range: HistoryRange = {}) => [...workoutKeys.all, "history", range] as const,
   session: (sessionId: string) => [...workoutKeys.all, "session", sessionId] as const,
 }
 

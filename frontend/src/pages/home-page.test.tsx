@@ -13,7 +13,7 @@ import type { FoodEntry } from "@/types/food"
 
 const foodApi = vi.hoisted(() => ({ getFoodLog: vi.fn(), getTargets: vi.fn() }))
 const progressApi = vi.hoisted(() => ({ getProgress: vi.fn(), getDailyCalories: vi.fn(), addWeighIn: vi.fn() }))
-const workoutApi = vi.hoisted(() => ({ getToday: vi.fn() }))
+const workoutApi = vi.hoisted(() => ({ getToday: vi.fn(), listSessions: vi.fn(), getSession: vi.fn() }))
 const coachApi = vi.hoisted(() => ({ getCurrentCheckIn: vi.fn() }))
 vi.mock("@/api/food-api", () => ({ foodApi }))
 vi.mock("@/api/progress-api", () => ({ progressApi }))
@@ -45,6 +45,7 @@ beforeEach(() => {
     targetGapKcal: -1400,
   })
   workoutApi.getToday.mockResolvedValue(plan)
+  workoutApi.listSessions.mockResolvedValue([])
   coachApi.getCurrentCheckIn.mockResolvedValue({ id: "c1", status: "needs-review", proposals: [nutritionProposal(), nutritionProposal({ id: "p2", status: "applied" })] })
 })
 
@@ -155,5 +156,27 @@ describe("HomePage", () => {
     expect(await screen.findByText("Couldn’t load your weight trend")).toBeInTheDocument()
     expect(await screen.findByText("Couldn’t load recent calories")).toBeInTheDocument()
     expect(await screen.findByText("Couldn’t load today’s workout")).toBeInTheDocument()
+  })
+
+  it("shows what was done today once a workout is logged, and nothing before", async () => {
+    const { unmount } = renderPage(<HomePage />)
+    await screen.findByText("Push day")
+    expect(screen.queryByText("Done today")).not.toBeInTheDocument()
+    expect(workoutApi.listSessions).toHaveBeenCalledWith(0, expect.any(Number), { from: "2026-10-20", to: "2026-10-20" }, expect.anything())
+    unmount()
+
+    const item = { id: "w1", name: "Morning push", startedAt: "2026-10-20T08:00:00Z", durationSeconds: 2700, exerciseCount: 1, setsCompleted: 2, volumeKg: 960 }
+    workoutApi.listSessions.mockResolvedValue([item])
+    workoutApi.getSession.mockResolvedValue({
+      ...item,
+      exercises: [{ exerciseId: "bench", name: "Bench Press", sets: [{ kind: "working", weightKg: 60, reps: 8, rpe: 8 }, { kind: "working", weightKg: 60, reps: 8 }] }],
+    })
+    renderPage(<HomePage />)
+
+    const card = (await screen.findByText("Done today")).closest("[data-slot=card]") as HTMLElement
+    expect(within(card).getByText("Morning push")).toBeInTheDocument()
+    expect(await within(card).findByText("Bench Press")).toBeInTheDocument()
+    expect(within(card).getByText("Set 2")).toBeInTheDocument()
+    expect(within(card).getByRole("link", { name: "View in history" })).toHaveAttribute("href", "/workout/history?range=today")
   })
 })

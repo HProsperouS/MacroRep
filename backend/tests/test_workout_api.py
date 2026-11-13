@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from app.core.database import get_session_factory
 from app.workout.catalog import SYSTEM_EXERCISES, ensure_system_exercises
 from app.workout.models import Exercise
-from tests.helpers import plan_every_day, register_user
+from tests.helpers import iso_days_ago, log_bench, plan_every_day, register_user
 
 
 def test_today_plan_seeded(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -923,3 +923,56 @@ def test_exercise_note_rejects_unknown_exercise_and_long_text(
         "/api/v1/exercises/exercise-squat/note", headers=auth_headers, json={"body": "x" * 501}
     )
     assert too_long.status_code == 422
+
+
+def test_finishing_a_workout_lists_what_was_done(client: TestClient) -> None:
+    headers = register_user(client)
+    response = client.post(
+        "/api/v1/workouts/sessions", headers=headers, json=_two_exercise_session(60, "Today")
+    )
+    assert response.status_code == 201
+    exercises = response.json()["exercises"]
+    detail = client.get(f"/api/v1/workouts/sessions/{response.json()['id']}", headers=headers).json()
+    assert exercises == detail["exercises"]
+    assert sum(len(exercise["sets"]) for exercise in exercises) == 3
+
+
+def _history_dates(client: TestClient, headers: dict[str, str], **params: str) -> list[str]:
+    response = client.get("/api/v1/workouts/sessions", headers=headers, params=params)
+    assert response.status_code == 200
+    return [item["startedAt"][:10] for item in response.json()]
+
+
+def test_history_filters_by_the_users_own_days(client: TestClient) -> None:
+    headers = register_user(client, timezone="UTC")
+    for days_ago in (1, 3, 10):
+        log_bench(client, headers, days_ago, 60, 8)
+
+    assert _history_dates(client, headers) == [iso_days_ago(1), iso_days_ago(3), iso_days_ago(10)]
+    assert _history_dates(client, headers, **{"from": iso_days_ago(3), "to": iso_days_ago(3)}) == [
+        iso_days_ago(3)
+    ]
+    assert _history_dates(client, headers, **{"from": iso_days_ago(6), "to": iso_days_ago(0)}) == [
+        iso_days_ago(1),
+        iso_days_ago(3),
+    ]
+    # Either end may be left open.
+    assert _history_dates(client, headers, **{"from": iso_days_ago(3)}) == [iso_days_ago(1), iso_days_ago(3)]
+    assert _history_dates(client, headers, **{"to": iso_days_ago(3)}) == [iso_days_ago(3), iso_days_ago(10)]
+
+
+def test_history_days_follow_the_users_timezone(client: TestClient) -> None:
+    # Noon UTC is already the next day in Kiritimati (UTC+14).
+    headers = register_user(client, timezone="Pacific/Kiritimati")
+    log_bench(client, headers, 3, 60, 8)
+    assert _history_dates(client, headers, **{"from": iso_days_ago(3), "to": iso_days_ago(3)}) == []
+    assert len(_history_dates(client, headers, **{"from": iso_days_ago(2), "to": iso_days_ago(2)})) == 1
+
+
+def test_history_rejects_a_backwards_or_ancient_range(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    backwards = {"from": iso_days_ago(1), "to": iso_days_ago(5)}
+    assert client.get("/api/v1/workouts/sessions", headers=auth_headers, params=backwards).status_code == 422
+    ancient = {"from": "1999-12-31"}
+    assert client.get("/api/v1/workouts/sessions", headers=auth_headers, params=ancient).status_code == 422

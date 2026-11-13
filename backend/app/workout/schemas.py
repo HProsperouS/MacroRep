@@ -171,6 +171,8 @@ class WorkoutSummary(CamelModel):
     volume_kg: float
     personal_records: list[str]
     next_targets: list[NextTargetRead] = Field(default_factory=list)
+    # What was done, in order: the same shape as a history entry's exercises.
+    exercises: list[HistoryExercise] = Field(default_factory=list)
 
 
 class WorkoutHistoryItem(CamelModel):

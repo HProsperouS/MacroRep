@@ -4,6 +4,7 @@ import type {
   Exercise,
   ExerciseFilters,
   FinishWorkoutInput,
+  HistoryRange,
   PlannedWorkout,
   Routine,
   SaveRoutineInput,
@@ -43,8 +44,8 @@ export const workoutApi = {
   },
 
   /** Logged workouts, newest first. */
-  async listSessions(offset: number, limit: number, signal?: AbortSignal) {
-    const { data } = await apiClient.get<WorkoutHistoryItem[]>("/workouts/sessions", { params: { offset, limit }, signal })
+  async listSessions(offset: number, limit: number, range: HistoryRange = {}, signal?: AbortSignal) {
+    const { data } = await apiClient.get<WorkoutHistoryItem[]>("/workouts/sessions", { params: { offset, limit, from: range.from, to: range.to }, signal })
     return data
   },
 

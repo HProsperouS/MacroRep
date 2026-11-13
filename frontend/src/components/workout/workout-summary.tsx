@@ -5,6 +5,7 @@ import { Stat } from "@/components/layout/stat"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { ExerciseSets } from "@/components/workout/exercise-sets"
 import { formatDuration, formatNumber } from "@/lib/format"
 import type { WorkoutSummary as WorkoutSummaryData } from "@/types/workout"
 
@@ -31,6 +32,18 @@ export function WorkoutSummary({ summary }: { summary: WorkoutSummaryData }) {
               </li>
             ))}
           </ul>
+        ) : null}
+        {summary.exercises && summary.exercises.length > 0 ? (
+          <section aria-labelledby="done-heading" className="flex flex-col gap-3">
+            <h3 id="done-heading" className="text-sm font-medium">
+              What you did
+            </h3>
+            <div className="flex flex-col gap-4 rounded-lg border bg-muted/30 px-3 py-2">
+              {summary.exercises.map((exercise, index) => (
+                <ExerciseSets key={`${index}-${exercise.name}`} exercise={exercise} compact />
+              ))}
+            </div>
+          </section>
         ) : null}
         {summary.nextTargets.length > 0 ? (
           <section aria-labelledby="next-time-heading" className="flex flex-col gap-2">

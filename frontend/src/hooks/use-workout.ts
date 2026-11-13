@@ -2,7 +2,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 
 import { progressKeys, workoutKeys } from "@/api/query-keys"
 import { workoutApi } from "@/api/workout-api"
-import type { CreateExerciseInput, ExerciseFilters, FinishWorkoutInput, SaveRoutineInput, UpdateWorkoutInput } from "@/types/workout"
+import type { CreateExerciseInput, ExerciseFilters, FinishWorkoutInput, HistoryRange, SaveRoutineInput, UpdateWorkoutInput } from "@/types/workout"
 
 export function useTodayWorkout() {
   return useQuery({
@@ -108,10 +108,11 @@ export function useClearDay() {
 
 export const HISTORY_PAGE_SIZE = 20
 
-export function useWorkoutHistory() {
+export function useWorkoutHistory(range: HistoryRange = {}, enabled = true) {
   return useInfiniteQuery({
-    queryKey: workoutKeys.history(),
-    queryFn: ({ pageParam, signal }) => workoutApi.listSessions(pageParam, HISTORY_PAGE_SIZE, signal),
+    queryKey: workoutKeys.history(range),
+    queryFn: ({ pageParam, signal }) => workoutApi.listSessions(pageParam, HISTORY_PAGE_SIZE, range, signal),
+    enabled,
     initialPageParam: 0,
     // A short page means the end; otherwise the next page starts after everything loaded so far.
     getNextPageParam: (lastPage, allPages) => (lastPage.length < HISTORY_PAGE_SIZE ? undefined : allPages.length * HISTORY_PAGE_SIZE),

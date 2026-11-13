@@ -9,14 +9,14 @@ import { ConfirmOverlay } from "@/components/layout/confirm-overlay"
 import type { OverlayLayout } from "@/components/layout/responsive-overlay"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ExerciseSets } from "@/components/workout/exercise-sets"
 import { WorkoutEditForm } from "@/components/workout/workout-edit-form"
 import { useOverlayLayout } from "@/hooks/use-media-query"
 import { useDeleteWorkout, useUpdateWorkout, useWorkoutDetail } from "@/hooks/use-workout"
 import { formatDuration, formatNumber } from "@/lib/format"
 import { toEditable } from "@/lib/workout-edit"
-import { historySetLabels } from "@/lib/workout-session"
 import { cn } from "@/lib/utils"
-import type { HistoryExercise, UpdateWorkoutInput, WorkoutHistoryItem } from "@/types/workout"
+import type { UpdateWorkoutInput, WorkoutHistoryItem } from "@/types/workout"
 
 export function HistoryRow({ workout }: { workout: WorkoutHistoryItem }) {
   const overlayLayout = useOverlayLayout()
@@ -117,26 +117,5 @@ export function HistoryRow({ workout }: { workout: WorkoutHistoryItem }) {
         onConfirm={deleteWorkout}
       />
     </li>
-  )
-}
-
-function ExerciseSets({ exercise }: { exercise: HistoryExercise }) {
-  // Only working sets are numbered, so "Set 1" is always the first working set.
-  const labels = historySetLabels(exercise.sets)
-  return (
-    <section className="flex flex-col gap-1">
-      <h3 className="text-sm font-medium">{exercise.name}</h3>
-      <ul className="divide-y">
-        {exercise.sets.map((set, index) => (
-          <li key={index} className="flex items-center gap-3 py-1.5 text-sm">
-            <span className="w-20 shrink-0 text-muted-foreground">{labels[index]}</span>
-            <span className="flex-1 tabular-nums">
-              {formatNumber(set.weightKg, 2)} kg × {set.reps}
-            </span>
-            {set.rpe != null ? <span className="shrink-0 text-muted-foreground tabular-nums">RPE {formatNumber(set.rpe, 1)}</span> : null}
-          </li>
-        ))}
-      </ul>
-    </section>
   )
 }
