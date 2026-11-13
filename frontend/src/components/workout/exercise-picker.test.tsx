@@ -27,8 +27,13 @@ function renderPicker() {
 }
 
 beforeEach(() => {
-  api.searchExercises.mockImplementation(({ q, muscle }: { q: string; muscle?: string }) =>
-    Promise.resolve([bench, pushUp].filter((exercise) => exercise.name.toLowerCase().includes(q.toLowerCase()) && (!muscle || exercise.muscles.includes(muscle as never)))),
+  api.searchExercises.mockImplementation(({ q, muscle, source }: { q: string; muscle?: string; source?: string }) =>
+    Promise.resolve(
+      [bench, pushUp].filter(
+        (exercise) =>
+          exercise.name.toLowerCase().includes(q.toLowerCase()) && (!muscle || exercise.muscles.includes(muscle as never)) && (!source || exercise.source === source),
+      ),
+    ),
   )
 })
 
@@ -62,9 +67,35 @@ describe("ExercisePicker", () => {
     await user.click(await screen.findByRole("option", { name: "Back" }))
 
     expect(await screen.findByText("No exercises match these filters")).toBeInTheDocument()
-    expect(api.searchExercises).toHaveBeenLastCalledWith({ q: "", muscle: "back", equipment: undefined }, expect.anything())
+    expect(api.searchExercises).toHaveBeenLastCalledWith({ q: "", muscle: "back", equipment: undefined, source: undefined }, expect.anything())
     await user.click(screen.getByRole("button", { name: "Clear filters" }))
     expect(await screen.findByText("Bench Press")).toBeInTheDocument()
+  })
+
+  it("keeps only the user's own exercises", async () => {
+    const { user } = renderPicker()
+    await screen.findByText("Bench Press")
+
+    await user.click(screen.getByRole("combobox", { name: "Filter by source" }))
+    await user.click(await screen.findByRole("option", { name: "Custom" }))
+
+    await waitFor(() => expect(screen.queryByText("Bench Press")).not.toBeInTheDocument())
+    expect(screen.getByText("Push-up")).toBeInTheDocument()
+    expect(api.searchExercises).toHaveBeenLastCalledWith({ q: "", muscle: undefined, equipment: undefined, source: "custom" }, expect.anything())
+  })
+
+  it("says when the user hasn't created any exercises yet, keeping Create to hand", async () => {
+    const { user } = renderPicker()
+    await screen.findByText("Bench Press")
+    api.searchExercises.mockResolvedValue([])
+
+    await user.click(screen.getByRole("combobox", { name: "Filter by source" }))
+    await user.click(await screen.findByRole("option", { name: "Custom" }))
+
+    expect(await screen.findByText("You haven’t created any exercises yet")).toBeInTheDocument()
+    // One in the empty state, besides the picker's own.
+    expect(screen.getAllByRole("button", { name: "Create exercise" }).length).toBeGreaterThan(1)
+    expect(screen.getByRole("button", { name: "Clear filters" })).toBeInTheDocument()
   })
 
   it("creates a custom exercise named after the search and adds it", async () => {

@@ -202,9 +202,15 @@ class WorkoutService:
         )
 
     async def search_exercises(
-        self, actor: ActorContext, query: str, muscle: str | None, equipment: str | None, limit: int
+        self,
+        actor: ActorContext,
+        query: str,
+        muscle: str | None,
+        equipment: str | None,
+        limit: int,
+        source: str | None = None,
     ) -> list[ExerciseRead]:
-        rows = await self.exercises.search(actor.actor_id, query, muscle, equipment, limit)
+        rows = await self.exercises.search(actor.actor_id, query, muscle, equipment, limit, source)
 
         last_sessions = await self._last_sessions(actor, [row.id for row in rows])
         notes = await self.exercises.notes_bulk(actor.actor_id, [row.id for row in rows])

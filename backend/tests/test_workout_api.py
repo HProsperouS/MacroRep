@@ -1102,3 +1102,32 @@ def test_a_band_has_no_weight_even_if_one_is_sent(client: TestClient) -> None:
     )
     assert routine.status_code == 201
     assert routine.json()["exercises"][0]["sets"][0]["targetWeightKg"] is None
+
+
+def test_exercise_search_can_keep_only_custom_or_library_exercises(client: TestClient) -> None:
+    owner, other = register_user(client), register_user(client)
+    mine = client.post(
+        "/api/v1/exercises",
+        headers=owner,
+        json={"name": "Cable Fly", "equipment": "cable", "muscles": ["chest"]},
+    ).json()
+    client.post(
+        "/api/v1/exercises",
+        headers=other,
+        json={"name": "Cable Crunch", "equipment": "cable", "muscles": ["core"]},
+    )
+
+    def ids(**params: str) -> list[str]:
+        response = client.get("/api/v1/exercises", headers=owner, params={"limit": "100", **params})
+        assert response.status_code == 200
+        return [exercise["id"] for exercise in response.json()]
+
+    assert ids(source="custom") == [mine["id"]]
+    assert mine["id"] not in ids(source="library")
+    assert all(exercise_id.startswith("exercise-") for exercise_id in ids(source="library"))
+    # Combines with the other filters.
+    assert ids(source="custom", muscle="back") == []
+    assert ids(source="custom", q="fly") == [mine["id"]]
+
+    bad = client.get("/api/v1/exercises", headers=owner, params={"source": "everyone"})
+    assert bad.status_code == 422

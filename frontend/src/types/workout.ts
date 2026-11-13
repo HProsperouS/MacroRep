@@ -70,6 +70,8 @@ export type ExerciseFilters = {
   q: string
   muscle?: MuscleGroup
   equipment?: Equipment
+  /** Only the user's own exercises, or only the shared library. */
+  source?: Exercise["source"]
 }
 
 export type CreateExerciseInput = Pick<Exercise, "name" | "equipment" | "muscles">

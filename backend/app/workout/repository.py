@@ -36,12 +36,25 @@ class ExerciseRepository:
         self.session = session
 
     async def search(
-        self, owner_id: str, query: str, muscle: str | None, equipment: str | None, limit: int
+        self,
+        owner_id: str,
+        query: str,
+        muscle: str | None,
+        equipment: str | None,
+        limit: int,
+        source: str | None = None,
     ) -> list[Exercise]:
+        """The shared library and the user's own exercises; ``source`` keeps only the user's
+        own ("custom") or only the library ("library")."""
+
         filters, ordering = name_search(Exercise.name, query)
-        statement = select(Exercise).where(
-            or_(Exercise.owner_id.is_(None), Exercise.owner_id == owner_id), *filters
-        )
+        if source == "custom":
+            visible = Exercise.owner_id == owner_id
+        elif source == "library":
+            visible = Exercise.owner_id.is_(None)
+        else:
+            visible = or_(Exercise.owner_id.is_(None), Exercise.owner_id == owner_id)
+        statement = select(Exercise).where(visible, *filters)
         if muscle:
             # Filtered here, before the limit, so no matching exercise is cut off unseen.
             statement = statement.where(cast_(Exercise.muscles, JSONB).contains([muscle]))

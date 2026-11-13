@@ -22,8 +22,8 @@ export const workoutApi = {
     return data
   },
 
-  async searchExercises({ q, muscle, equipment }: ExerciseFilters, signal?: AbortSignal) {
-    const { data } = await apiClient.get<Exercise[]>("/exercises", { params: { q, muscle, equipment, limit: 100 }, signal })
+  async searchExercises({ q, muscle, equipment, source }: ExerciseFilters, signal?: AbortSignal) {
+    const { data } = await apiClient.get<Exercise[]>("/exercises", { params: { q, muscle, equipment, source, limit: 100 }, signal })
     return data
   },
 

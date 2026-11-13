@@ -38,18 +38,26 @@ export function ExercisePicker({ onAdd }: ExercisePickerProps) {
   const [query, setQuery] = useState("")
   const [muscle, setMuscle] = useState<MuscleGroup | typeof ALL>(ALL)
   const [equipment, setEquipment] = useState<Equipment | typeof ALL>(ALL)
+  const [source, setSource] = useState<Exercise["source"] | typeof ALL>(ALL)
   // Map keeps the order of selection and the full exercise, even if it scrolls out of the filtered results.
   const [selected, setSelected] = useState<Map<string, Exercise>>(() => new Map())
   const [creating, setCreating] = useState(false)
 
   const debouncedQuery = useDebouncedValue(query.trim(), 250)
-  const filters = { q: debouncedQuery, muscle: muscle === ALL ? undefined : muscle, equipment: equipment === ALL ? undefined : equipment }
+  const filters = {
+    q: debouncedQuery,
+    muscle: muscle === ALL ? undefined : muscle,
+    equipment: equipment === ALL ? undefined : equipment,
+    source: source === ALL ? undefined : source,
+  }
   const search = useExerciseSearch(filters)
   const createExercise = useCreateExercise()
 
   const results = search.data ?? []
   const settling = query.trim() !== debouncedQuery || search.isFetching
-  const filtered = muscle !== ALL || equipment !== ALL
+  const filtered = muscle !== ALL || equipment !== ALL || source !== ALL
+  // Nothing of their own yet, as opposed to nothing matching: say so, and keep Create to hand.
+  const noCustomYet = source === "custom" && !debouncedQuery && muscle === ALL && equipment === ALL
 
   function toggle(exercise: Exercise) {
     setSelected((prev) => {
@@ -101,7 +109,17 @@ export function ExercisePicker({ onAdd }: ExercisePickerProps) {
         ) : null}
       </InputGroup>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <Select value={source} onValueChange={(value) => setSource(value as Exercise["source"] | typeof ALL)}>
+          <SelectTrigger className="col-span-2 w-full data-[size=default]:h-10 sm:col-span-1" aria-label="Filter by source">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All exercises</SelectItem>
+            <SelectItem value="custom">Custom</SelectItem>
+            <SelectItem value="library">Library</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={muscle} onValueChange={(value) => setMuscle(value as MuscleGroup | typeof ALL)}>
           <SelectTrigger className="w-full data-[size=default]:h-10" aria-label="Filter by muscle">
             <SelectValue />
@@ -144,8 +162,16 @@ export function ExercisePicker({ onAdd }: ExercisePickerProps) {
             <EmptyMedia variant="icon">
               <SearchX />
             </EmptyMedia>
-            <EmptyTitle>{debouncedQuery ? `No exercises match “${debouncedQuery}”` : "No exercises match these filters"}</EmptyTitle>
-            <EmptyDescription>{filtered ? "Try clearing the filters, or create it as your own exercise." : "Create it as your own exercise."}</EmptyDescription>
+            <EmptyTitle>
+              {noCustomYet ? "You haven’t created any exercises yet" : debouncedQuery ? `No exercises match “${debouncedQuery}”` : "No exercises match these filters"}
+            </EmptyTitle>
+            <EmptyDescription>
+              {noCustomYet
+                ? "Create one and it will show up here."
+                : filtered
+                  ? "Try clearing the filters, or create it as your own exercise."
+                  : "Create it as your own exercise."}
+            </EmptyDescription>
           </EmptyHeader>
           <EmptyContent className="flex-row flex-wrap justify-center">
             {filtered ? (
@@ -154,6 +180,7 @@ export function ExercisePicker({ onAdd }: ExercisePickerProps) {
                 onClick={() => {
                   setMuscle(ALL)
                   setEquipment(ALL)
+                  setSource(ALL)
                 }}
               >
                 Clear filters

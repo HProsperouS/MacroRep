@@ -12,7 +12,7 @@ from app.identity.dependencies import ActorContext, get_current_actor
 from app.profile.repository import ProfileRepository
 from app.shared.validation import MAX_SEARCH_LENGTH, LogDate
 
-from .models import EQUIPMENT, MUSCLE_GROUPS
+from .models import EQUIPMENT, EXERCISE_SOURCES, MUSCLE_GROUPS
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
 from .schemas import (
     AssignDayInput,
@@ -62,12 +62,19 @@ async def search_exercises(
     muscle: Annotated[str | None, Query()] = None,
     equipment: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
+    source: Annotated[str | None, Query()] = None,
 ) -> list[ExerciseRead]:
+    """``source`` keeps only the user's own exercises ("custom") or only the library ("library")."""
+
     if equipment is not None and equipment not in EQUIPMENT:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"equipment must be one of {EQUIPMENT}")
     if muscle is not None and muscle not in MUSCLE_GROUPS:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"muscle must be one of {MUSCLE_GROUPS}")
-    return await service.search_exercises(actor, q, muscle, equipment, limit)
+    if source is not None and source not in EXERCISE_SOURCES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"source must be one of {EXERCISE_SOURCES}"
+        )
+    return await service.search_exercises(actor, q, muscle, equipment, limit, source)
 
 
 @router.post("/exercises", response_model=ExerciseRead, status_code=status.HTTP_201_CREATED)

@@ -14,6 +14,8 @@ from app.shared.persistence import Base, TimestampMixin
 from app.shared.validation import MAX_EXERCISE_NOTE_LENGTH
 
 EQUIPMENT = ("barbell", "dumbbell", "cable", "machine", "bodyweight", "kettlebell", "band")
+# Where an exercise comes from: the user's own ("custom") or the shared library (see Exercise.source).
+EXERCISE_SOURCES = ("custom", "library")
 MUSCLE_GROUPS = (
     "chest",
     "back",
