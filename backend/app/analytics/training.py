@@ -17,6 +17,28 @@ from sqlalchemy import ColumnElement, case
 from sqlalchemy.orm import QueryableAttribute
 
 
+def effective_load_kg(equipment: str | None, typed_kg: float, body_weight_kg: float | None) -> float:
+    """The load a set moved, which volume, estimated 1RM and PRs are worked out from.
+
+    A band's kg is a guess, so a band set has no load and is tracked by reps (load 0). A
+    bodyweight set moves the lifter's bodyweight plus whatever was added (the kg typed, 0
+    for none); without a weigh-in on record it falls back to the kg typed. Everything else
+    moves the kg typed.
+    """
+
+    if equipment == "band":
+        return 0.0
+    if equipment == "bodyweight" and body_weight_kg is not None:
+        return float(typed_kg) + float(body_weight_kg)
+    return float(typed_kg)
+
+
+def is_rep_based(load_kg: float) -> bool:
+    """A set with no load (a band, or bodyweight without a weigh-in) is judged by its reps."""
+
+    return float(load_kg) <= 0
+
+
 def estimated_one_rep_max(weight_kg: float, reps: int) -> float | None:
     """Epley estimate of the most weight that could be lifted for one rep.
 
@@ -121,19 +143,25 @@ def next_session_target(
     nothing about the load being worked at. The load goes up by ``PROGRESSION_STEP_KG``
     when every one of those made ``target_reps`` at an RPE of at most
     ``RPE_ROOM_TO_PROGRESS``; otherwise it is held for the same reps.
-    Returns None when there's nothing to judge it against: no working sets, no rep
-    target, or no weight on the bar.
+    With no weight on the bar (a band, or bodyweight with nothing added) the reps go up
+    instead: one more than the top sets made. Returns None when there's nothing to judge it
+    against: no working sets or no rep target. Callers pass a band exercise's weights as 0,
+    since the kg typed for a band is a guess (see :func:`effective_load_kg`).
     """
 
     if not working_sets or target_reps is None or target_reps < 1:
         return None
     weight_kg = max(float(weight) for weight, _, _ in working_sets)
-    if weight_kg <= 0:
-        return None
     top_sets = [(reps, rpe) for weight, reps, rpe in working_sets if float(weight) == weight_kg]
     reps_made = all(reps >= target_reps for reps, _ in top_sets)
     # A set without an RPE can't show there was room to spare, so it never earns an increase.
     felt_easy = all(rpe is not None and rpe <= RPE_ROOM_TO_PROGRESS for _, rpe in top_sets)
+    if weight_kg <= 0:
+        # Nothing on the bar to add to (a band, or bodyweight alone): progress by reps, one
+        # more than the fewest the top sets made.
+        if reps_made and felt_easy:
+            return NextTarget(weight_kg=0.0, reps=min(reps for reps, _ in top_sets) + 1, increase=True)
+        return NextTarget(weight_kg=0.0, reps=target_reps, increase=False)
     if reps_made and felt_easy:
         return NextTarget(weight_kg=weight_kg + PROGRESSION_STEP_KG, reps=target_reps, increase=True)
     return NextTarget(weight_kg=weight_kg, reps=target_reps, increase=False)

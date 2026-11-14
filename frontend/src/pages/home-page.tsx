@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { apiErrorMessage } from "@/api/client"
 import { CaloriesWeekCard } from "@/components/home/calories-week-card"
 import { CheckInBanner } from "@/components/home/check-in-banner"
+import { DoneTodayCard } from "@/components/home/done-today-card"
 import { PlannedWorkoutCard } from "@/components/home/planned-workout-card"
 import { TodayNutritionCard } from "@/components/home/today-nutrition-card"
 import { TodoCard } from "@/components/home/todo-card"
@@ -63,6 +64,7 @@ export default function HomePage() {
     <>
       <CheckInBanner dismissed={checkInDismissed} onDismiss={() => setCheckInDismissed(true)} />
       <PlannedWorkoutCard />
+      <DoneTodayCard />
       <TodoCard missingMeal={missingMeal} needsWeighIn={needsWeighIn} onAddWeighIn={openWeighIn} />
     </>
   )

@@ -10,13 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.profile.repository import ProfileRepository
-from app.shared.validation import MAX_SEARCH_LENGTH
+from app.shared.validation import MAX_SEARCH_LENGTH, LogDate
 
-from .models import EQUIPMENT, MUSCLE_GROUPS
+from .models import EQUIPMENT, EXERCISE_SOURCES, MUSCLE_GROUPS
 from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessionRepository
 from .schemas import (
     AssignDayInput,
     CreateExerciseInput,
+    ExerciseNoteInput,
+    ExerciseNoteRead,
     ExerciseRead,
     FinishWorkoutInput,
     PlannedWorkout,
@@ -60,12 +62,19 @@ async def search_exercises(
     muscle: Annotated[str | None, Query()] = None,
     equipment: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
+    source: Annotated[str | None, Query()] = None,
 ) -> list[ExerciseRead]:
+    """``source`` keeps only the user's own exercises ("custom") or only the library ("library")."""
+
     if equipment is not None and equipment not in EQUIPMENT:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"equipment must be one of {EQUIPMENT}")
     if muscle is not None and muscle not in MUSCLE_GROUPS:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"muscle must be one of {MUSCLE_GROUPS}")
-    return await service.search_exercises(actor, q, muscle, equipment, limit)
+    if source is not None and source not in EXERCISE_SOURCES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"source must be one of {EXERCISE_SOURCES}"
+        )
+    return await service.search_exercises(actor, q, muscle, equipment, limit, source)
 
 
 @router.post("/exercises", response_model=ExerciseRead, status_code=status.HTTP_201_CREATED)
@@ -73,6 +82,18 @@ async def create_exercise(
     payload: CreateExerciseInput, actor: ActorDep, service: WorkoutServiceDep
 ) -> ExerciseRead:
     return await service.create_exercise(payload, actor)
+
+
+@router.put("/exercises/{exercise_id}/note", response_model=ExerciseNoteRead)
+async def set_exercise_note(
+    exercise_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+    payload: ExerciseNoteInput,
+    actor: ActorDep,
+    service: WorkoutServiceDep,
+) -> ExerciseNoteRead:
+    """Save the user's own note on an exercise; a blank note removes it."""
+
+    return await service.set_exercise_note(actor, exercise_id, payload.body)
 
 
 @router.post("/workouts/sessions", response_model=WorkoutSummary, status_code=status.HTTP_201_CREATED)
@@ -88,10 +109,15 @@ async def list_sessions(
     service: WorkoutServiceDep,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    date_from: Annotated[LogDate | None, Query(alias="from")] = None,
+    date_to: Annotated[LogDate | None, Query(alias="to")] = None,
 ) -> list[WorkoutHistoryItem]:
-    """Logged workouts, newest first."""
+    """Logged workouts, newest first. ``from``/``to`` (inclusive, in the user's own days) keep
+    only those started in that range."""
 
-    return await service.list_history(actor, limit, offset)
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "'from' must not be after 'to'")
+    return await service.list_history(actor, limit, offset, date_from, date_to)
 
 
 @router.get("/workouts/sessions/{session_id}", response_model=WorkoutDetail)

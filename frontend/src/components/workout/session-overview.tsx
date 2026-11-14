@@ -11,7 +11,7 @@ import type { StrengthHighlight } from "@/types/workout"
 type SessionOverviewProps = {
   clock: WorkoutClock
   exercises: SessionExercise[]
-  totals: { done: number; total: number; volumeKg: number }
+  totals: { done: number; total: number; volumeKg: number; repBasedReps?: number }
 }
 
 /** Desktop sidebar: time, sets, volume and per-exercise progress. */
@@ -27,6 +27,7 @@ export function SessionOverview({ clock, exercises, totals }: SessionOverviewPro
           <Stat label="Sets" value={`${totals.done}/${totals.total}`} />
           <Stat label="Volume" value={formatNumber(totals.volumeKg)} unit="kg" />
         </div>
+        {totals.repBasedReps ? <p className="-mt-2 text-sm text-muted-foreground">+ {formatNumber(totals.repBasedReps)} band reps</p> : null}
         <Progress value={totals.total > 0 ? (totals.done / totals.total) * 100 : 0} aria-label="Sets completed" />
         <Separator />
         <ul className="flex flex-col gap-2.5 text-sm">

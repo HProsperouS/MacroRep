@@ -9,6 +9,7 @@ from pydantic import AwareDatetime, Field, field_validator, model_validator
 from app.shared.schema import CamelModel, validate_choice
 from app.shared.validation import (
     CLOCK_SKEW,
+    MAX_EXERCISE_NOTE_LENGTH,
     MAX_EXERCISES_PER_WORKOUT,
     MAX_MUSCLES_PER_EXERCISE,
     MAX_NAME_LENGTH,
@@ -17,6 +18,7 @@ from app.shared.validation import (
     MAX_SETS_PER_EXERCISE,
     MIN_EXERCISE_NAME_LENGTH,
     Identifier,
+    MultilineText,
     PlainText,
     ensure_unique,
 )
@@ -42,6 +44,8 @@ class ExerciseRead(CamelModel):
     muscles: list[str]
     source: str
     last_session: LastSession | None = None
+    # The user's own note on this exercise, carried from session to session.
+    user_note: str | None = None
 
 
 class CreateExerciseInput(CamelModel):
@@ -60,6 +64,17 @@ class CreateExerciseInput(CamelModel):
         return ensure_unique([validate_choice(item, MUSCLE_GROUPS, "muscles") for item in value], "muscles")
 
 
+class ExerciseNoteInput(CamelModel):
+    """A user's note on an exercise. Blank clears it."""
+
+    body: MultilineText = Field(max_length=MAX_EXERCISE_NOTE_LENGTH)
+
+
+class ExerciseNoteRead(CamelModel):
+    exercise_id: str
+    body: str
+
+
 class PlannedSet(CamelModel):
     id: str
     kind: SetKind
@@ -74,7 +89,10 @@ class PlannedExercise(CamelModel):
     equipment: str
     muscles: str
     rest_seconds: int
+    # Generated progression hint for this session.
     note: str | None = None
+    # The user's own note on this exercise, carried from session to session.
+    user_note: str | None = None
     tag: str | None = None
     sets: list[PlannedSet]
 
@@ -153,6 +171,12 @@ class WorkoutSummary(CamelModel):
     volume_kg: float
     personal_records: list[str]
     next_targets: list[NextTargetRead] = Field(default_factory=list)
+    # Working reps of band sets, which have no load for kg volume to count.
+    rep_based_reps: int = 0
+    # The weigh-in bodyweight sets were counted at; null without one.
+    body_weight_kg: float | None = None
+    # What was done, in order: the same shape as a history entry's exercises.
+    exercises: list[HistoryExercise] = Field(default_factory=list)
 
 
 class WorkoutHistoryItem(CamelModel):
@@ -163,6 +187,9 @@ class WorkoutHistoryItem(CamelModel):
     exercise_count: int
     sets_completed: int
     volume_kg: float
+    # As on WorkoutSummary.
+    rep_based_reps: int = 0
+    body_weight_kg: float | None = None
 
 
 class HistorySet(CamelModel):
@@ -176,6 +203,9 @@ class HistoryExercise(CamelModel):
     # Null only if the exercise was removed from the catalog after it was logged.
     exercise_id: str | None
     name: str
+    # How its sets read: "bodyweight" sets are bodyweight plus the kg shown, "band" sets
+    # are reps. Null if the exercise was removed from the catalog.
+    equipment: str | None = None
     sets: list[HistorySet]
 
 

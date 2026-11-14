@@ -17,7 +17,14 @@ export type SessionSet = {
 /** `id` is unique within the session (the same exercise can be added twice); `exerciseId` is the library id.
  *  `finding` marks an exercise with no history and no target weight, where the lifter finds their
  *  weight by feel (see lib/find-weight.ts). Absent on workouts saved before it existed. */
-export type SessionExercise = Omit<PlannedExercise, "sets"> & { exerciseId: string; sets: SessionSet[]; finding?: boolean }
+export type SessionExercise = Omit<PlannedExercise, "sets" | "userNote"> & {
+  exerciseId: string
+  sets: SessionSet[]
+  finding?: boolean
+  /** The lifter's own note on this exercise, saved to the server as they edit it. Absent on
+   *  workouts saved before notes existed. */
+  userNote?: string
+}
 
 export type RestTimer = { endsAt: number; totalSeconds: number }
 
@@ -26,13 +33,18 @@ export type SessionState = {
   /** Null for an empty workout. */
   planId: string | null
   exercises: SessionExercise[]
+  /** Started by hand, so each rest can be as long as that set needs. */
   rest: RestTimer | null
+  /** The exercise of the set ticked most recently, whose rest time the timer suggests. */
+  lastCompletedExerciseId?: string | null
   /** Counter for unique ids of added exercises and sets. */
   seq: number
 }
 
 const EMPTY_WORKOUT_NAME = "Freestyle workout"
-const DEFAULT_REST_SECONDS = 90
+export const DEFAULT_REST_SECONDS = 90
+export const MIN_REST_SECONDS = 5
+export const MAX_REST_SECONDS = 600
 const DEFAULT_SET_COUNT = 3
 
 export type SessionAction =
@@ -40,6 +52,8 @@ export type SessionAction =
   | { type: "set-kind"; exerciseId: string; setId: string; kind: SetKind }
   | { type: "toggle"; exerciseId: string; setId: string; now: number }
   | { type: "add-set"; exerciseId: string }
+  | { type: "edit-note"; exerciseId: string; value: string }
+  | { type: "start-rest"; seconds: number; now: number }
   | { type: "adjust-rest"; seconds: number; now: number }
   | { type: "skip-rest" }
   | { type: "remove-last-set"; exerciseId: string }
@@ -55,9 +69,10 @@ export function initSession(plan: PlannedWorkout | null): SessionState {
     planId: plan.id,
     rest: null,
     seq: 0,
-    exercises: plan.exercises.map(({ sets, ...exercise }) => ({
+    exercises: plan.exercises.map(({ sets, userNote, ...exercise }) => ({
       ...exercise,
       exerciseId: exercise.id,
+      userNote: userNote ?? "",
       finding: isFirstTime(sets),
       sets: sets.map((set) => ({
         id: set.id,
@@ -89,6 +104,7 @@ function exerciseToSession(exercise: Exercise, instanceId: string): SessionExerc
     equipment: EQUIPMENT_LABELS[exercise.equipment],
     muscles: exercise.muscles.map((muscle) => MUSCLE_LABELS[muscle]).join(", "),
     restSeconds: DEFAULT_REST_SECONDS,
+    userNote: exercise.userNote ?? "",
     finding: last.length === 0,
     sets: Array.from({ length: count }, (_, index) => {
       const previous = last[index] ?? last[last.length - 1]
@@ -105,9 +121,19 @@ function exerciseToSession(exercise: Exercise, instanceId: string): SessionExerc
   }
 }
 
-/** Weight may be 0 (bodyweight); reps must be a positive whole number. */
-function parseSet(set: Pick<SessionSet, "weight" | "reps">) {
-  const weightKg = set.weight.trim() === "" ? Number.NaN : Number(set.weight)
+/** How an exercise's sets are counted (see the backend's effective_load_kg): a band's kg is a
+ *  guess, so its sets are counted by reps; a bodyweight set moves the lifter's bodyweight plus
+ *  the kg typed (added weight). Plans carry the raw equipment ("band"), added exercises its label ("Band"). */
+export function equipmentKind(exercise: Pick<SessionExercise, "equipment">): "band" | "bodyweight" | "load" {
+  const equipment = exercise.equipment.trim().toLowerCase()
+  return equipment === "band" ? "band" : equipment === "bodyweight" ? "bodyweight" : "load"
+}
+
+/** Weight may be 0 (bodyweight); reps must be a positive whole number. A `band` set has no
+ *  weight at all (its kg would be a guess): whatever a plan or an old session left there is
+ *  ignored and it counts as 0. */
+function parseSet(set: Pick<SessionSet, "weight" | "reps">, band = false) {
+  const weightKg = band ? 0 : set.weight.trim() === "" ? Number.NaN : Number(set.weight)
   const reps = set.reps.trim() === "" ? Number.NaN : Number(set.reps)
   const valid = Number.isFinite(weightKg) && weightKg >= 0 && weightKg <= 1000 && Number.isInteger(reps) && reps > 0 && reps <= 100
   return valid ? { weightKg, reps } : null
@@ -124,8 +150,8 @@ export function parseRpe(rpe: string): number | null | undefined {
 /** The single definition of "can this set be marked done" — an out-of-range RPE must
  * block completion too, or toFinishInput silently drops it on save. Shared by the
  * "toggle" reducer case and the row's disabled state so they can't drift apart. */
-export function isSetCompletable(set: Pick<SessionSet, "weight" | "reps" | "rpe">) {
-  return parseSet(set) !== null && parseRpe(set.rpe) !== undefined
+export function isSetCompletable(set: Pick<SessionSet, "weight" | "reps" | "rpe">, band = false) {
+  return parseSet(set, band) !== null && parseRpe(set.rpe) !== undefined
 }
 
 /** While finding a weight, a completed working set with an RPE sets the next one's weight, unless the
@@ -141,6 +167,16 @@ function fillNextWeight(exercises: SessionExercise[], exerciseId: string, comple
     if (!next || (next.weight.trim() !== "" && Number(next.weight) !== Number(completed.weight))) return exercise
     return { ...exercise, sets: exercise.sets.map((s, i) => (i === index ? { ...s, weight: String(advice.weightKg) } : s)) }
   })
+}
+
+export function clampRest(seconds: number) {
+  return Math.min(MAX_REST_SECONDS, Math.max(MIN_REST_SECONDS, Math.round(seconds)))
+}
+
+/** The rest the timer suggests: the most recently ticked exercise's, else the first exercise's. */
+export function suggestedRestSeconds(state: Pick<SessionState, "exercises" | "lastCompletedExerciseId">) {
+  const exercise = state.exercises.find((e) => e.id === state.lastCompletedExerciseId) ?? state.exercises[0]
+  return exercise?.restSeconds || DEFAULT_REST_SECONDS
 }
 
 function updateSet(state: SessionState, exerciseId: string, setId: string, update: (set: SessionSet, exercise: SessionExercise) => SessionSet) {
@@ -161,12 +197,24 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       const exercise = state.exercises.find((e) => e.id === action.exerciseId)
       const set = exercise?.sets.find((s) => s.id === action.setId)
       if (!exercise || !set) return state
-      if (!set.done && !isSetCompletable(set)) return state
+      if (!set.done && !isSetCompletable(set, equipmentKind(exercise) === "band")) return state
       let exercises = updateSet(state, action.exerciseId, action.setId, (s) => ({ ...s, done: !s.done }))
       if (!set.done && exercise.finding) exercises = fillNextWeight(exercises, exercise.id, set)
-      // Completing a set starts the rest timer; un-ticking leaves it alone.
-      const rest = set.done ? state.rest : { endsAt: action.now + exercise.restSeconds * 1000, totalSeconds: exercise.restSeconds }
-      return { ...state, exercises, rest }
+      // The rest timer is started by hand (each set may want a different rest); completing a set
+      // only marks which exercise's rest time to suggest.
+      return { ...state, exercises, lastCompletedExerciseId: set.done ? state.lastCompletedExerciseId : exercise.id }
+    }
+
+    case "edit-note":
+      // Every instance of the same library exercise shares one note.
+      return {
+        ...state,
+        exercises: state.exercises.map((exercise) => (exercise.exerciseId === action.exerciseId ? { ...exercise, userNote: action.value } : exercise)),
+      }
+
+    case "start-rest": {
+      const seconds = clampRest(action.seconds)
+      return { ...state, rest: { endsAt: action.now + seconds * 1000, totalSeconds: seconds } }
     }
 
     case "add-set":
@@ -250,20 +298,26 @@ export function historySetLabels(sets: Pick<SessionSet, "kind">[]) {
   return sets.map((set, index) => (set.kind === "working" ? `Set ${letters[index]}` : SET_KIND_LABELS[set.kind]))
 }
 
-export function sessionTotals(exercises: SessionExercise[]) {
+/** Sets done, and the volume they moved: bodyweight sets count `bodyWeightKg` plus the kg typed
+ *  (just the kg typed without a weigh-in), band sets count their reps instead (`repBasedReps`). */
+export function sessionTotals(exercises: SessionExercise[], bodyWeightKg?: number | null) {
   let done = 0
   let total = 0
   let volumeKg = 0
+  let repBasedReps = 0
   for (const exercise of exercises) {
+    const kind = equipmentKind(exercise)
     for (const set of exercise.sets) {
       total += 1
       if (!set.done) continue
       done += 1
-      const parsed = parseSet(set)
-      if (parsed && set.kind !== "warmup") volumeKg += parsed.weightKg * parsed.reps
+      const parsed = parseSet(set, kind === "band")
+      if (!parsed || set.kind === "warmup") continue
+      if (kind === "band") repBasedReps += parsed.reps
+      else volumeKg += (parsed.weightKg + (kind === "bodyweight" ? (bodyWeightKg ?? 0) : 0)) * parsed.reps
     }
   }
-  return { done, total, volumeKg }
+  return { done, total, volumeKg, repBasedReps }
 }
 
 export function toFinishInput(state: SessionState, startedAt: number, finishedAt: number): FinishWorkoutInput {
@@ -277,7 +331,7 @@ export function toFinishInput(state: SessionState, startedAt: number, finishedAt
         exerciseId: exercise.exerciseId,
         name: exercise.name,
         sets: exercise.sets.flatMap((set) => {
-          const parsed = set.done ? parseSet(set) : null
+          const parsed = set.done ? parseSet(set, equipmentKind(exercise) === "band") : null
           if (!parsed) return []
           const rpe = parseRpe(set.rpe)
           return [{ kind: set.kind, ...parsed, rpe: rpe ?? undefined }]

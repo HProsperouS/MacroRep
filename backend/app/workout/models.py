@@ -11,8 +11,11 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.persistence import Base, TimestampMixin
+from app.shared.validation import MAX_EXERCISE_NOTE_LENGTH
 
 EQUIPMENT = ("barbell", "dumbbell", "cable", "machine", "bodyweight", "kettlebell", "band")
+# Where an exercise comes from: the user's own ("custom") or the shared library (see Exercise.source).
+EXERCISE_SOURCES = ("custom", "library")
 MUSCLE_GROUPS = (
     "chest",
     "back",
@@ -49,6 +52,19 @@ class Exercise(TimestampMixin, Base):
     @property
     def source(self) -> str:
         return "custom" if self.owner_id else "library"
+
+
+class ExerciseNote(TimestampMixin, Base):
+    """A user's own note on an exercise, e.g. "seat on 4". One per user and exercise, so it
+    follows the exercise into every routine and freestyle workout."""
+
+    __tablename__ = "exercise_notes"
+    __table_args__ = (Index("uq_exercise_notes_owner_exercise", "owner_id", "exercise_id", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    exercise_id: Mapped[str] = mapped_column(ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False)
+    body: Mapped[str] = mapped_column(String(MAX_EXERCISE_NOTE_LENGTH), nullable=False)
 
 
 class WorkoutPlanEntry(TimestampMixin, Base):
@@ -111,6 +127,9 @@ class WorkoutSession(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # The lifter's latest weigh-in when the workout was logged: what a bodyweight set's load
+    # counts it as. Kept with the workout so later weigh-ins don't rewrite its history.
+    body_weight_kg: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
 
 
 class WorkoutSetLog(Base):
@@ -129,7 +148,11 @@ class WorkoutSetLog(Base):
     )
     exercise_name: Mapped[str] = mapped_column(String(255), nullable=False)
     kind: Mapped[SetKind] = mapped_column(SAEnum(SetKind, name="set_kind"), nullable=False)
+    # What was typed: the plates, the added weight on a bodyweight move, a band's guess.
     weight_kg: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
+    # What volume, estimated 1RM and PRs are worked out from (app.analytics.training
+    # .effective_load_kg): bodyweight added for bodyweight moves, 0 for bands (tracked by reps).
+    load_kg: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False)
     reps: Mapped[int] = mapped_column(Integer, nullable=False)
     # Rating of Perceived Exertion, 1-10 in 0.5 steps. Nullable — logging it is optional.
     rpe: Mapped[float | None] = mapped_column(Numeric(3, 1), nullable=True)

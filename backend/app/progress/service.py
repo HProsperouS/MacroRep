@@ -47,6 +47,7 @@ from .schemas import (
     LoggingSummary,
     ProgressRange,
     ProgressResponse,
+    RepLift,
     RpeSummary,
     StrengthLift,
     VolumeSummary,
@@ -101,6 +102,12 @@ class ProgressService:
             volume=volume,
             rpe=rpe,
             strength=await self._strength(owner_id, date_from, date_to, zone),
+            rep_lifts=[
+                RepLift(exercise=name, best_reps=current, change_reps=current - before)
+                for name, (before, current) in (
+                    await self.repository.rep_lifts(owner_id, date_from, date_to, zone)
+                ).items()
+            ],
             check_ins=await self._check_ins(owner_id, date_from, date_to, zone),
         )
 
@@ -203,9 +210,7 @@ class ProgressService:
         range_volume = weekly_volume_kg(
             (day, weight_kg, reps) for day, weight_kg, reps in volume_rows if date_from <= day <= date_to
         )
-        range_rpe = average_rpe_by_week(
-            (day, rpe) for day, rpe in rpe_rows if date_from <= day <= date_to
-        )
+        range_rpe = average_rpe_by_week((day, rpe) for day, rpe in rpe_rows if date_from <= day <= date_to)
         weeks = [
             VolumeWeek(week_start=week, tonnes=round(kg / 1000, 2), avg_rpe=range_rpe.get(week))
             for week, kg in sorted(range_volume.items())
@@ -227,9 +232,7 @@ class ProgressService:
 
         # Unlike volume (a total, which a half-finished week understates), RPE is an
         # average, so the current week is meaningful as soon as one set has an RPE.
-        recent_rpe = average_rpe_by_week(
-            (day, rpe) for day, rpe in rpe_rows if last_week <= day <= today
-        )
+        recent_rpe = average_rpe_by_week((day, rpe) for day, rpe in rpe_rows if last_week <= day <= today)
         this_week_rpe = recent_rpe.get(this_week)
         last_week_rpe = recent_rpe.get(last_week)
         rpe = RpeSummary(

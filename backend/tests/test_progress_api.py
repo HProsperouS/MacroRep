@@ -16,6 +16,7 @@ def _log_session(
     weight_kg: float,
     reps: int,
     rpe: float | None = None,
+    exercise: tuple[str, str] = ("exercise-bench-press", "Barbell Bench Press"),
 ) -> None:
     started = datetime.combine(day, time(12, 0), tzinfo=UTC)
     finished = started + timedelta(hours=1)
@@ -33,8 +34,8 @@ def _log_session(
             "finishedAt": finished.isoformat(),
             "exercises": [
                 {
-                    "exerciseId": "exercise-bench-press",
-                    "name": "Barbell Bench Press",
+                    "exerciseId": exercise[0],
+                    "name": exercise[1],
                     "sets": [{"kind": "working", "weightKg": weight_kg, "reps": reps, "rpe": rpe}],
                 }
             ],
@@ -263,3 +264,31 @@ def test_the_trend_carries_in_from_weigh_ins_before_the_range(client: TestClient
     # Over the month from that trend: the weigh-ins it rests on cover far more than a week.
     assert weight["changeKg"] == -0.1
     assert weight["ratePerWeekKg"] == round(-0.1 / (30 / 7), 3)
+
+
+def test_band_exercises_show_their_best_reps(client: TestClient) -> None:
+    headers = _new_user(client)
+    band = ("exercise-band-pull-apart", "Resistance Band Pull-Apart")
+    _log_session(
+        client, headers, date.today() - timedelta(days=60), 20, 12, exercise=band
+    )  # before the range
+    _log_session(client, headers, date.today() - timedelta(days=5), 20, 15, exercise=band)
+
+    progress = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()
+    assert progress["repLifts"] == [
+        {"exercise": "Resistance Band Pull-Apart", "bestReps": 15, "changeReps": 3}
+    ]
+    # A band's kg is a guess: it isn't in the 1RM list.
+    assert progress["strength"] == []
+
+
+def test_bodyweight_exercises_count_the_lifters_bodyweight(client: TestClient) -> None:
+    headers = _new_user(client)
+    weigh_in(client, headers, 20, 70)
+    _log_session(
+        client, headers, date.today() - timedelta(days=5), 0, 10, exercise=("exercise-push-up", "Push-Up")
+    )
+
+    progress = client.get("/api/v1/progress", headers=headers, params={"range": "1M"}).json()
+    assert progress["strength"] == [{"exercise": "Push-Up", "estimated1RmKg": 93.3, "changeKg": 0.0}]
+    assert progress["repLifts"] == []

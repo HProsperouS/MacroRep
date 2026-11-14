@@ -67,7 +67,7 @@ export function WorkoutEditForm({ initial, saving, onSave, onCancel }: WorkoutEd
             <ul className="flex flex-col gap-2">
               {exercise.sets.map((set, setIndex) => {
                 const name = `${exercise.name} ${labels[setIndex]}`
-                const invalid = !isEditableSetValid(set)
+                const invalid = !isEditableSetValid(set, exercise.band)
                 return (
                   <li key={setIndex} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_3.5rem_2.5rem] items-center gap-1.5 sm:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)_4rem_2.5rem]">
                     <select
@@ -83,15 +83,22 @@ export function WorkoutEditForm({ initial, saving, onSave, onCancel }: WorkoutEd
                         </option>
                       ))}
                     </select>
-                    <Input
-                      aria-label={`${name} weight in kg`}
-                      inputMode="decimal"
-                      value={set.weight}
-                      disabled={saving}
-                      aria-invalid={invalid || undefined}
-                      onChange={(event) => updateSet(exerciseIndex, setIndex, { weight: event.target.value })}
-                      className="h-10 text-center"
-                    />
+                    {exercise.band ? (
+                      // A band's kg would be a guess: only its reps are logged.
+                      <span className="flex h-10 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground" aria-label={`${name}: band, reps only`}>
+                        Band
+                      </span>
+                    ) : (
+                      <Input
+                        aria-label={`${name} weight in kg`}
+                        inputMode="decimal"
+                        value={set.weight}
+                        disabled={saving}
+                        aria-invalid={invalid || undefined}
+                        onChange={(event) => updateSet(exerciseIndex, setIndex, { weight: event.target.value })}
+                        className="h-10 text-center"
+                      />
+                    )}
                     <Input
                       aria-label={`${name} reps`}
                       inputMode="numeric"

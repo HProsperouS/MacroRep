@@ -48,6 +48,14 @@ class StrengthLift(CamelModel):
     change_kg: float
 
 
+class RepLift(CamelModel):
+    """A band exercise (no load), tracked by its most reps in one set."""
+
+    exercise: str
+    best_reps: int
+    change_reps: int
+
+
 class RpeSummary(CamelModel):
     # The current Monday-Sunday week so far; null until a set with an RPE is logged.
     this_week_avg: float | None
@@ -96,6 +104,7 @@ class ProgressResponse(CamelModel):
     volume: VolumeSummary
     rpe: RpeSummary
     strength: list[StrengthLift]
+    rep_lifts: list[RepLift] = Field(default_factory=list)
     check_ins: list[CheckInHistoryItem]
 
 

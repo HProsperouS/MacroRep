@@ -17,16 +17,18 @@ type SetRowProps = {
   onEdit: (field: "weight" | "reps" | "rpe", value: string) => void
   onKindChange: (kind: SetKind) => void
   onToggle: () => void
+  /** How the weight reads: a band has none (its kg would be a guess), a bodyweight move's is what's added. */
+  weightMode?: "load" | "band" | "bodyweight"
 }
 
 export const SET_GRID = "grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_3rem_2.75rem] items-center gap-1.5"
 
-export function SetRow({ exerciseName, set, label, active, onEdit, onKindChange, onToggle }: SetRowProps) {
+export function SetRow({ exerciseName, set, label, active, onEdit, onKindChange, onToggle, weightMode = "load" }: SetRowProps) {
   const name = `${exerciseName} set ${label}`
   const weightInvalid = set.weight.trim() !== "" && !(Number(set.weight) >= 0)
   const repsInvalid = set.reps.trim() !== "" && !(Number.isInteger(Number(set.reps)) && Number(set.reps) > 0)
   const rpeInvalid = parseRpe(set.rpe) === undefined
-  const invalid = !set.done && !isSetCompletable(set)
+  const invalid = !set.done && !isSetCompletable(set, weightMode === "band")
 
   return (
     <li
@@ -63,18 +65,26 @@ export function SetRow({ exerciseName, set, label, active, onEdit, onKindChange,
       </DropdownMenu>
       <span className="truncate text-sm text-muted-foreground">
         {set.previous
-          ? `${formatNumber(set.previous.weightKg, 1)} × ${set.previous.reps}${set.previous.rpe != null ? ` @${set.previous.rpe}` : ""}`
+          ? `${weightMode === "band" ? "" : `${formatNumber(set.previous.weightKg, 1)} `}× ${set.previous.reps}${set.previous.rpe != null ? ` @${set.previous.rpe}` : ""}`
           : "—"}
       </span>
-      <Input
-        aria-label={`${name} weight in kg`}
-        inputMode="decimal"
-        value={set.weight}
-        disabled={set.done}
-        aria-invalid={weightInvalid || undefined}
-        onChange={(event) => onEdit("weight", event.target.value)}
-        className="h-11 text-center text-base"
-      />
+      {weightMode === "band" ? (
+        // A band's kg would be a guess, so there's nothing to enter: it's tracked by reps.
+        <span className="flex h-11 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground" aria-label={`${name}: band, reps only`}>
+          Band
+        </span>
+      ) : (
+        <Input
+          aria-label={weightMode === "bodyweight" ? `${name} added weight in kg` : `${name} weight in kg`}
+          inputMode="decimal"
+          placeholder={weightMode === "bodyweight" ? "BW" : undefined}
+          value={set.weight}
+          disabled={set.done}
+          aria-invalid={weightInvalid || undefined}
+          onChange={(event) => onEdit("weight", event.target.value)}
+          className="h-11 text-center text-base"
+        />
+      )}
       <Input
         aria-label={`${name} reps`}
         inputMode="numeric"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import date, datetime
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -12,11 +14,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.training import estimated_one_rep_max_sql
+from app.body.models import WeighIn
 from app.shared.db import name_search
+from app.shared.persistence.mixins import utc_now
 from app.shared.timezones import local_date
 
 from .models import (
     Exercise,
+    ExerciseNote,
     SetKind,
     WorkoutPlanEntry,
     WorkoutPlanExercise,
@@ -31,12 +36,25 @@ class ExerciseRepository:
         self.session = session
 
     async def search(
-        self, owner_id: str, query: str, muscle: str | None, equipment: str | None, limit: int
+        self,
+        owner_id: str,
+        query: str,
+        muscle: str | None,
+        equipment: str | None,
+        limit: int,
+        source: str | None = None,
     ) -> list[Exercise]:
+        """The shared library and the user's own exercises; ``source`` keeps only the user's
+        own ("custom") or only the library ("library")."""
+
         filters, ordering = name_search(Exercise.name, query)
-        statement = select(Exercise).where(
-            or_(Exercise.owner_id.is_(None), Exercise.owner_id == owner_id), *filters
-        )
+        if source == "custom":
+            visible = Exercise.owner_id == owner_id
+        elif source == "library":
+            visible = Exercise.owner_id.is_(None)
+        else:
+            visible = or_(Exercise.owner_id.is_(None), Exercise.owner_id == owner_id)
+        statement = select(Exercise).where(visible, *filters)
         if muscle:
             # Filtered here, before the limit, so no matching exercise is cut off unseen.
             statement = statement.where(cast_(Exercise.muscles, JSONB).contains([muscle]))
@@ -62,6 +80,43 @@ class ExerciseRepository:
         self.session.add(exercise)
         await self.session.flush()
         return exercise
+
+    async def notes_bulk(self, owner_id: str, exercise_ids: list[str]) -> dict[str, str]:
+        """The user's own notes for several exercises, keyed by exercise id."""
+
+        if not exercise_ids:
+            return {}
+        rows = await self.session.execute(
+            select(ExerciseNote.exercise_id, ExerciseNote.body).where(
+                ExerciseNote.owner_id == owner_id, ExerciseNote.exercise_id.in_(exercise_ids)
+            )
+        )
+        return {exercise_id: body for exercise_id, body in rows}
+
+    async def set_note(self, owner_id: str, exercise_id: str, body: str) -> None:
+        """Write the user's note on an exercise; an empty body removes it.
+
+        One INSERT ... ON CONFLICT UPDATE, so two quick saves can't both insert a row."""
+
+        if not body:
+            await self.session.execute(
+                delete(ExerciseNote).where(
+                    ExerciseNote.owner_id == owner_id, ExerciseNote.exercise_id == exercise_id
+                )
+            )
+            return
+        now = utc_now()
+        statement = (
+            pg_insert(ExerciseNote)
+            .values(
+                id=uuid.uuid4().hex, owner_id=owner_id, exercise_id=exercise_id, body=body, created_utc=now
+            )
+            .on_conflict_do_update(
+                index_elements=[ExerciseNote.owner_id, ExerciseNote.exercise_id],
+                set_={"body": body, "updated_utc": now},
+            )
+        )
+        await self.session.execute(statement)
 
     async def last_session_sets_bulk(
         self, owner_id: str, exercise_ids: list[str], zone: ZoneInfo
@@ -273,14 +328,26 @@ class WorkoutSessionRepository:
         await self.session.delete(workout_session)
         await self.session.flush()
 
-    async def list_sessions(self, owner_id: str, limit: int, offset: int) -> list[WorkoutSession]:
-        """Newest first; the id breaks ties so paging never repeats or skips a session."""
+    async def list_sessions(
+        self,
+        owner_id: str,
+        limit: int,
+        offset: int,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[WorkoutSession]:
+        """Newest first; the id breaks ties so paging never repeats or skips a session.
 
+        ``since``/``until`` keep sessions started in ``[since, until)``."""
+
+        statement = select(WorkoutSession).where(WorkoutSession.owner_id == owner_id)
+        if since is not None:
+            statement = statement.where(WorkoutSession.started_at >= since)
+        if until is not None:
+            statement = statement.where(WorkoutSession.started_at < until)
         return list(
             await self.session.scalars(
-                select(WorkoutSession)
-                .where(WorkoutSession.owner_id == owner_id)
-                .order_by(WorkoutSession.started_at.desc(), WorkoutSession.id)
+                statement.order_by(WorkoutSession.started_at.desc(), WorkoutSession.id)
                 .limit(limit)
                 .offset(offset)
             )
@@ -303,6 +370,42 @@ class WorkoutSessionRepository:
             )
         )
 
+    async def body_weight_on(self, owner_id: str, day: date) -> float | None:
+        """The latest weigh-in on or before ``day``: what bodyweight sets that day count."""
+
+        weight = await self.session.scalar(
+            select(WeighIn.weight_kg)
+            .where(WeighIn.owner_id == owner_id, WeighIn.log_date <= day)
+            .order_by(WeighIn.log_date.desc())
+            .limit(1)
+        )
+        return None if weight is None else float(weight)
+
+    async def best_reps_before(
+        self, owner_id: str, exercise_ids: list[str], before_session_id: str
+    ) -> dict[str, int]:
+        """The most reps in one set with no load (a band) per exercise, from sessions before
+        this one: the record a rep-based set is judged against. Warm-ups don't count."""
+
+        if not exercise_ids:
+            return {}
+        statement = (
+            select(WorkoutSetLog.exercise_id, func.max(WorkoutSetLog.reps))
+            .where(
+                WorkoutSetLog.owner_id == owner_id,
+                WorkoutSetLog.exercise_id.in_(exercise_ids),
+                WorkoutSetLog.session_id != before_session_id,
+                WorkoutSetLog.kind != SetKind.WARMUP,
+                WorkoutSetLog.load_kg <= 0,
+            )
+            .group_by(WorkoutSetLog.exercise_id)
+        )
+        return {
+            exercise_id: int(best)
+            for exercise_id, best in await self.session.execute(statement)
+            if exercise_id is not None and best is not None
+        }
+
     async def best_e1rms_before(
         self, owner_id: str, exercise_ids: list[str], before_session_id: str
     ) -> dict[str, float]:
@@ -317,7 +420,7 @@ class WorkoutSessionRepository:
 
         if not exercise_ids:
             return {}
-        e1rm = estimated_one_rep_max_sql(WorkoutSetLog.weight_kg, WorkoutSetLog.reps)
+        e1rm = estimated_one_rep_max_sql(WorkoutSetLog.load_kg, WorkoutSetLog.reps)
         statement = (
             select(WorkoutSetLog.exercise_id, func.max(e1rm))
             .join(WorkoutSession, WorkoutSession.id == WorkoutSetLog.session_id)

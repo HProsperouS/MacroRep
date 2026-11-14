@@ -103,6 +103,11 @@ def suggested_loads(
     target = next_session_target(previous_working, int(reps) if reps is not None else None)
     if target is None or not target.increase:
         return [dict(planned_set) for planned_set in planned_sets], None
+    if target.weight_kg <= 0:
+        # No load to raise (a band, or bodyweight alone): the reps go up instead.
+        if reps is None or target.reps <= reps:
+            return [dict(planned_set) for planned_set in planned_sets], None
+        return adjust_targets(planned_sets, "target_reps", target.reps), target
     routine_weight = routine["target_weight_kg"]
     if routine_weight is None:
         sets = [dict(planned_set) for planned_set in planned_sets]

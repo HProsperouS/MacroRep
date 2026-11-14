@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from collections.abc import Iterable
+from datetime import UTC, date
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -12,8 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.analytics.training import (
     RPE_ROOM_TO_PROGRESS,
     best_estimated_one_rep_max,
+    effective_load_kg,
     estimated_minutes,
     is_personal_record,
+    is_rep_based,
     next_session_target,
     volume_kg,
 )
@@ -21,7 +24,7 @@ from app.identity.dependencies import ActorContext
 from app.profile.repository import ProfileRepository
 from app.profile.service import zone_of
 from app.shared.exceptions import Conflict, Invalid, NotFound
-from app.shared.timezones import local_today
+from app.shared.timezones import local_date, local_today, utc_bounds
 from app.shared.validation import MAX_CUSTOM_EXERCISES_PER_USER, MAX_ROUTINES_PER_USER
 
 from .models import Exercise, SetKind, WorkoutPlanEntry, WorkoutPlanExercise, WorkoutSession, WorkoutSetLog
@@ -29,6 +32,7 @@ from .repository import ExerciseRepository, WorkoutPlanRepository, WorkoutSessio
 from .schemas import (
     AssignDayInput,
     CreateExerciseInput,
+    ExerciseNoteRead,
     ExerciseRead,
     FinishWorkoutExercise,
     FinishWorkoutInput,
@@ -51,7 +55,9 @@ from .schemas import (
 from .targets import suggested_loads
 
 
-def _to_exercise_read(exercise: Exercise, last_session: LastSession | None) -> ExerciseRead:
+def _to_exercise_read(
+    exercise: Exercise, last_session: LastSession | None, user_note: str | None = None
+) -> ExerciseRead:
     return ExerciseRead(
         id=exercise.id,
         name=exercise.name,
@@ -59,6 +65,7 @@ def _to_exercise_read(exercise: Exercise, last_session: LastSession | None) -> E
         muscles=list(exercise.muscles),
         source=exercise.source,
         last_session=last_session,
+        user_note=user_note,
     )
 
 
@@ -73,8 +80,27 @@ def _history_item(workout_session: WorkoutSession, sets: list[WorkoutSetLog]) ->
         duration_seconds=max(int((finished_at - started_at).total_seconds()), 0),
         exercise_count=len({(s.exercise_position, s.exercise_name) for s in sets}),
         sets_completed=len(sets),
-        volume_kg=round(volume_kg((float(s.weight_kg), s.reps) for s in sets if s.kind != SetKind.WARMUP), 1),
+        volume_kg=round(volume_kg((float(s.load_kg), s.reps) for s in sets if s.kind != SetKind.WARMUP), 1),
+        rep_based_reps=_rep_based_reps((float(s.load_kg), s.kind, s.reps) for s in sets),
+        body_weight_kg=_optional_float(workout_session.body_weight_kg),
     )
+
+
+def _rep_based_reps(sets: Iterable[tuple[float, SetKind, int]]) -> int:
+    """Working reps of sets with no load (bands), which kg volume can't count."""
+
+    return sum(reps for load_kg, kind, reps in sets if kind != SetKind.WARMUP and is_rep_based(load_kg))
+
+
+def _optional_float(value: float | None) -> float | None:
+    return None if value is None else float(value)
+
+
+def _progression_kg(exercise: Exercise | None, typed_kg: float) -> float:
+    """The weight progression steps from: what was typed (the added kg on a bodyweight move),
+    except a band, whose kg is a guess and progresses by reps."""
+
+    return 0.0 if exercise is not None and exercise.equipment == "band" else float(typed_kg)
 
 
 def _planning_kind(kind: SetKind) -> SetKind:
@@ -84,16 +110,36 @@ def _planning_kind(kind: SetKind) -> SetKind:
 
 
 def _build_set_logs(
-    session_id: str, owner_id: str, exercises: list[FinishWorkoutExercise]
+    workout_session: WorkoutSession,
+    exercises: list[FinishWorkoutExercise],
+    exercises_by_id: dict[str, Exercise],
 ) -> list[WorkoutSetLog]:
+    """Each set with the load its analytics use, from its exercise's equipment and the
+    bodyweight the workout was logged at (see :func:`effective_load_kg`)."""
+
+    body_weight_kg = _optional_float(workout_session.body_weight_kg)
+
+    def equipment(exercise_id: str) -> str | None:
+        exercise = exercises_by_id.get(exercise_id)
+        return exercise.equipment if exercise else None
+
+    def typed(exercise_id: str, weight_kg: float) -> float:
+        # A band has no weight to log (its kg would be a guess), whatever a client sends.
+        return 0.0 if equipment(exercise_id) == "band" else weight_kg
+
     return [
         WorkoutSetLog(
-            session_id=session_id,
-            owner_id=owner_id,
+            session_id=workout_session.id,
+            owner_id=workout_session.owner_id,
             exercise_id=exercise_entry.exercise_id,
             exercise_name=exercise_entry.name,
             kind=logged_set.kind,
-            weight_kg=logged_set.weight_kg,
+            weight_kg=typed(exercise_entry.exercise_id, logged_set.weight_kg),
+            load_kg=effective_load_kg(
+                equipment(exercise_entry.exercise_id),
+                typed(exercise_entry.exercise_id, logged_set.weight_kg),
+                body_weight_kg,
+            ),
             reps=logged_set.reps,
             rpe=logged_set.rpe,
             position=index,
@@ -104,7 +150,7 @@ def _build_set_logs(
     ]
 
 
-def _history_exercises(sets: list[WorkoutSetLog]) -> list[HistoryExercise]:
+def _history_exercises(sets: list[WorkoutSetLog], equipment_by_id: dict[str, str]) -> list[HistoryExercise]:
     """Exercises in the order they were done; sets logged before the order was stored sort last, by name."""
 
     grouped: dict[tuple[int | None, str], list[WorkoutSetLog]] = {}
@@ -115,6 +161,7 @@ def _history_exercises(sets: list[WorkoutSetLog]) -> list[HistoryExercise]:
         HistoryExercise(
             exercise_id=grouped[(position, name)][0].exercise_id,
             name=name,
+            equipment=equipment_by_id.get(grouped[(position, name)][0].exercise_id or ""),
             sets=[
                 HistorySet(
                     kind=s.kind,
@@ -155,11 +202,18 @@ class WorkoutService:
         )
 
     async def search_exercises(
-        self, actor: ActorContext, query: str, muscle: str | None, equipment: str | None, limit: int
+        self,
+        actor: ActorContext,
+        query: str,
+        muscle: str | None,
+        equipment: str | None,
+        limit: int,
+        source: str | None = None,
     ) -> list[ExerciseRead]:
-        rows = await self.exercises.search(actor.actor_id, query, muscle, equipment, limit)
+        rows = await self.exercises.search(actor.actor_id, query, muscle, equipment, limit, source)
 
         last_sessions = await self._last_sessions(actor, [row.id for row in rows])
+        notes = await self.exercises.notes_bulk(actor.actor_id, [row.id for row in rows])
         results = []
         for row in rows:
             found = last_sessions.get(row.id)
@@ -178,7 +232,7 @@ class WorkoutService:
                 if found is not None
                 else None
             )
-            results.append(_to_exercise_read(row, last_session))
+            results.append(_to_exercise_read(row, last_session, notes.get(row.id)))
         return results
 
     async def create_exercise(self, payload: CreateExerciseInput, actor: ActorContext) -> ExerciseRead:
@@ -193,6 +247,12 @@ class WorkoutService:
         await self.session.commit()
         await self.session.refresh(exercise)
         return _to_exercise_read(exercise, None)
+
+    async def set_exercise_note(self, actor: ActorContext, exercise_id: str, body: str) -> ExerciseNoteRead:
+        await self._verify_exercises_owned(actor, [exercise_id])
+        await self.exercises.set_note(actor.actor_id, exercise_id, body)
+        await self.session.commit()
+        return ExerciseNoteRead(exercise_id=exercise_id, body=body)
 
     async def get_today(self, actor: ActorContext) -> PlannedWorkout | None:
         day_of_week = local_today(await self._zone(actor)).weekday()
@@ -212,9 +272,10 @@ class WorkoutService:
         all_exercise_ids = [pe.exercise_id for pes in plan_exercises_by_entry.values() for pe in pes]
         exercises_by_id = await self.exercises.get_many(all_exercise_ids)
         last_sessions = await self._last_sessions(actor, all_exercise_ids)
+        notes = await self.exercises.notes_bulk(actor.actor_id, all_exercise_ids)
         return {
             entry.id: self._assemble_planned_workout(
-                entry, plan_exercises_by_entry[entry.id], exercises_by_id, last_sessions
+                entry, plan_exercises_by_entry[entry.id], exercises_by_id, last_sessions, notes
             )
             for entry in entries
         }
@@ -268,8 +329,14 @@ class WorkoutService:
         return workout_session
 
     async def _save_routine_exercises(
-        self, entry: WorkoutPlanEntry, payload: SaveRoutineInput
+        self, entry: WorkoutPlanEntry, payload: SaveRoutineInput, exercises_by_id: dict[str, Exercise]
     ) -> list[WorkoutPlanExercise]:
+        """A band exercise keeps no target weight: it's tracked by reps (its kg would be a guess)."""
+
+        def is_band(exercise_id: str) -> bool:
+            exercise = exercises_by_id.get(exercise_id)
+            return exercise is not None and exercise.equipment == "band"
+
         new_exercises = [
             WorkoutPlanExercise(
                 plan_entry_id=entry.id,
@@ -279,7 +346,9 @@ class WorkoutService:
                 planned_sets=[
                     {
                         "kind": plan_set.kind.value,
-                        "target_weight_kg": plan_set.target_weight_kg,
+                        "target_weight_kg": None
+                        if is_band(plan_exercise.exercise_id)
+                        else plan_set.target_weight_kg,
                         "target_reps": plan_set.target_reps,
                     }
                     for plan_set in plan_exercise.sets
@@ -300,14 +369,16 @@ class WorkoutService:
         return RoutineRead(**planned.model_dump(), scheduled_days=sorted(days))
 
     async def create_routine(self, actor: ActorContext, payload: SaveRoutineInput) -> RoutineRead:
-        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
+        exercises_by_id = await self._verify_exercises_owned(
+            actor, [e.exercise_id for e in payload.exercises]
+        )
         if await self.plans.count_for_owner(actor.actor_id) >= MAX_ROUTINES_PER_USER:
             raise Invalid(
                 f"You can keep up to {MAX_ROUTINES_PER_USER} routines. Delete one to add another.",
             )
         entry = WorkoutPlanEntry(owner_id=actor.actor_id, name=payload.name)
         await self.plans.add(entry)
-        await self._save_routine_exercises(entry, payload)
+        await self._save_routine_exercises(entry, payload, exercises_by_id)
         await self.session.commit()
         return await self._routine_read(actor, entry)
 
@@ -315,10 +386,12 @@ class WorkoutService:
         self, actor: ActorContext, routine_id: str, payload: SaveRoutineInput
     ) -> RoutineRead:
         entry = await self._owned_routine(actor, routine_id)
-        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
+        exercises_by_id = await self._verify_exercises_owned(
+            actor, [e.exercise_id for e in payload.exercises]
+        )
         entry.name = payload.name
         entry.touch()
-        await self._save_routine_exercises(entry, payload)
+        await self._save_routine_exercises(entry, payload, exercises_by_id)
         await self.session.commit()
         return await self._routine_read(actor, entry)
 
@@ -352,8 +425,9 @@ class WorkoutService:
         exercise_ids = [plan_exercise.exercise_id for plan_exercise in plan_exercises]
         exercises_by_id = await self.exercises.get_many(exercise_ids)
         last_sessions = await self._last_sessions(actor, exercise_ids)
+        notes = await self.exercises.notes_bulk(actor.actor_id, exercise_ids)
         return self._assemble_planned_workout(
-            plan_entry, plan_exercises, exercises_by_id, last_sessions, suggest_loads=suggest_loads
+            plan_entry, plan_exercises, exercises_by_id, last_sessions, notes, suggest_loads=suggest_loads
         )
 
     def _assemble_planned_workout(
@@ -362,6 +436,7 @@ class WorkoutService:
         plan_exercises: list[WorkoutPlanExercise],
         exercises_by_id: dict[str, Exercise],
         last_sessions: dict[str, tuple[str, list[WorkoutSetLog]]],
+        notes: dict[str, str],
         *,
         suggest_loads: bool = False,
     ) -> PlannedWorkout:
@@ -388,14 +463,19 @@ class WorkoutService:
                 planned_sets, raised = suggested_loads(
                     planned_sets,
                     [
-                        (float(row.weight_kg), row.reps, float(row.rpe) if row.rpe is not None else None)
+                        (
+                            _progression_kg(exercise, float(row.weight_kg)),
+                            row.reps,
+                            float(row.rpe) if row.rpe is not None else None,
+                        )
                         for row in previous_sets
                         if row.kind == SetKind.WORKING
                     ],
                 )
                 if raised is not None:
+                    goal = f"{raised.reps} reps" if raised.weight_kg <= 0 else f"{raised.weight_kg:g} kg"
                     note = (
-                        f"Up to {raised.weight_kg:g} kg: last time every rep came with room to spare "
+                        f"Up to {goal}: last time every rep came with room to spare "
                         f"(RPE {RPE_ROOM_TO_PROGRESS:g} or less)."
                     )
             previous_by_kind: dict[SetKind, list[WorkoutSetLog]] = {}
@@ -437,6 +517,7 @@ class WorkoutService:
                     muscles=", ".join(exercise.muscles),
                     rest_seconds=plan_exercise.rest_seconds,
                     note=note,
+                    user_note=notes.get(exercise.id),
                     sets=sets,
                 )
             )
@@ -460,39 +541,54 @@ class WorkoutService:
                 # workout, just without the link (as deleting a routine does to past ones).
                 plan_id = None
 
-        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
+        exercises_by_id = await self._verify_exercises_owned(
+            actor, [e.exercise_id for e in payload.exercises]
+        )
+        started_at = payload.started_at.astimezone(UTC)
+        body_weight_kg = await self.sessions.body_weight_on(
+            actor.actor_id, local_date(started_at, await self._zone(actor))
+        )
 
         workout_session = WorkoutSession(
             owner_id=actor.actor_id,
             plan_entry_id=plan_id,
             name=payload.name,
             # Stored as UTC whatever offset the client sent.
-            started_at=payload.started_at.astimezone(UTC),
+            started_at=started_at,
             finished_at=payload.finished_at.astimezone(UTC),
+            body_weight_kg=body_weight_kg,
         )
         await self.sessions.add_session(workout_session)
 
-        set_logs = _build_set_logs(workout_session.id, actor.actor_id, payload.exercises)
+        set_logs = _build_set_logs(workout_session, payload.exercises, exercises_by_id)
         await self.sessions.add_sets(set_logs)
+        counted = [s for s in set_logs if s.kind != SetKind.WARMUP]
+        exercise_ids = [e.exercise_id for e in payload.exercises]
 
         best_before_by_exercise = await self.sessions.best_e1rms_before(
-            actor.actor_id, [e.exercise_id for e in payload.exercises], workout_session.id
+            actor.actor_id, exercise_ids, workout_session.id
+        )
+        best_reps_before_by_exercise = await self.sessions.best_reps_before(
+            actor.actor_id, exercise_ids, workout_session.id
         )
         personal_records: list[str] = []
-        for exercise_entry in payload.exercises:
-            best_new = best_estimated_one_rep_max(
-                (s.weight_kg, s.reps) for s in exercise_entry.sets if s.kind != SetKind.WARMUP
-            )
-            if best_new is not None and is_personal_record(
-                best_new, best_before_by_exercise.get(exercise_entry.exercise_id)
-            ):
-                personal_records.append(f"{exercise_entry.name} — new estimated 1RM {round(best_new, 1)} kg")
+        for exercise_index, exercise_entry in enumerate(payload.exercises):
+            own = [s for s in counted if s.exercise_position == exercise_index]
+            best_new = best_estimated_one_rep_max((float(s.load_kg), s.reps) for s in own)
+            if best_new is not None:
+                if is_personal_record(best_new, best_before_by_exercise.get(exercise_entry.exercise_id)):
+                    personal_records.append(
+                        f"{exercise_entry.name} — new estimated 1RM {round(best_new, 1)} kg"
+                    )
+                continue
+            # No load at all (a band): the record is the most reps in one set.
+            best_reps = max((s.reps for s in own if is_rep_based(float(s.load_kg))), default=0)
+            if best_reps > 0 and best_reps > best_reps_before_by_exercise.get(exercise_entry.exercise_id, 0):
+                personal_records.append(f"{exercise_entry.name} — new best {best_reps} reps")
 
-        next_targets = await self._next_targets(plan_id, payload)
+        next_targets = await self._next_targets(plan_id, payload, exercises_by_id)
 
-        session_volume_kg = volume_kg(
-            (s.weight_kg, s.reps) for e in payload.exercises for s in e.sets if s.kind != SetKind.WARMUP
-        )
+        session_volume_kg = volume_kg((float(s.load_kg), s.reps) for s in counted)
         sets_completed = sum(len(e.sets) for e in payload.exercises)
         duration_seconds = int((payload.finished_at - payload.started_at).total_seconds())
 
@@ -503,11 +599,16 @@ class WorkoutService:
             duration_seconds=max(duration_seconds, 0),
             sets_completed=sets_completed,
             volume_kg=round(session_volume_kg, 1),
+            rep_based_reps=_rep_based_reps((float(s.load_kg), s.kind, s.reps) for s in set_logs),
+            body_weight_kg=body_weight_kg,
             personal_records=personal_records,
             next_targets=next_targets,
+            exercises=_history_exercises(set_logs, {key: e.equipment for key, e in exercises_by_id.items()}),
         )
 
-    async def _next_targets(self, plan_id: str | None, payload: FinishWorkoutInput) -> list[NextTargetRead]:
+    async def _next_targets(
+        self, plan_id: str | None, payload: FinishWorkoutInput, exercises_by_id: dict[str, Exercise]
+    ) -> list[NextTargetRead]:
         """A target for each routine exercise done today, from its sets against the routine's reps.
 
         Only for a workout started from a routine: without one there are no target reps to
@@ -529,8 +630,13 @@ class WorkoutService:
 
         targets: list[NextTargetRead] = []
         for exercise_entry in payload.exercises:
+            exercise = exercises_by_id.get(exercise_entry.exercise_id)
             target = next_session_target(
-                [(s.weight_kg, s.reps, s.rpe) for s in exercise_entry.sets if s.kind == SetKind.WORKING],
+                [
+                    (_progression_kg(exercise, s.weight_kg), s.reps, s.rpe)
+                    for s in exercise_entry.sets
+                    if s.kind == SetKind.WORKING
+                ],
                 target_reps_by_exercise.get(exercise_entry.exercise_id),
             )
             if target is not None:
@@ -544,8 +650,25 @@ class WorkoutService:
                 )
         return targets
 
-    async def list_history(self, actor: ActorContext, limit: int, offset: int) -> list[WorkoutHistoryItem]:
-        sessions = await self.sessions.list_sessions(actor.actor_id, limit, offset)
+    async def list_history(
+        self,
+        actor: ActorContext,
+        limit: int,
+        offset: int,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[WorkoutHistoryItem]:
+        """Logged workouts newest first, optionally only those started on the user's local days
+        ``date_from`` to ``date_to`` (inclusive; either end may be open)."""
+
+        since = until = None
+        if date_from is not None or date_to is not None:
+            zone = await self._zone(actor)
+            if date_from is not None:
+                since = utc_bounds(date_from, date_from, zone)[0]
+            if date_to is not None:
+                until = utc_bounds(date_to, date_to, zone)[1]
+        sessions = await self.sessions.list_sessions(actor.actor_id, limit, offset, since, until)
         sets = await self.sessions.list_sets(actor.actor_id, [s.id for s in sessions])
         sets_by_session: dict[str, list[WorkoutSetLog]] = {}
         for logged in sets:
@@ -555,8 +678,10 @@ class WorkoutService:
     async def get_history_detail(self, actor: ActorContext, session_id: str) -> WorkoutDetail:
         workout_session = await self._owned_session(actor, session_id)
         sets = await self.sessions.list_sets(actor.actor_id, [workout_session.id])
+        exercises_by_id = await self.exercises.get_many(list({s.exercise_id for s in sets if s.exercise_id}))
         return WorkoutDetail(
-            **_history_item(workout_session, sets).model_dump(), exercises=_history_exercises(sets)
+            **_history_item(workout_session, sets).model_dump(),
+            exercises=_history_exercises(sets, {key: e.equipment for key, e in exercises_by_id.items()}),
         )
 
     async def update_session(
@@ -565,12 +690,15 @@ class WorkoutService:
         """Replace a logged workout's name and sets; its start and finish times are kept."""
 
         workout_session = await self._owned_session(actor, session_id)
-        await self._verify_exercises_owned(actor, [e.exercise_id for e in payload.exercises])
+        exercises_by_id = await self._verify_exercises_owned(
+            actor, [e.exercise_id for e in payload.exercises]
+        )
 
         workout_session.name = payload.name
         workout_session.touch()
         await self.sessions.delete_sets(actor.actor_id, workout_session.id)
-        set_logs = _build_set_logs(workout_session.id, actor.actor_id, payload.exercises)
+        # The bodyweight it was logged at stays: an edit corrects the sets, not the day.
+        set_logs = _build_set_logs(workout_session, payload.exercises, exercises_by_id)
         await self.sessions.add_sets(set_logs)
         await self.session.commit()
         return await self.get_history_detail(actor, session_id)

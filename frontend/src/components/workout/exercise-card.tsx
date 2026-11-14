@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Dumbbell, Ellipsis, Minus, NotebookText, Plus, Trash2 } from "lucide-react"
 
+import { ExerciseNote } from "@/components/workout/exercise-note"
 import { FindWeightHint } from "@/components/workout/find-weight-hint"
 import { SET_GRID, SetRow } from "@/components/workout/set-row"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { setLabels, type SessionAction, type SessionExercise } from "@/lib/workout-session"
+import { equipmentKind, setLabels, type SessionAction, type SessionExercise } from "@/lib/workout-session"
 
 type ExerciseCardProps = {
   exercise: SessionExercise
@@ -29,6 +30,7 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
   const labels = setLabels(exercise.sets)
   const lastSet = exercise.sets[exercise.sets.length - 1]
   const canRemoveSet = exercise.sets.length > 1 && lastSet !== undefined && !lastSet.done
+  const weightMode = equipmentKind(exercise)
 
   return (
     <Card>
@@ -78,6 +80,8 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        <ExerciseNote exercise={exercise} dispatch={dispatch} />
+
         {exercise.note ? (
           <p className="flex items-start gap-2 text-sm text-muted-foreground">
             <NotebookText className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -90,7 +94,8 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
         <div className={cn(SET_GRID, "text-[11px] font-semibold tracking-widest text-muted-foreground uppercase")} aria-hidden>
           <span>Set</span>
           <span>Previous</span>
-          <span className="text-center">kg</span>
+          {/* A bodyweight move's kg is what's added to the lifter's bodyweight. */}
+          <span className="text-center">{weightMode === "bodyweight" ? "+kg" : "kg"}</span>
           <span className="text-center">Reps</span>
           <span className="text-center">RPE</span>
           <span />
@@ -102,6 +107,7 @@ export function ExerciseCard({ exercise, isFirst, isLast, dispatch, onRemove }: 
               <SetRow
                 key={set.id}
                 exerciseName={exercise.name}
+                weightMode={weightMode}
                 set={set}
                 label={labels[index]}
                 active={set.id === activeSetId}

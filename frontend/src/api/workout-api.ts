@@ -4,6 +4,7 @@ import type {
   Exercise,
   ExerciseFilters,
   FinishWorkoutInput,
+  HistoryRange,
   PlannedWorkout,
   Routine,
   SaveRoutineInput,
@@ -21,13 +22,19 @@ export const workoutApi = {
     return data
   },
 
-  async searchExercises({ q, muscle, equipment }: ExerciseFilters, signal?: AbortSignal) {
-    const { data } = await apiClient.get<Exercise[]>("/exercises", { params: { q, muscle, equipment, limit: 100 }, signal })
+  async searchExercises({ q, muscle, equipment, source }: ExerciseFilters, signal?: AbortSignal) {
+    const { data } = await apiClient.get<Exercise[]>("/exercises", { params: { q, muscle, equipment, source, limit: 100 }, signal })
     return data
   },
 
   async createExercise(input: CreateExerciseInput) {
     const { data } = await apiClient.post<Exercise>("/exercises", input)
+    return data
+  },
+
+  /** Save the user's own note on an exercise; a blank note clears it. */
+  async saveExerciseNote(exerciseId: string, body: string) {
+    const { data } = await apiClient.put<{ exerciseId: string; body: string }>(`/exercises/${encodeURIComponent(exerciseId)}/note`, { body })
     return data
   },
 
@@ -37,8 +44,8 @@ export const workoutApi = {
   },
 
   /** Logged workouts, newest first. */
-  async listSessions(offset: number, limit: number, signal?: AbortSignal) {
-    const { data } = await apiClient.get<WorkoutHistoryItem[]>("/workouts/sessions", { params: { offset, limit }, signal })
+  async listSessions(offset: number, limit: number, range: HistoryRange = {}, signal?: AbortSignal) {
+    const { data } = await apiClient.get<WorkoutHistoryItem[]>("/workouts/sessions", { params: { offset, limit, from: range.from, to: range.to }, signal })
     return data
   },
 

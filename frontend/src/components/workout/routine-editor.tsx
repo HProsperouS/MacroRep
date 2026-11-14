@@ -16,6 +16,7 @@ import {
   ROUTINE_LIMITS,
   canSaveDraft,
   draftFromRoutine,
+  isBandExercise,
   rangeError,
   routineDraftReducer,
   toSaveRoutineInput,
@@ -219,16 +220,21 @@ function RoutineExerciseCard({ exercise, isFirst, isLast, dispatch }: RoutineExe
                   Work
                 </ToggleGroupItem>
               </ToggleGroup>
-              <TextField
-                id={`${set.id}-weight`}
-                label=""
-                unit="kg"
-                inputMode="decimal"
-                placeholder="Target"
-                value={set.targetWeightKg}
-                error={rangeError(set.targetWeightKg, ROUTINE_LIMITS.weight)}
-                onChange={(event) => dispatch({ type: "edit-set", instanceId, setId: set.id, patch: { targetWeightKg: event.target.value } })}
-              />
+              {isBandExercise(exercise) ? (
+                // A band's kg would be a guess: it's tracked by reps alone.
+                <span className="flex h-9 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">Band · reps only</span>
+              ) : (
+                <TextField
+                  id={`${set.id}-weight`}
+                  label=""
+                  unit="kg"
+                  inputMode="decimal"
+                  placeholder="Target"
+                  value={set.targetWeightKg}
+                  error={rangeError(set.targetWeightKg, ROUTINE_LIMITS.weight)}
+                  onChange={(event) => dispatch({ type: "edit-set", instanceId, setId: set.id, patch: { targetWeightKg: event.target.value } })}
+                />
+              )}
               <TextField
                 id={`${set.id}-reps`}
                 label=""

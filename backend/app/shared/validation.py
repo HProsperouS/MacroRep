@@ -73,6 +73,8 @@ MAX_ROUTINES_PER_USER = 50
 MAX_CUSTOM_EXERCISES_PER_USER = 200
 MAX_SETS_PER_EXERCISE = 50
 MAX_MUSCLES_PER_EXERCISE = 4
+# A lifter's own note on an exercise (cues, machine settings).
+MAX_EXERCISE_NOTE_LENGTH = 500
 # Tolerated difference between the client's clock and the server's when
 # checking that a workout didn't happen in the future.
 CLOCK_SKEW = timedelta(minutes=10)

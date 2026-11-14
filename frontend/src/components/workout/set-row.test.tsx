@@ -5,12 +5,12 @@ import { describe, expect, it, vi } from "vitest"
 import { SetRow } from "@/components/workout/set-row"
 import type { SessionSet } from "@/lib/workout-session"
 
-function renderRow(overrides: Partial<SessionSet> = {}, label = "1") {
+function renderRow(overrides: Partial<SessionSet> = {}, label = "1", weightMode: "load" | "band" | "bodyweight" = "load") {
   const handlers = { onEdit: vi.fn(), onKindChange: vi.fn(), onToggle: vi.fn() }
   const set: SessionSet = { id: "s1", kind: "working", weight: "60", reps: "8", rpe: "", done: false, ...overrides }
   render(
     <ul>
-      <SetRow exerciseName="Bench Press" set={set} label={label} active={false} {...handlers} />
+      <SetRow exerciseName="Bench Press" set={set} label={label} active={false} weightMode={weightMode} {...handlers} />
     </ul>,
   )
   return handlers
@@ -75,5 +75,15 @@ describe("SetRow", () => {
   it("shows the previous result", () => {
     renderRow({ previous: { weightKg: 57.5, reps: 8, rpe: 8 } })
     expect(screen.getByText("57.5 × 8 @8")).toBeInTheDocument()
+  })
+
+  it("has no weight to enter for a band, only reps, and can be completed without one", async () => {
+    const user = userEvent.setup()
+    const { onToggle } = renderRow({ weight: "", previous: { weightKg: 20, reps: 15 } }, "1", "band")
+    expect(screen.queryByLabelText(/weight in kg/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Bench Press set 1: band, reps only")).toHaveTextContent("Band")
+    expect(screen.getByText("× 15")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Complete Bench Press set 1" }))
+    expect(onToggle).toHaveBeenCalledOnce()
   })
 })

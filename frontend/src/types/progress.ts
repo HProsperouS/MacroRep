@@ -18,6 +18,12 @@ export type VolumeWeek = {
   avgRpe: number | null
 }
 
+export type RepLift = {
+  exercise: string
+  bestReps: number
+  changeReps: number
+}
+
 export type StrengthLift = {
   exercise: string
   estimated1RmKg: number
@@ -91,6 +97,8 @@ export type ProgressResponse = {
     change: number | null
   }
   strength: StrengthLift[]
+  /** Band exercises (no load), by their most reps in one set. Absent from older servers. */
+  repLifts?: RepLift[]
   checkIns: CheckInHistoryItem[]
 }
 

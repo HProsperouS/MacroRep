@@ -4,7 +4,8 @@ import type { SetKind, UpdateWorkoutInput, WorkoutDetail } from "@/types/workout
 /** A logged workout being corrected. Inputs stay strings so "57." can be typed. */
 
 export type EditableSet = { kind: SetKind; weight: string; reps: string; rpe: string }
-export type EditableExercise = { exerciseId: string; name: string; sets: EditableSet[] }
+/** `band` exercises have no weight to correct: a band's kg would be a guess, so it's saved as 0. */
+export type EditableExercise = { exerciseId: string; name: string; band?: boolean; sets: EditableSet[] }
 export type EditableWorkout = { name: string; exercises: EditableExercise[] }
 
 const MAX_NAME_LENGTH = 60
@@ -19,6 +20,7 @@ export function toEditable(detail: WorkoutDetail): EditableWorkout | null {
     exercises.push({
       exerciseId: exercise.exerciseId,
       name: exercise.name,
+      ...(exercise.equipment === "band" ? { band: true } : {}),
       sets: exercise.sets.map((set) => ({
         kind: set.kind,
         weight: String(set.weightKg),
@@ -31,8 +33,8 @@ export function toEditable(detail: WorkoutDetail): EditableWorkout | null {
 }
 
 /** Reps may be 0 here (a failed attempt is still a logged set), unlike a set being completed live. */
-function parseEditableSet(set: EditableSet) {
-  const weightKg = set.weight.trim() === "" ? Number.NaN : Number(set.weight)
+function parseEditableSet(set: EditableSet, band = false) {
+  const weightKg = band ? 0 : set.weight.trim() === "" ? Number.NaN : Number(set.weight)
   const reps = set.reps.trim() === "" ? Number.NaN : Number(set.reps)
   const rpe = parseRpe(set.rpe)
   const valid =
@@ -46,8 +48,8 @@ function parseEditableSet(set: EditableSet) {
   return valid ? { kind: set.kind, weightKg, reps, rpe } : null
 }
 
-export function isEditableSetValid(set: EditableSet) {
-  return parseEditableSet(set) !== null
+export function isEditableSetValid(set: EditableSet, band = false) {
+  return parseEditableSet(set, band) !== null
 }
 
 export function isWorkoutNameValid(name: string) {
@@ -61,7 +63,7 @@ export function toUpdateInput(workout: EditableWorkout): UpdateWorkoutInput | nu
   for (const exercise of workout.exercises) {
     const sets = []
     for (const set of exercise.sets) {
-      const parsed = parseEditableSet(set)
+      const parsed = parseEditableSet(set, exercise.band)
       if (!parsed) return null
       sets.push({ kind: parsed.kind, weightKg: parsed.weightKg, reps: parsed.reps, rpe: parsed.rpe ?? undefined })
     }
