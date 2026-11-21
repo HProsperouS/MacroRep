@@ -5,14 +5,14 @@ import { Link, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { z } from "zod"
 
-import { apiErrorMessage } from "@/api/client"
+import { apiErrorMessage, apiErrorStatus } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/text-field"
 import { useConfirmPasswordReset, useRequestPasswordReset } from "@/hooks/use-auth"
-import { errorStatus, NEW_PASSWORD_HINT, newPasswordPair } from "@/lib/password"
+import { NEW_PASSWORD_HINT, newPasswordPair } from "@/lib/password"
 
 const emailSchema = z.object({ email: z.string().trim().min(1, "Enter your email").email("Enter a valid email") })
 type EmailValues = z.infer<typeof emailSchema>
@@ -109,7 +109,7 @@ function ResetStep({ email, onBack }: { email: string; onBack: () => void }) {
         },
         onError: (error) => {
           const message = apiErrorMessage(error)
-          if (errorStatus(error) !== 422) toast.error("Couldn’t reset your password", { description: message })
+          if (apiErrorStatus(error) !== 422) toast.error("Couldn’t reset your password", { description: message })
           // The code is checked first, so any other refusal is about the new password.
           else if (/code/i.test(message)) setError("code", { message })
           else setError("newPassword", { message })

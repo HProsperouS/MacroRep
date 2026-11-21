@@ -101,7 +101,11 @@ checks each limit from both sides.
   (`app/shared/rate_limit.py`): in 15 minutes, 5 wrong passwords for an account
   from one address (so someone else guessing can't lock its owner out) and 30
   sign-ins per address; 50 wrong passwords for an account from anywhere and 10
-  sign-ups per address an hour. Account changes: 5 wrong current passwords per user in
+  sign-ups per address an hour. Creates a client may retry after a lost answer (starting a
+  check-in, finishing a workout, adding a food entry) take an `Idempotency-Key` header and
+  answer a repeat with what the first one created (`app/shared/idempotency.py`). Emails go
+  out after the response, so a slow mail server can't time a request out. An unhandled error
+  answers 500 as JSON with the `correlationId` of its log line. Account changes: 5 wrong current passwords per user in
   15 minutes, 5 email-change codes per user an hour, 5 reset codes per email and 10 per
   address an hour, and 30 reset-code tries per address in 15 minutes. A reset request
   answers the same whether or not the email has an account. Coach Chat allows 30 messages and meal photos

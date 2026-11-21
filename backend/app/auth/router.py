@@ -58,9 +58,8 @@ router = APIRouter(prefix="/api/v1", tags=["auth"])
 def get_auth_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
-    mailer: Annotated[Mailer, Depends(get_mailer)],
 ) -> AuthService:
-    return AuthService(session, UserRepository(session), settings, mailer)
+    return AuthService(session, UserRepository(session), settings)
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
@@ -189,9 +188,24 @@ async def get_me(actor: ActorDep, service: AuthServiceDep) -> MeRead:
     return await service.get_me(actor.actor_id)
 
 
+async def _send_quietly(mailer: Mailer, email: Email) -> None:
+    """Run after the response (``BackgroundTasks``), so a slow mail server never makes a
+    request time out. A failure is only logged: the user can ask for the email again."""
+
+    try:
+        await mailer.send(email.to, email.subject, email.body)
+    except MailError:
+        logger.exception("Couldn't send an email", extra={"subject": email.subject})
+
+
 @router.post("/auth/email-change", status_code=status.HTTP_202_ACCEPTED)
 async def request_email_change(
-    payload: RequestEmailChangeInput, actor: ActorDep, service: AuthServiceDep, settings: SettingsDep
+    payload: RequestEmailChangeInput,
+    actor: ActorDep,
+    background: BackgroundTasks,
+    service: AuthServiceDep,
+    settings: SettingsDep,
+    mailer: MailerDep,
 ) -> None:
     """Email a code to the new address. The sign-in email changes once it's confirmed."""
 
@@ -200,16 +214,23 @@ async def request_email_change(
             (("email-change", actor.actor_id), EMAIL_CHANGE_REQUESTS_PER_USER),
             reason="Too many codes asked for.",
         )
-    await _checking_current_password(
+    email = await _checking_current_password(
         actor, settings, lambda: service.request_email_change(actor.actor_id, payload)
     )
+    background.add_task(_send_quietly, mailer, email)
 
 
 @router.post("/auth/email-change/confirm", response_model=MeRead)
 async def confirm_email_change(
-    payload: ConfirmEmailChangeInput, actor: ActorDep, service: AuthServiceDep
+    payload: ConfirmEmailChangeInput,
+    actor: ActorDep,
+    background: BackgroundTasks,
+    service: AuthServiceDep,
+    mailer: MailerDep,
 ) -> MeRead:
-    return await service.confirm_email_change(actor.actor_id, payload)
+    me, notice = await service.confirm_email_change(actor.actor_id, payload)
+    background.add_task(_send_quietly, mailer, notice)
+    return me
 
 
 @router.delete("/auth/email-change", status_code=status.HTTP_204_NO_CONTENT)
@@ -243,23 +264,19 @@ async def change_password(
     payload: ChangePasswordInput,
     actor: ActorDep,
     response: Response,
+    background: BackgroundTasks,
     service: AuthServiceDep,
     settings: SettingsDep,
+    mailer: MailerDep,
 ) -> AccessToken:
     """Set a new password. Starts a new session here and signs out every other device."""
 
-    access_token, refresh_token = await _checking_current_password(
+    access_token, refresh_token, notice = await _checking_current_password(
         actor, settings, lambda: service.change_password(actor.actor_id, payload)
     )
     _set_refresh_cookie(response, settings, refresh_token)
+    background.add_task(_send_quietly, mailer, notice)
     return access_token
-
-
-async def _send_quietly(mailer: Mailer, email: Email) -> None:
-    try:
-        await mailer.send(email.to, email.subject, email.body)
-    except MailError:
-        logger.exception("Couldn't send a password-reset code")
 
 
 @router.post("/auth/password-reset", status_code=status.HTTP_202_ACCEPTED)
@@ -290,13 +307,16 @@ async def confirm_password_reset(
     payload: ConfirmPasswordResetInput,
     request: Request,
     response: Response,
+    background: BackgroundTasks,
     service: AuthServiceDep,
     settings: SettingsDep,
+    mailer: MailerDep,
 ) -> AccessToken:
     """Set a new password with the emailed code, and sign in."""
 
     if settings.rate_limits_enabled:
         count_attempt((("reset-confirm", _address(request)), RESET_CONFIRMS_PER_ADDRESS))
-    access_token, refresh_token = await service.confirm_password_reset(payload)
+    access_token, refresh_token, notice = await service.confirm_password_reset(payload)
     _set_refresh_cookie(response, settings, refresh_token)
+    background.add_task(_send_quietly, mailer, notice)
     return access_token

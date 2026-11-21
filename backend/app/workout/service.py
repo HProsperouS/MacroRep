@@ -530,7 +530,22 @@ class WorkoutService:
             exercises=exercises,
         )
 
-    async def finish_session(self, payload: FinishWorkoutInput, actor: ActorContext) -> WorkoutSummary:
+    async def finish_session(
+        self, payload: FinishWorkoutInput, actor: ActorContext, idempotency_key: str | None = None
+    ) -> tuple[WorkoutSummary, bool]:
+        """Log a finished workout; returns its summary and whether it was newly logged.
+
+        With an ``idempotency_key``, sending the same workout again (a retry after a lost
+        answer) logs nothing new and answers with the workout the key first logged. The
+        replay is summarized from that stored workout, so a retry with a different body
+        still gets the original.
+        """
+
+        if idempotency_key is not None:
+            existing = await self.sessions.get_by_idempotency_key(actor.actor_id, idempotency_key)
+            if existing is not None:
+                return await self._replay(existing, payload, actor), False
+
         plan_id = payload.plan_id
         if plan_id is not None:
             plan_entry = await self.plans.get(plan_id)
@@ -557,19 +572,55 @@ class WorkoutService:
             started_at=started_at,
             finished_at=payload.finished_at.astimezone(UTC),
             body_weight_kg=body_weight_kg,
+            idempotency_key=idempotency_key,
         )
-        await self.sessions.add_session(workout_session)
+        try:
+            await self.sessions.add_session(workout_session)
+        except IntegrityError as exc:
+            # The same key sent twice at once: the other request logged it first.
+            await self.session.rollback()
+            if idempotency_key is None or "idempotency" not in str(exc.orig).lower():
+                raise
+            existing = await self.sessions.get_by_idempotency_key(actor.actor_id, idempotency_key)
+            if existing is None:
+                raise
+            return await self._replay(existing, payload, actor), False
 
         set_logs = _build_set_logs(workout_session, payload.exercises, exercises_by_id)
         await self.sessions.add_sets(set_logs)
+        summary = await self._summarize(workout_session, payload, set_logs, exercises_by_id)
+        await self.session.commit()
+        return summary, True
+
+    async def _replay(
+        self, workout_session: WorkoutSession, payload: FinishWorkoutInput, actor: ActorContext
+    ) -> WorkoutSummary:
+        """The summary of a workout already logged under an idempotency key."""
+
+        set_logs = await self.sessions.list_sets(actor.actor_id, [workout_session.id])
+        exercises_by_id = await self.exercises.get_many(
+            list({s.exercise_id for s in set_logs if s.exercise_id})
+        )
+        return await self._summarize(workout_session, payload, set_logs, exercises_by_id)
+
+    async def _summarize(
+        self,
+        workout_session: WorkoutSession,
+        payload: FinishWorkoutInput,
+        set_logs: list[WorkoutSetLog],
+        exercises_by_id: dict[str, Exercise],
+    ) -> WorkoutSummary:
+        """What the finish screen shows: totals, records and next targets. Records compare
+        against every other workout, so summarizing the same workout again gives the same."""
+
         counted = [s for s in set_logs if s.kind != SetKind.WARMUP]
         exercise_ids = [e.exercise_id for e in payload.exercises]
 
         best_before_by_exercise = await self.sessions.best_e1rms_before(
-            actor.actor_id, exercise_ids, workout_session.id
+            workout_session.owner_id, exercise_ids, workout_session.id
         )
         best_reps_before_by_exercise = await self.sessions.best_reps_before(
-            actor.actor_id, exercise_ids, workout_session.id
+            workout_session.owner_id, exercise_ids, workout_session.id
         )
         personal_records: list[str] = []
         for exercise_index, exercise_entry in enumerate(payload.exercises):
@@ -586,21 +637,19 @@ class WorkoutService:
             if best_reps > 0 and best_reps > best_reps_before_by_exercise.get(exercise_entry.exercise_id, 0):
                 personal_records.append(f"{exercise_entry.name} — new best {best_reps} reps")
 
-        next_targets = await self._next_targets(plan_id, payload, exercises_by_id)
+        next_targets = await self._next_targets(workout_session.plan_entry_id, payload, exercises_by_id)
 
         session_volume_kg = volume_kg((float(s.load_kg), s.reps) for s in counted)
-        sets_completed = sum(len(e.sets) for e in payload.exercises)
-        duration_seconds = int((payload.finished_at - payload.started_at).total_seconds())
-
-        await self.session.commit()
+        duration_seconds = int((workout_session.finished_at - workout_session.started_at).total_seconds())
+        body_weight_kg = workout_session.body_weight_kg
         return WorkoutSummary(
             id=workout_session.id,
             name=workout_session.name,
             duration_seconds=max(duration_seconds, 0),
-            sets_completed=sets_completed,
+            sets_completed=len(set_logs),
             volume_kg=round(session_volume_kg, 1),
             rep_based_reps=_rep_based_reps((float(s.load_kg), s.kind, s.reps) for s in set_logs),
-            body_weight_kg=body_weight_kg,
+            body_weight_kg=float(body_weight_kg) if body_weight_kg is not None else None,
             personal_records=personal_records,
             next_targets=next_targets,
             exercises=_history_exercises(set_logs, {key: e.equipment for key, e in exercises_by_id.items()}),

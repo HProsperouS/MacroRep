@@ -4,14 +4,14 @@ import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
 
-import { apiErrorMessage } from "@/api/client"
+import { apiErrorMessage, apiErrorStatus as status } from "@/api/client"
 import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/text-field"
 import { useCancelEmailChange, useConfirmEmailChange, useRequestEmailChange } from "@/hooks/use-auth"
 import { useOverlayLayout } from "@/hooks/use-media-query"
-import { errorStatus as status, submitOnly } from "@/lib/password"
+import { submitOnly } from "@/lib/password"
 
 const requestSchema = z.object({
   newEmail: z.string().trim().min(1, "Enter your new email").email("Enter a valid email"),

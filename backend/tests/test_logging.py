@@ -14,7 +14,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.config import REPOSITORY_ROOT, Settings
-from app.shared.logging import CorrelationIdMiddleware, DailyFileHandler, configure_logging
+from app.shared.logging import (
+    UNHANDLED_ERROR_MESSAGE,
+    CorrelationIdMiddleware,
+    DailyFileHandler,
+    configure_logging,
+)
 
 
 @pytest.fixture
@@ -73,7 +78,12 @@ def test_an_unhandled_request_error_is_logged_with_its_correlation_id(log_dir: P
 
     app.add_middleware(CorrelationIdMiddleware)
     with TestClient(app, raise_server_exceptions=False) as client:
-        assert client.get("/broken", headers={"X-Correlation-ID": "req-42"}).status_code == 500
+        response = client.get("/broken", headers={"X-Correlation-ID": "req-42"})
+
+    # JSON like every other error, with the id to quote, in the body and the header.
+    assert response.status_code == 500
+    assert response.json() == {"detail": UNHANDLED_ERROR_MESSAGE, "correlationId": "req-42"}
+    assert response.headers["X-Correlation-ID"] == "req-42"
 
     errors = logged(log_dir, "error")
     [error] = [line for line in errors if line["event"] == "unhandled request error"]

@@ -102,6 +102,7 @@ erDiagram
         string food_id FK "nullable"
         numeric quantity
         string detail "nullable, e.g. less rice"
+        string idempotency_key "nullable, the client's key for adding it"
     }
     exercises {
         string id PK
@@ -143,6 +144,7 @@ erDiagram
         datetime started_at
         datetime finished_at
         numeric body_weight_kg "latest weigh-in when logged, nullable"
+        string idempotency_key "nullable, the client's key for finishing it"
     }
     workout_set_logs {
         string id PK
@@ -254,6 +256,13 @@ against the million possible codes, and an email-change code can't reset a passw
 `users.email` changes only when the code is confirmed. Both are `ON DELETE CASCADE` from
 `users`, keyed by `user_id` like `profiles`.
 
+**Retry-safe creates.** Starting a check-in, finishing a workout and adding a food entry
+take an `Idempotency-Key` header, stored with the row under a unique (`owner_id`,
+`idempotency_key`) index. A repeat of the key (a retry after a timeout or a dropped
+connection, when the first request may have gone through) answers with the row it created
+instead of creating another. The key is optional on workouts and food entries, which had no
+key before; the app sends one with each, and retries a lost answer with it.
+
 **Numbers.** Measured values use `NUMERIC` with a fixed scale (weights to 0.01 kg, macros
 to 0.1 g) rather than floats. Every API input limit fits its column, so an oversized value
 is a 422, never a database error.
@@ -271,6 +280,7 @@ zone when read.
 | `nutrition_targets` | unique (`owner_id`, `version`) | Two concurrent changes can't both become the same version |
 | `workout_schedule_days` | unique (`owner_id`, `day_of_week`) | One routine per weekday |
 | `coach_check_ins` | unique (`owner_id`, `idempotency_key`) | A retried start can't create a second check-in |
+| `workout_sessions`, `food_entries` | unique (`owner_id`, `idempotency_key`) | A retried finish or add can't log a workout or an entry twice |
 | `exercise_notes` | unique (`owner_id`, `exercise_id`) | One note per user and exercise, shown wherever it's done |
 | `email_change_requests`, `password_reset_requests` | unique `user_id` | At most one pending code of each kind per user |
 | `food_entries` | (`owner_id`, `log_date`) | A day's log |
@@ -321,6 +331,7 @@ Applied in this order (`backend/migrations/versions`):
 | `d3a7c5e1f9b2` | Each set's computed load and each workout's logged bodyweight (existing workouts take the latest weigh-in by then) |
 | `e1c7a3f5b9d2` | Pending email changes, waiting for the code sent to the new address |
 | `f2d8b4a6c0e3` | Pending password resets, waiting for the emailed code |
+| `a3e9c5b1d7f4` | Idempotency keys on workouts and food entries, so a retry can't log them twice |
 
 Run `uv run alembic upgrade head` from `backend/`. CI runs every migration on PostgreSQL,
 then downgrades and upgrades again.

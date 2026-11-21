@@ -49,6 +49,7 @@ const cases: [string, () => Promise<unknown>, Sent][] = [
 
   ["food log", () => foodApi.getFoodLog("2026-10-20"), { method: "get", url: "/food-log", params: { date: "2026-10-20" } }],
   ["add entry", () => foodApi.addEntry(body as never), { method: "post", url: "/food-log/entries", body }],
+  ["add entry, retry-safe", () => foodApi.addEntry(body as never, "add-1"), { method: "post", url: "/food-log/entries", body, idempotencyKey: "add-1" }],
   ["update entry", () => foodApi.updateEntry("e/1", body as never), { method: "patch", url: "/food-log/entries/e%2F1", body }],
   ["remove entry", () => foodApi.removeEntry("e1"), { method: "delete", url: "/food-log/entries/e1" }],
   ["search foods", () => foodApi.searchFoods("rice"), { method: "get", url: "/foods", params: { q: "rice", limit: 8 } }],
@@ -78,6 +79,7 @@ const cases: [string, () => Promise<unknown>, Sent][] = [
   ],
   ["create exercise", () => workoutApi.createExercise(body as never), { method: "post", url: "/exercises", body }],
   ["finish session", () => workoutApi.finishSession(body as never), { method: "post", url: "/workouts/sessions", body }],
+  ["finish session, retry-safe", () => workoutApi.finishSession(body as never, "finish-1"), { method: "post", url: "/workouts/sessions", body, idempotencyKey: "finish-1" }],
   ["sessions", () => workoutApi.listSessions(20, 10), { method: "get", url: "/workouts/sessions", params: { offset: 20, limit: 10 } }],
   ["session", () => workoutApi.getSession("s1"), { method: "get", url: "/workouts/sessions/s1" }],
   ["update session", () => workoutApi.updateSession("s1", body as never), { method: "put", url: "/workouts/sessions/s1", body }],

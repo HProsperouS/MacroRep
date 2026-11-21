@@ -7,6 +7,7 @@ from datetime import date as date_
 from datetime import timedelta
 from typing import cast
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.nutrition import Nutrients, scale_nutrients
@@ -200,12 +201,32 @@ class FoodService:
             entry.fat = cast(float, payload.fat)
         return entry
 
-    async def add_entry(self, payload: CreateFoodEntryInput, actor: ActorContext) -> FoodEntryRead:
+    async def add_entry(
+        self, payload: CreateFoodEntryInput, actor: ActorContext, idempotency_key: str | None = None
+    ) -> tuple[FoodEntryRead, bool]:
+        """Log one entry; returns it and whether it was newly logged. With an
+        ``idempotency_key``, a retry of the same entry answers with the one already logged."""
+
+        if idempotency_key is not None:
+            existing = await self.entries.get_by_idempotency_key(actor.actor_id, idempotency_key)
+            if existing is not None:
+                return _to_entry_read(existing), False
         entry = await self._new_entry(payload, actor)
-        await self.entries.add(entry)
+        entry.idempotency_key = idempotency_key
+        try:
+            await self.entries.add(entry)
+        except IntegrityError as exc:
+            # The same key sent twice at once: the other request logged it first.
+            await self.session.rollback()
+            if idempotency_key is None or "idempotency" not in str(exc.orig).lower():
+                raise
+            existing = await self.entries.get_by_idempotency_key(actor.actor_id, idempotency_key)
+            if existing is None:
+                raise
+            return _to_entry_read(existing), False
         await self.session.commit()
         await self.session.refresh(entry)
-        return _to_entry_read(entry)
+        return _to_entry_read(entry), True
 
     async def add_entries(
         self, payloads: Sequence[CreateFoodEntryInput], actor: ActorContext

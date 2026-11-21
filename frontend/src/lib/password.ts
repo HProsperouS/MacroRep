@@ -1,4 +1,3 @@
-import { isAxiosError } from "axios"
 import type { FormEvent } from "react"
 import { z } from "zod"
 
@@ -18,9 +17,6 @@ export const NEW_PASSWORD_HINT = `At least ${MIN_PASSWORD_LENGTH} characters, an
 export const newPasswordPair = z
   .object({ newPassword, repeatPassword: z.string() })
   .refine((values) => values.newPassword === values.repeatPassword, { path: ["repeatPassword"], message: "The passwords don’t match" })
-
-/** The HTTP status of a failed request, if it got an answer. */
-export const errorStatus = (error: unknown) => (isAxiosError(error) ? error.response?.status : undefined)
 
 /** For a form in an overlay: it's portalled, but React still bubbles its submit to a form around the
  * button that opened it (the profile form). */

@@ -19,7 +19,9 @@ from app.core.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-SMTP_TIMEOUT_SECONDS = 15
+# Per step (connect, TLS, sign-in, send). Sending happens after the response, so this
+# only bounds how long a stuck server holds a worker thread.
+SMTP_TIMEOUT_SECONDS = 10
 
 
 class MailError(Exception):

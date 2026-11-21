@@ -205,8 +205,9 @@ finishes or fails.
   lose data the newer code wrote: `b2f6d8a4c1e9` drops every exercise note,
   `d3a7c5e1f9b2` drops each set's computed load and each workout's logged bodyweight
   (what was typed is kept), `e8b4f2a6c3d9` turns photo-logged food entries into quick
-  adds, and `e1c7a3f5b9d2` and `f2d8b4a6c0e3` drop pending email-change and password-reset
-  codes (users ask for a new one). Take a manual RDS
+  adds, `e1c7a3f5b9d2` and `f2d8b4a6c0e3` drop pending email-change and password-reset
+  codes (users ask for a new one), and `a3e9c5b1d7f4` drops the idempotency keys (only a
+  retry in flight during the rollback could then log twice). Take a manual RDS
   snapshot before running migrations, and restore from it rather than downgrade in that
   case, or when a downgrade isn't possible.
 - **Frontend:** restore the previous object versions in S3 and invalidate CloudFront.

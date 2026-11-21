@@ -140,7 +140,7 @@ describe("FoodPage", () => {
     await user.click(within(editor).getByRole("button", { name: "Add to Dinner" }))
 
     await waitFor(() =>
-      expect(api.addEntry).toHaveBeenCalledWith({ date: today, meal: "dinner", foodId: "f-chicken", quantity: 200, quantityUnit: "g" }),
+      expect(api.addEntry).toHaveBeenCalledWith({ date: today, meal: "dinner", foodId: "f-chicken", quantity: 200, quantityUnit: "g" }, expect.any(String)),
     )
     expect(toast.success).toHaveBeenCalledWith("Added Chicken breast to Dinner", { description: "330 kcal" })
   })
@@ -162,7 +162,7 @@ describe("FoodPage", () => {
     await user.click(within(editor).getByRole("button", { name: "Add to Dinner" }))
 
     await waitFor(() =>
-      expect(api.addEntry).toHaveBeenCalledWith({ date: today, meal: "dinner", foodId: "f-chicken", quantity: 100, quantityUnit: "g", detail: "roasted, skin on" }),
+      expect(api.addEntry).toHaveBeenCalledWith({ date: today, meal: "dinner", foodId: "f-chicken", quantity: 100, quantityUnit: "g", detail: "roasted, skin on" }, expect.any(String)),
     )
   })
 
@@ -250,7 +250,7 @@ describe("FoodPage", () => {
         protein: 20,
         carbs: 25,
         fat: 8,
-      }),
+      }, expect.any(String)),
     )
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
   })
@@ -309,7 +309,7 @@ describe("FoodPage", () => {
         expect.objectContaining({ name: "Protein bar", servingSize: 1, servingUnit: "piece", nutrition: { calories: 252, protein: 20, carbs: 25, fat: 8 } }),
       ),
     )
-    await waitFor(() => expect(api.addEntry).toHaveBeenCalledWith(expect.objectContaining({ foodId: "f-bar", quantity: 1, quantityUnit: "serving" })))
+    await waitFor(() => expect(api.addEntry).toHaveBeenCalledWith(expect.objectContaining({ foodId: "f-bar", quantity: 1, quantityUnit: "serving" }), expect.any(String)))
   })
 
   it("asks a custom food for only what the app uses, and logs it once saved", async () => {
@@ -341,7 +341,7 @@ describe("FoodPage", () => {
         nutrition: { calories: 500, protein: 15, carbs: 70, fat: 18 },
       }),
     )
-    await waitFor(() => expect(api.addEntry).toHaveBeenCalledWith(expect.objectContaining({ foodId: "f-rice", quantity: 1 })))
+    await waitFor(() => expect(api.addEntry).toHaveBeenCalledWith(expect.objectContaining({ foodId: "f-rice", quantity: 1 }), expect.any(String)))
   })
 
   it("keeps the custom food form open when saving fails", async () => {
@@ -530,7 +530,7 @@ describe("Meal photos", () => {
         protein: 15,
         carbs: 37.5,
         fat: 9,
-      }),
+      }, expect.any(String)),
     )
     expect(api.addEntry).toHaveBeenCalledOnce()
     expect(toast.success).toHaveBeenCalledWith("Added 1 item to Dinner", { description: "300 kcal" })
@@ -580,7 +580,7 @@ describe("Meal photos", () => {
     await user.type(within(rice).getByLabelText("Amount"), "12.5")
     await user.click(within(dialog).getByRole("button", { name: "Log 1 item to Lunch" }))
 
-    await waitFor(() => expect(api.addEntry).toHaveBeenCalledWith(expect.objectContaining({ amountLabel: "12.5 g · photo estimate" })))
+    await waitFor(() => expect(api.addEntry).toHaveBeenCalledWith(expect.objectContaining({ amountLabel: "12.5 g · photo estimate" }), expect.any(String)))
   })
 
   it("says when no food was found", async () => {

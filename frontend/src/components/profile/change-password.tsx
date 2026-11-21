@@ -4,14 +4,14 @@ import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
 
-import { apiErrorMessage } from "@/api/client"
+import { apiErrorMessage, apiErrorStatus } from "@/api/client"
 import { ResponsiveOverlay, type OverlayLayout } from "@/components/layout/responsive-overlay"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/text-field"
 import { useChangePassword } from "@/hooks/use-auth"
 import { useOverlayLayout } from "@/hooks/use-media-query"
-import { errorStatus, NEW_PASSWORD_HINT, newPasswordPair, submitOnly } from "@/lib/password"
+import { NEW_PASSWORD_HINT, newPasswordPair, submitOnly } from "@/lib/password"
 
 const schema = z.object({ currentPassword: z.string().min(1, "Enter your current password") }).and(newPasswordPair)
 type Values = z.infer<typeof schema>
@@ -46,8 +46,8 @@ export function ChangePassword({ disabled = false }: { disabled?: boolean }) {
         },
         onError: (error) => {
           const message = apiErrorMessage(error)
-          if (errorStatus(error) === 403) setError("currentPassword", { message })
-          else if (errorStatus(error) === 422) setError("newPassword", { message })
+          if (apiErrorStatus(error) === 403) setError("currentPassword", { message })
+          else if (apiErrorStatus(error) === 422) setError("newPassword", { message })
           else toast.error("Couldn’t change your password", { description: message })
         },
       },

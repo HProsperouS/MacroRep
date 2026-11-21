@@ -64,6 +64,7 @@ class FoodEntry(TimestampMixin, Base):
     __table_args__ = (
         Index("ix_food_entries_owner_date", "owner_id", "log_date"),
         Index("ix_food_entries_food", "food_id"),
+        Index("uq_food_entries_owner_idempotency_key", "owner_id", "idempotency_key", unique=True),
     )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
@@ -83,3 +84,5 @@ class FoodEntry(TimestampMixin, Base):
         SAEnum(*QUANTITY_UNITS, name="quantity_unit"), nullable=True
     )
     detail: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The client's key for adding it, so a retry after a lost answer doesn't log it twice.
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)

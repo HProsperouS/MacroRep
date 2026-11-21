@@ -117,7 +117,10 @@ class WorkoutSession(TimestampMixin, Base):
     """A finished (logged) workout."""
 
     __tablename__ = "workout_sessions"
-    __table_args__ = (Index("ix_workout_sessions_owner_started", "owner_id", "started_at"),)
+    __table_args__ = (
+        Index("ix_workout_sessions_owner_started", "owner_id", "started_at"),
+        Index("uq_workout_sessions_owner_idempotency_key", "owner_id", "idempotency_key", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -130,6 +133,8 @@ class WorkoutSession(TimestampMixin, Base):
     # The lifter's latest weigh-in when the workout was logged: what a bodyweight set's load
     # counts it as. Kept with the workout so later weigh-ins don't rewrite its history.
     body_weight_kg: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    # The client's key for finishing it, so a retry after a lost answer doesn't log it twice.
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class WorkoutSetLog(Base):
