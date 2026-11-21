@@ -40,8 +40,7 @@ and workouts, so Progress has something to show and a check-in can start right a
 - **Email:** `alex.yau@example.com`
 - **Password:** `nailong2`
 
-Open http://localhost:5173, sign in with that account (or register your own —
-registration works for real, against the real database).
+Open http://localhost:5173, sign in with that account (or register your own, registration works for real, against the real database).
 
 The history is dated from the day it's seeded and a routine is due that day, so for a
 demo reseed the same day (`docker compose down -v`, then `make dev`). A check-in uses the
