@@ -455,6 +455,21 @@ def test_create_update_and_delete_a_routine(client: TestClient) -> None:
     assert client.delete(f"/api/v1/workouts/routines/{routine['id']}", headers=headers).status_code == 404
 
 
+@pytest.mark.parametrize("kind", ["failure", "drop"])
+def test_a_routine_cannot_plan_failure_or_drop_sets(client: TestClient, kind: str) -> None:
+    headers = register_user(client)
+    payload = _routine_payload()
+    payload["exercises"][0]["sets"].append({"kind": kind, "targetWeightKg": 80, "targetReps": 5})
+
+    assert client.post("/api/v1/workouts/routines", headers=headers, json=payload).status_code == 422
+
+    routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload()).json()
+    updated = client.put(f"/api/v1/workouts/routines/{routine['id']}", headers=headers, json=payload)
+    assert updated.status_code == 422
+    saved = client.get("/api/v1/workouts/routines", headers=headers).json()[0]
+    assert len(saved["exercises"][0]["sets"]) == 2
+
+
 def test_one_routine_can_be_scheduled_on_several_days(client: TestClient) -> None:
     headers = register_user(client)
     routine = client.post("/api/v1/workouts/routines", headers=headers, json=_routine_payload("Push")).json()

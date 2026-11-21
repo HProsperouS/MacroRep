@@ -218,6 +218,15 @@ class PlanSetInput(CamelModel):
     target_weight_kg: float | None = Field(default=None, ge=0, le=MAX_SET_WEIGHT_KG)
     target_reps: int | None = Field(default=None, ge=1, le=MAX_REPS)
 
+    @field_validator("kind")
+    @classmethod
+    def _plannable_kind(cls, kind: SetKind) -> SetKind:
+        # Failure and drop sets are how a working set turned out, logged during the
+        # workout; a routine only plans warm-up and working sets (see targets.py).
+        if kind not in (SetKind.WARMUP, SetKind.WORKING):
+            raise ValueError("A routine can only plan warm-up and working sets")
+        return kind
+
 
 class PlanExerciseInput(CamelModel):
     exercise_id: Identifier
