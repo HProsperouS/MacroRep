@@ -18,14 +18,16 @@ export const apiClient = axios.create({
 })
 
 /**
- * Only the credential-issuing endpoints must skip the refresh-and-retry below:
+ * Only the credential-issuing endpoints (and asking for a reset code, which needs no
+ * session either) must skip the refresh-and-retry below:
  * a wrong password on `/auth/login` must reach the form as a 401, not get
  * treated as an expired-token retry. `/auth/logout`, unlike those two, does
  * require a session — it must NOT be excluded, or logging out with an
  * already-expired access token silently fails to revoke the refresh token
  * server-side while the UI still shows the user as signed out.
  */
-const isCredentialRoute = (url?: string) => url === "/auth/register" || url === "/auth/login"
+const CREDENTIAL_ROUTES = new Set(["/auth/register", "/auth/login", "/auth/password-reset", "/auth/password-reset/confirm"])
+const isCredentialRoute = (url?: string) => url !== undefined && CREDENTIAL_ROUTES.has(url)
 
 type RetriableConfig = InternalAxiosRequestConfig & { _retried?: boolean }
 

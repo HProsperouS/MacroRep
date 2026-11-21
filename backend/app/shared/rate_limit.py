@@ -39,6 +39,14 @@ REGISTRATIONS_PER_ADDRESS = Limit(10, 60 * 60)
 # Email-change codes asked for per user: each sends an email, and "already registered"
 # tells whether an address has an account.
 EMAIL_CHANGE_REQUESTS_PER_USER = Limit(5, 60 * 60)
+# Wrong current passwords per user, asked for again to change the email or password: a
+# session left signed in can't be used to guess it.
+WRONG_CURRENT_PASSWORDS_PER_USER = Limit(5, 15 * 60)
+# Password-reset codes asked for: each sends an email to someone who may not have asked.
+PASSWORD_RESETS_PER_ADDRESS = Limit(10, 60 * 60)
+PASSWORD_RESETS_PER_EMAIL = Limit(5, 60 * 60)
+# Reset codes tried from one address, across accounts (each code allows 5 tries of its own).
+RESET_CONFIRMS_PER_ADDRESS = Limit(30, 15 * 60)
 # Coach Chat questions per user: each is a paid model call. Generous for a conversation
 # about one check-in, small enough to bound the bill.
 CHAT_QUESTIONS_PER_USER = Limit(30, 60 * 60)
@@ -60,6 +68,10 @@ _LONGEST_WINDOW = max(
         LOGINS_PER_ADDRESS,
         REGISTRATIONS_PER_ADDRESS,
         EMAIL_CHANGE_REQUESTS_PER_USER,
+        WRONG_CURRENT_PASSWORDS_PER_USER,
+        PASSWORD_RESETS_PER_ADDRESS,
+        PASSWORD_RESETS_PER_EMAIL,
+        RESET_CONFIRMS_PER_ADDRESS,
     )
 )
 

@@ -31,3 +31,19 @@ export type Me = {
   name: string
   email: string
 }
+
+/** The new password replaces the current one; other devices are signed out. */
+export type ChangePasswordInput = {
+  currentPassword: string
+  newPassword: string
+}
+
+export type RequestPasswordResetInput = {
+  email: string
+}
+
+export type ConfirmPasswordResetInput = {
+  email: string
+  code: string
+  newPassword: string
+}

@@ -3,7 +3,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { authApi } from "@/api/auth-api"
 import { profileKeys } from "@/api/query-keys"
 import { clearAccessToken, setAccessToken } from "@/lib/auth"
-import type { ConfirmEmailChangeInput, LoginInput, RegisterInput, RequestEmailChangeInput } from "@/types/auth"
+import type {
+  ChangePasswordInput,
+  ConfirmEmailChangeInput,
+  ConfirmPasswordResetInput,
+  LoginInput,
+  RegisterInput,
+  RequestEmailChangeInput,
+  RequestPasswordResetInput,
+} from "@/types/auth"
 
 /**
  * Signing in clears the cache: whatever is in it was fetched under the previous
@@ -60,4 +68,28 @@ export function useConfirmEmailChange() {
 
 export function useCancelEmailChange() {
   return useMutation({ mutationFn: () => authApi.cancelEmailChange() })
+}
+
+/** The answer is a new session for this device; the old one, on every other device, stops working. */
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (input: ChangePasswordInput) => authApi.changePassword(input),
+    onSuccess: (token) => setAccessToken(token.accessToken),
+  })
+}
+
+export function useRequestPasswordReset() {
+  return useMutation({ mutationFn: (input: RequestPasswordResetInput) => authApi.requestPasswordReset(input) })
+}
+
+/** Signs in, like `useLogin`. */
+export function useConfirmPasswordReset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ConfirmPasswordResetInput) => authApi.confirmPasswordReset(input),
+    onSuccess: (token) => {
+      setAccessToken(token.accessToken)
+      queryClient.clear()
+    },
+  })
 }

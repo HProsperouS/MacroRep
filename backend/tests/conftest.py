@@ -54,6 +54,7 @@ os.environ.update(
 from app.core.database import libpq_conninfo  # noqa: E402
 from app.demo_seed import DEMO_USER_ID  # noqa: E402
 from app.main import app  # noqa: E402
+from tests.fakes import FakeMailer  # noqa: E402
 
 
 def _create_test_database() -> None:
@@ -151,3 +152,17 @@ def client() -> Iterator[TestClient]:
 @pytest.fixture
 def auth_headers() -> dict[str, str]:
     return {"X-Preview-Actor-Id": DEMO_USER_ID, "X-Correlation-ID": "test-run"}
+
+
+@pytest.fixture
+def mailer() -> Iterator[FakeMailer]:
+    """Emails the app sends, kept instead of sent."""
+
+    from app.shared.mail import get_mailer
+
+    fake = FakeMailer()
+    app.dependency_overrides[get_mailer] = lambda: fake
+    try:
+        yield fake
+    finally:
+        app.dependency_overrides.pop(get_mailer)

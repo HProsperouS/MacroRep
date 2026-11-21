@@ -9,36 +9,48 @@ construction — which `SameSite` is here to absorb (see ``Settings``).
 
 from __future__ import annotations
 
-from typing import Annotated
+import logging
+from collections.abc import Awaitable, Callable
+from typing import Annotated, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.identity.repository import UserRepository
-from app.shared.exceptions import Unauthorized
-from app.shared.mail import Mailer, get_mailer
+from app.shared.exceptions import Forbidden, Unauthorized
+from app.shared.mail import Mailer, MailError, get_mailer
 from app.shared.rate_limit import (
     EMAIL_CHANGE_REQUESTS_PER_USER,
     FAILED_LOGINS_PER_EMAIL,
     FAILED_LOGINS_PER_EMAIL_AND_ADDRESS,
     LOGINS_PER_ADDRESS,
+    PASSWORD_RESETS_PER_ADDRESS,
+    PASSWORD_RESETS_PER_EMAIL,
     REGISTRATIONS_PER_ADDRESS,
+    RESET_CONFIRMS_PER_ADDRESS,
+    WRONG_CURRENT_PASSWORDS_PER_USER,
     count_attempt,
     limiter,
 )
 
 from .schemas import (
     AccessToken,
+    ChangePasswordInput,
     ConfirmEmailChangeInput,
+    ConfirmPasswordResetInput,
     LoginInput,
     MeRead,
     RegisterInput,
     RequestEmailChangeInput,
+    RequestPasswordResetInput,
 )
-from .service import WRONG_CREDENTIALS, AuthService
+from .service import WRONG_CREDENTIALS, AuthService, Email
+
+logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
 
@@ -54,6 +66,7 @@ def get_auth_service(
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ActorDep = Annotated[ActorContext, Depends(get_current_actor)]
+MailerDep = Annotated[Mailer, Depends(get_mailer)]
 
 
 def _set_refresh_cookie(response: Response, settings: Settings, token: str) -> None:
@@ -187,7 +200,9 @@ async def request_email_change(
             (("email-change", actor.actor_id), EMAIL_CHANGE_REQUESTS_PER_USER),
             reason="Too many codes asked for.",
         )
-    await service.request_email_change(actor.actor_id, payload)
+    await _checking_current_password(
+        actor, settings, lambda: service.request_email_change(actor.actor_id, payload)
+    )
 
 
 @router.post("/auth/email-change/confirm", response_model=MeRead)
@@ -200,3 +215,88 @@ async def confirm_email_change(
 @router.delete("/auth/email-change", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_email_change(actor: ActorDep, service: AuthServiceDep) -> None:
     await service.cancel_email_change(actor.actor_id)
+
+
+async def _checking_current_password(
+    actor: ActorContext, settings: Settings, action: Callable[[], Awaitable[T]]
+) -> T:
+    """Run ``action``, which checks the current password, counting it as a wrong one until
+    it proves otherwise (as sign-in does), so attempts sent at once all count."""
+
+    if not settings.rate_limits_enabled:
+        return await action()
+    key = ("wrong-password", actor.actor_id)
+    count_attempt((key, WRONG_CURRENT_PASSWORDS_PER_USER), reason="Too many wrong passwords.")
+    try:
+        result = await action()
+    except Forbidden:
+        raise
+    except Exception:
+        limiter.undo(key)
+        raise
+    limiter.undo(key)
+    return result
+
+
+@router.put("/auth/password", response_model=AccessToken)
+async def change_password(
+    payload: ChangePasswordInput,
+    actor: ActorDep,
+    response: Response,
+    service: AuthServiceDep,
+    settings: SettingsDep,
+) -> AccessToken:
+    """Set a new password. Starts a new session here and signs out every other device."""
+
+    access_token, refresh_token = await _checking_current_password(
+        actor, settings, lambda: service.change_password(actor.actor_id, payload)
+    )
+    _set_refresh_cookie(response, settings, refresh_token)
+    return access_token
+
+
+async def _send_quietly(mailer: Mailer, email: Email) -> None:
+    try:
+        await mailer.send(email.to, email.subject, email.body)
+    except MailError:
+        logger.exception("Couldn't send a password-reset code")
+
+
+@router.post("/auth/password-reset", status_code=status.HTTP_202_ACCEPTED)
+async def request_password_reset(
+    payload: RequestPasswordResetInput,
+    request: Request,
+    background: BackgroundTasks,
+    service: AuthServiceDep,
+    settings: SettingsDep,
+    mailer: MailerDep,
+) -> None:
+    """Email a reset code if the address has an account. The answer is the same either way,
+    and the email goes out after it, so neither tells whether the account exists."""
+
+    if settings.rate_limits_enabled:
+        count_attempt(
+            (("password-reset", _address(request)), PASSWORD_RESETS_PER_ADDRESS),
+            (("password-reset", payload.email.strip().lower()), PASSWORD_RESETS_PER_EMAIL),
+            reason="Too many reset codes asked for.",
+        )
+    email = await service.request_password_reset(payload)
+    if email is not None:
+        background.add_task(_send_quietly, mailer, email)
+
+
+@router.post("/auth/password-reset/confirm", response_model=AccessToken)
+async def confirm_password_reset(
+    payload: ConfirmPasswordResetInput,
+    request: Request,
+    response: Response,
+    service: AuthServiceDep,
+    settings: SettingsDep,
+) -> AccessToken:
+    """Set a new password with the emailed code, and sign in."""
+
+    if settings.rate_limits_enabled:
+        count_attempt((("reset-confirm", _address(request)), RESET_CONFIRMS_PER_ADDRESS))
+    access_token, refresh_token = await service.confirm_password_reset(payload)
+    _set_refresh_cookie(response, settings, refresh_token)
+    return access_token

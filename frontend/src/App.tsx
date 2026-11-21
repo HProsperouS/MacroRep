@@ -17,6 +17,7 @@ const ProgressPage = lazy(() => import("@/pages/progress-page"))
 const ProfilePage = lazy(() => import("@/pages/profile-page"))
 const NotFoundPage = lazy(() => import("@/pages/not-found-page"))
 const AuthPage = lazy(() => import("@/pages/auth-page"))
+const ForgotPasswordPage = lazy(() => import("@/pages/forgot-password-page"))
 const OnboardingPage = lazy(() => import("@/pages/onboarding-page"))
 
 /**
@@ -96,6 +97,14 @@ export default function App() {
           element={
             <RedirectIfAuthenticated>
               <AuthPage mode="register" />
+            </RedirectIfAuthenticated>
+          }
+        />
+        <Route
+          path="forgot-password"
+          element={
+            <RedirectIfAuthenticated>
+              <ForgotPasswordPage />
             </RedirectIfAuthenticated>
           }
         />

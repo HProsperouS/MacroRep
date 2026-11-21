@@ -1,6 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { isAxiosError } from "axios"
-import { useState, type FormEvent } from "react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
@@ -12,6 +11,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/text-field"
 import { useCancelEmailChange, useConfirmEmailChange, useRequestEmailChange } from "@/hooks/use-auth"
 import { useOverlayLayout } from "@/hooks/use-media-query"
+import { errorStatus as status, submitOnly } from "@/lib/password"
 
 const requestSchema = z.object({
   newEmail: z.string().trim().min(1, "Enter your new email").email("Enter a valid email"),
@@ -28,8 +28,6 @@ const confirmSchema = z.object({
 type ConfirmValues = z.infer<typeof confirmSchema>
 
 type Step = { layout: OverlayLayout; newEmail: string | null } | null
-
-const status = (error: unknown) => (isAxiosError(error) ? error.response?.status : undefined)
 
 /** The "Change" button beside the email, and the two steps it opens: new email and password, then the code
  * sent to it. The email only changes once the code is confirmed. */
@@ -66,14 +64,6 @@ export function ChangeEmail({ currentEmail, disabled = false }: { currentEmail: 
   )
 }
 
-/** The overlay is portalled, but React still bubbles its submit to the profile form around the button. */
-function submitOnly(handler: (event: FormEvent<HTMLFormElement>) => Promise<void>) {
-  return (event: FormEvent<HTMLFormElement>) => {
-    event.stopPropagation()
-    void handler(event)
-  }
-}
-
 function RequestStep({ onSent, onCancel }: { onSent: (newEmail: string) => void; onCancel: () => void }) {
   const request = useRequestEmailChange()
   const {
@@ -88,7 +78,7 @@ function RequestStep({ onSent, onCancel }: { onSent: (newEmail: string) => void;
       onSuccess: () => onSent(values.newEmail.trim().toLowerCase()),
       onError: (error) => {
         const message = apiErrorMessage(error)
-        if (status(error) === 401) setError("password", { message })
+        if (status(error) === 403) setError("password", { message })
         else if (status(error) === 409 || status(error) === 422) setError("newEmail", { message })
         else toast.error("Couldn’t send the code", { description: message })
       },

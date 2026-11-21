@@ -54,6 +54,11 @@ export default function AuthPage({ mode }: { mode: AuthMode }) {
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
             <AuthForm mode={mode} submitting={login.isPending || register.isPending} onSubmit={submit} />
+            {mode === "login" ? (
+              <Link to="/forgot-password" className="-mt-2 text-sm font-medium text-primary hover:underline">
+                Forgot password?
+              </Link>
+            ) : null}
             <p className="text-sm text-muted-foreground">
               {copy.prompt}{" "}
               <Link to={copy.linkTo} className="font-medium text-primary hover:underline">

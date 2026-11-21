@@ -822,7 +822,6 @@ def test_the_snapshot_counts_working_sets_only(client: TestClient) -> None:
                     "sets": [
                         {"kind": "warmup", "targetWeightKg": 40, "targetReps": 10},
                         *[{"kind": "working", "targetWeightKg": 80, "targetReps": 5}] * 3,
-                        {"kind": "drop", "targetWeightKg": 120, "targetReps": 3},
                     ],
                 }
             ],
@@ -866,7 +865,8 @@ def test_the_snapshot_counts_working_sets_only(client: TestClient) -> None:
     assert client.portal is not None
     routines, trends = client.portal.call(read)
     exercise = routines[0]["exercises"][0]  # type: ignore[index]
-    assert (exercise["working_sets"], exercise["target_weight_kg"]) == (3, 80.0), "no warm-up or drop set"
+    # A routine can't plan failure or drop sets (they're logged), so only the warm-up is left out.
+    assert (exercise["working_sets"], exercise["target_weight_kg"]) == (3, 80.0), "no warm-up set"
     assert trends["exercise-bench-press"]["recent_avg_rpe"] == 7.0, "the failure set's RPE 10 is left out"  # type: ignore[index]
 
 

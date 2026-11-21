@@ -3,35 +3,40 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.identity.models import EmailChangeRequest, User, UserStatus
+from app.identity.models import EmailChangeRequest, PasswordResetRequest, User, UserStatus
 from app.identity.repository import UserRepository
-from app.shared.exceptions import Conflict, Invalid, NotFound, Unauthorized, Unavailable
+from app.shared.exceptions import Conflict, Forbidden, Invalid, NotFound, Unauthorized, Unavailable
 from app.shared.mail import LogMailer, Mailer, MailError
 
+from .passwords import check_new_password
 from .schemas import (
     AccessToken,
+    ChangePasswordInput,
     ConfirmEmailChangeInput,
+    ConfirmPasswordResetInput,
     LoginInput,
     MeRead,
     RegisterInput,
     RequestEmailChangeInput,
+    RequestPasswordResetInput,
 )
 from .security import (
+    CODE_TTL,
     DUMMY_PASSWORD_HASH,
-    EMAIL_CODE_TTL,
-    MAX_EMAIL_CODE_ATTEMPTS,
+    MAX_CODE_ATTEMPTS,
+    code_matches,
     create_access_token,
-    email_code_matches,
-    hash_email_code,
+    hash_code,
     hash_password,
     hash_refresh_token,
-    new_email_code,
+    new_code,
     new_refresh_token,
     refresh_expiry,
     verify_password,
@@ -43,6 +48,23 @@ logger = logging.getLogger(__name__)
 WRONG_CREDENTIALS = "Incorrect email or password"
 EMAIL_TAKEN = "That email is already registered"
 NO_PENDING_CHANGE = "There's no email change waiting, or its code expired. Ask for a new code."
+WRONG_CURRENT_PASSWORD = "Incorrect password"
+# One answer for an unknown email, no reset asked for, an expired code and a wrong one.
+BAD_RESET_CODE = "That code isn't right or has expired. Check it, or ask for a new one."
+CODE_MINUTES = int(CODE_TTL.total_seconds() // 60)
+
+
+@dataclass(frozen=True)
+class Email:
+    to: str
+    subject: str
+    body: str
+
+
+def _require_usable(password: str, email: str) -> None:
+    reason = check_new_password(password, email)
+    if reason is not None:
+        raise Invalid(reason)
 
 
 class AuthService:
@@ -69,6 +91,7 @@ class AuthService:
 
     async def register(self, payload: RegisterInput) -> tuple[AccessToken, str]:
         email = payload.email.strip().lower()
+        _require_usable(payload.password, email)
         if await self.users.get_by_email(email) is not None:
             raise Conflict(EMAIL_TAKEN)
         user = User(
@@ -160,33 +183,32 @@ class AuthService:
         if user is None:
             raise NotFound("User not found")
         if user.password_hash is None or not verify_password(user.password_hash, payload.password):
-            raise Unauthorized("Incorrect password")
+            raise Forbidden(WRONG_CURRENT_PASSWORD)
         new_email = payload.new_email.strip().lower()
         if new_email == user.email:
             raise Invalid("That's already your email")
         if await self.users.get_by_email(new_email) is not None:
             raise Conflict(EMAIL_TAKEN)
 
-        code = new_email_code()
+        code = new_code()
         await self.users.delete_email_change(user.id)
         self.session.add(
             EmailChangeRequest(
                 user_id=user.id,
                 new_email=new_email,
-                code_hash=hash_email_code(user.id, code, self.settings),
-                expires_at=datetime.now(UTC) + EMAIL_CODE_TTL,
+                code_hash=hash_code("email-change", user.id, code, self.settings),
+                expires_at=datetime.now(UTC) + CODE_TTL,
                 attempts=0,
             )
         )
         await self.session.flush()
-        minutes = int(EMAIL_CODE_TTL.total_seconds() // 60)
         try:
             await self.mailer.send(
                 new_email,
                 "Your MacroRep verification code",
                 f"Hi {user.name},\n\n"
                 f"Your code to make {new_email} your MacroRep sign-in email is {code}.\n"
-                f"It expires in {minutes} minutes.\n\n"
+                f"It expires in {CODE_MINUTES} minutes.\n\n"
                 "If you didn't ask for this, you can ignore this email.",
             )
         except MailError:
@@ -205,9 +227,9 @@ class AuthService:
             await self.session.delete(pending)
             await self.session.commit()
             raise Invalid(NO_PENDING_CHANGE)
-        if not email_code_matches(pending.code_hash, user_id, payload.code, self.settings):
+        if not code_matches(pending.code_hash, "email-change", user_id, payload.code, self.settings):
             pending.attempts += 1
-            if pending.attempts >= MAX_EMAIL_CODE_ATTEMPTS:
+            if pending.attempts >= MAX_CODE_ATTEMPTS:
                 await self.session.delete(pending)
                 await self.session.commit()
                 raise Invalid("Too many wrong codes. Ask for a new code.")
@@ -245,3 +267,111 @@ class AuthService:
     async def cancel_email_change(self, user_id: str) -> None:
         await self.users.delete_email_change(user_id)
         await self.session.commit()
+
+    async def _notify(self, email: Email, what: str, user_id: str) -> None:
+        """Best effort: the change is made, a missing notice shouldn't undo it."""
+
+        try:
+            await self.mailer.send(email.to, email.subject, email.body)
+        except MailError:
+            logger.exception("Couldn't send the %s notice for user %s", what, user_id)
+
+    async def change_password(self, user_id: str, payload: ChangePasswordInput) -> tuple[AccessToken, str]:
+        """Set a new password and start a new session here. Other devices are signed out:
+        only one refresh token is kept, and this replaces it."""
+
+        user = await self.session.get(User, user_id, with_for_update=True)
+        if user is None:
+            raise NotFound("User not found")
+        if user.password_hash is None or not verify_password(user.password_hash, payload.current_password):
+            raise Forbidden(WRONG_CURRENT_PASSWORD)
+        if verify_password(user.password_hash, payload.new_password):
+            raise Invalid("That's your current password. Pick a new one")
+        _require_usable(payload.new_password, user.email)
+
+        user.password_hash = hash_password(payload.new_password)
+        user.touch()
+        issued = self._issue(user)
+        await self.session.commit()
+        await self._notify(
+            Email(
+                user.email,
+                "Your MacroRep password was changed",
+                f"Hi {user.name},\n\n"
+                "Your MacroRep password was just changed, and your other devices were signed out.\n\n"
+                "If you didn't do this, reset your password straight away from the sign-in page.",
+            ),
+            "password-changed",
+            user.id,
+        )
+        return issued
+
+    async def request_password_reset(self, payload: RequestPasswordResetInput) -> Email | None:
+        """Store a new reset code for the account, if there is one, and return the email to
+        send. The caller answers the same either way and sends it after responding, so the
+        answer doesn't tell which emails have accounts."""
+
+        user = await self.users.get_by_email(payload.email.strip().lower())
+        if user is None or user.status is not UserStatus.ACTIVE or user.password_hash is None:
+            return None
+        code = new_code()
+        await self.users.delete_password_reset(user.id)
+        self.session.add(
+            PasswordResetRequest(
+                user_id=user.id,
+                code_hash=hash_code("password-reset", user.id, code, self.settings),
+                expires_at=datetime.now(UTC) + CODE_TTL,
+                attempts=0,
+            )
+        )
+        await self.session.commit()
+        return Email(
+            user.email,
+            "Reset your MacroRep password",
+            f"Hi {user.name},\n\n"
+            f"Your code to reset your MacroRep password is {code}.\n"
+            f"It expires in {CODE_MINUTES} minutes.\n\n"
+            "If you didn't ask for this, you can ignore this email: your password stays as it is.",
+        )
+
+    async def confirm_password_reset(self, payload: ConfirmPasswordResetInput) -> tuple[AccessToken, str]:
+        """Set the new password if the code is right, and sign in here. Every other device
+        is signed out."""
+
+        user = await self.users.get_by_email(payload.email.strip().lower())
+        if user is None or user.status is not UserStatus.ACTIVE:
+            raise Invalid(BAD_RESET_CODE)
+        pending = await self.users.get_password_reset_locked(user.id)
+        if pending is None:
+            raise Invalid(BAD_RESET_CODE)
+        if pending.expires_at <= datetime.now(UTC):
+            await self.session.delete(pending)
+            await self.session.commit()
+            raise Invalid(BAD_RESET_CODE)
+        if not code_matches(pending.code_hash, "password-reset", user.id, payload.code, self.settings):
+            pending.attempts += 1
+            if pending.attempts >= MAX_CODE_ATTEMPTS:
+                await self.session.delete(pending)
+            await self.session.commit()
+            raise Invalid(BAD_RESET_CODE)
+        # Checked after the code, so a weak password doesn't spend it: they can try another.
+        _require_usable(payload.new_password, user.email)
+
+        user.password_hash = hash_password(payload.new_password)
+        user.touch()
+        await self.session.delete(pending)
+        issued = self._issue(user)
+        await self.session.commit()
+        await self._notify(
+            Email(
+                user.email,
+                "Your MacroRep password was reset",
+                f"Hi {user.name},\n\n"
+                "Your MacroRep password was reset with a code sent to this email, and your other "
+                "devices were signed out.\n\n"
+                "If you didn't do this, reset it again now and keep this inbox secure.",
+            ),
+            "password-reset",
+            user.id,
+        )
+        return issued

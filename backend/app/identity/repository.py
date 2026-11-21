@@ -7,7 +7,7 @@ from typing import cast
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import EmailChangeRequest, User
+from .models import EmailChangeRequest, PasswordResetRequest, User
 
 
 class UserRepository:
@@ -57,3 +57,18 @@ class UserRepository:
 
     async def delete_email_change(self, user_id: str) -> None:
         await self.session.execute(delete(EmailChangeRequest).where(EmailChangeRequest.user_id == user_id))
+
+    async def get_password_reset_locked(self, user_id: str) -> PasswordResetRequest | None:
+        """The user's pending password reset, row-locked like ``get_email_change_locked``."""
+
+        return cast(
+            "PasswordResetRequest | None",
+            await self.session.scalar(
+                select(PasswordResetRequest).where(PasswordResetRequest.user_id == user_id).with_for_update()
+            ),
+        )
+
+    async def delete_password_reset(self, user_id: str) -> None:
+        await self.session.execute(
+            delete(PasswordResetRequest).where(PasswordResetRequest.user_id == user_id)
+        )

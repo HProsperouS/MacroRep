@@ -4,6 +4,7 @@ import { Controller, useForm, useWatch, type Control, type UseFormRegisterReturn
 import { z } from "zod"
 
 import { ChangeEmail } from "@/components/profile/change-email"
+import { ChangePassword } from "@/components/profile/change-password"
 import { ActivityChoice, ExperienceChoice, GoalChoice, SexChoice } from "@/components/profile/profile-choices"
 import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
@@ -57,6 +58,15 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
             {/* Lined up with the input, below the label. */}
             <div className="pt-[1.375rem]">
               <ChangeEmail currentEmail={profile.email} disabled={submitting} />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex items-start gap-2 sm:col-start-2">
+            <TextField id="profile-password" label="Password" type="password" value="••••••••" readOnly disabled description="Changing it signs out your other devices" className="flex-1" />
+            <div className="pt-[1.375rem]">
+              <ChangePassword disabled={submitting} />
             </div>
           </div>
         </div>

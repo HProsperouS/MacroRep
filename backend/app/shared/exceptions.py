@@ -31,6 +31,14 @@ class Unauthorized(DomainError):
     """Wrong or missing credentials, or a disabled account."""
 
 
+class Forbidden(DomainError):
+    """Signed in, but a check of its own failed, e.g. the current password asked for again.
+
+    Not ``Unauthorized``: a 401 tells the client its session expired, and it would refresh
+    and send the request again.
+    """
+
+
 class Unavailable(DomainError):
     """Something the request needs (the AI model) couldn't answer just now."""
 

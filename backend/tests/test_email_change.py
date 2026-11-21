@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import re
 import uuid
-from collections.abc import Iterator
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -16,45 +13,11 @@ from sqlalchemy import select, update
 from app.core.config import Settings
 from app.core.database import get_session_factory
 from app.identity.models import EmailChangeRequest
-from app.main import app
-from app.shared.mail import MailError, get_mailer
+from tests.fakes import FakeMailer
 from tests.helpers import TEST_PASSWORD, login, register
 
 REQUEST = "/api/v1/auth/email-change"
 CONFIRM = "/api/v1/auth/email-change/confirm"
-
-
-@dataclass
-class Sent:
-    to: str
-    subject: str
-    body: str
-
-
-@dataclass
-class FakeMailer:
-    sent: list[Sent] = field(default_factory=list)
-    fail: bool = False
-
-    async def send(self, to: str, subject: str, body: str) -> None:
-        if self.fail:
-            raise MailError("SMTP is down")
-        self.sent.append(Sent(to, subject, body))
-
-    def last_code(self) -> str:
-        found = re.search(r"\b(\d{6})\b", self.sent[-1].body)
-        assert found is not None
-        return found.group(1)
-
-
-@pytest.fixture
-def mailer() -> Iterator[FakeMailer]:
-    fake = FakeMailer()
-    app.dependency_overrides[get_mailer] = lambda: fake
-    try:
-        yield fake
-    finally:
-        app.dependency_overrides.pop(get_mailer)
 
 
 def _new_account(client: TestClient) -> tuple[str, dict[str, str]]:
@@ -106,7 +69,8 @@ def test_asking_needs_the_right_password_and_a_new_free_email(client: TestClient
     old, headers = _new_account(client)
     taken, _ = _new_account(client)
 
-    assert _ask(client, headers, "fresh@example.com", password="wrong-password") == 401
+    # 403, not 401: the session is fine, and a 401 would make the client refresh and retry.
+    assert _ask(client, headers, "fresh@example.com", password="wrong-password") == 403
     assert _ask(client, headers, old.upper()) == 422
     assert _ask(client, headers, taken) == 409
     assert _ask(client, headers, "not-an-email") == 422

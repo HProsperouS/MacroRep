@@ -8,7 +8,16 @@ from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from .exceptions import Conflict, DomainError, Invalid, NotFound, TooMany, Unauthorized, Unavailable
+from .exceptions import (
+    Conflict,
+    DomainError,
+    Forbidden,
+    Invalid,
+    NotFound,
+    TooMany,
+    Unauthorized,
+    Unavailable,
+)
 
 _VALUE_ERROR_PREFIX = "Value error, "
 _STATUS: dict[type[DomainError], int] = {
@@ -16,6 +25,7 @@ _STATUS: dict[type[DomainError], int] = {
     Conflict: status.HTTP_409_CONFLICT,
     Invalid: status.HTTP_422_UNPROCESSABLE_CONTENT,
     Unauthorized: status.HTTP_401_UNAUTHORIZED,
+    Forbidden: status.HTTP_403_FORBIDDEN,
     Unavailable: status.HTTP_503_SERVICE_UNAVAILABLE,
     TooMany: status.HTTP_429_TOO_MANY_REQUESTS,
 }

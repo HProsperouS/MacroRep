@@ -44,7 +44,7 @@ class EmailChangeRequest(TimestampMixin, Base):
     """A new sign-in email waiting to be confirmed with the code sent to it.
 
     At most one per user: asking again replaces it. Only the code's HMAC is stored
-    (see ``app.auth.security.hash_email_code``), and it stops working after its expiry or
+    (see ``app.auth.security.hash_code``), and it stops working after its expiry or
     too many wrong tries.
     """
 
@@ -54,6 +54,20 @@ class EmailChangeRequest(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     new_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class PasswordResetRequest(TimestampMixin, Base):
+    """A forgotten password waiting for the code emailed to the account. At most one per
+    user; asking again replaces it. Only the code's HMAC is stored, as for email changes."""
+
+    __tablename__ = "password_reset_requests"
+    __table_args__ = (Index("uq_password_reset_requests_user", "user_id", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

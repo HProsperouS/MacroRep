@@ -70,7 +70,7 @@ describe("ChangeEmail", () => {
   })
 
   it("shows a wrong password and a taken email on their fields", async () => {
-    authApi.requestEmailChange.mockRejectedValueOnce(refused(401, "Incorrect password"))
+    authApi.requestEmailChange.mockRejectedValueOnce(refused(403, "Incorrect password"))
     authApi.requestEmailChange.mockRejectedValueOnce(refused(409, "That email is already registered"))
     const user = userEvent.setup()
     renderChangeEmail()

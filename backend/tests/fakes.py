@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
 
 from app.coach.agents.model import AgentTask, ModelReply
+from app.shared.mail import MailError
 
 # A reply (a JSON object, or text), a function of the task giving one, or an error to raise.
 Answer = Mapping[str, Any] | str | Callable[[AgentTask[Any]], Any] | BaseException | type[BaseException]
@@ -79,3 +82,31 @@ def use_moderator(monkeypatch: pytest.MonkeyPatch, moderator: Any) -> None:
     """Make Coach Chat screen its questions with ``moderator``."""
 
     monkeypatch.setattr("app.coach.factory.get_moderator", lambda: moderator)
+
+
+@dataclass
+class Sent:
+    to: str
+    subject: str
+    body: str
+
+
+@dataclass
+class FakeMailer:
+    """Keeps every email instead of sending it (the ``mailer`` fixture), or fails each one."""
+
+    sent: list[Sent] = field(default_factory=list)
+    fail: bool = False
+
+    async def send(self, to: str, subject: str, body: str) -> None:
+        if self.fail:
+            raise MailError("SMTP is down")
+        self.sent.append(Sent(to, subject, body))
+
+    def to(self, address: str) -> list[Sent]:
+        return [email for email in self.sent if email.to == address]
+
+    def last_code(self) -> str:
+        found = re.search(r"\b(\d{6})\b", self.sent[-1].body)
+        assert found is not None
+        return found.group(1)

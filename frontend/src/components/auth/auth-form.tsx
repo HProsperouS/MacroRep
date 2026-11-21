@@ -6,6 +6,7 @@ import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
+import { MAX_PASSWORD_LENGTH, NEW_PASSWORD_HINT, newPassword } from "@/lib/password"
 
 export type AuthMode = "login" | "register"
 
@@ -15,19 +16,13 @@ export type AuthCredentials = {
   password: string
 }
 
-/** Mirrors the API's minimum (`app/auth/schemas.py`), so the rule is stated before the round trip. */
-const MIN_PASSWORD_LENGTH = 8
-
 /** `name` is only collected when registering, so it is only required then. */
 const authSchema = (mode: AuthMode) =>
   z
     .object({
       name: z.string().trim().max(60, "Keep it under 60 characters"),
       email: z.string().trim().min(1, "Enter your email").email("Enter a valid email"),
-      password: z
-        .string()
-        .min(mode === "register" ? MIN_PASSWORD_LENGTH : 1, mode === "register" ? `Use at least ${MIN_PASSWORD_LENGTH} characters` : "Enter your password")
-        .max(128, "Keep it under 128 characters"),
+      password: mode === "register" ? newPassword : z.string().min(1, "Enter your password").max(MAX_PASSWORD_LENGTH, `Keep it under ${MAX_PASSWORD_LENGTH} characters`),
     })
     .refine((values) => mode === "login" || values.name.length > 0, {
       path: ["name"],
@@ -81,7 +76,7 @@ export function AuthForm({ mode, submitting, onSubmit }: AuthFormProps) {
           label="Password"
           type="password"
           autoComplete={mode === "register" ? "new-password" : "current-password"}
-          description={mode === "register" ? `At least ${MIN_PASSWORD_LENGTH} characters` : undefined}
+          description={mode === "register" ? NEW_PASSWORD_HINT : undefined}
           error={errors.password?.message}
           disabled={submitting}
           {...register("password")}
