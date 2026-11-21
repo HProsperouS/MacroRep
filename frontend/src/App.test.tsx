@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { AxiosError } from "axios"
 import { MemoryRouter } from "react-router-dom"
 import { toast } from "sonner"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 import App from "@/App"
 import { clearAccessToken, getAccessToken, setAccessToken } from "@/lib/auth"
@@ -29,6 +29,12 @@ function renderAt(url: string) {
     </MemoryRouter>,
   )
 }
+
+// The sign-in pages aren't mocked, and App loads them lazily: import them once up front, so the first
+// test to reach one isn't racing a cold import against findBy's 1 s wait.
+beforeAll(async () => {
+  await Promise.all([import("@/pages/auth-page"), import("@/pages/forgot-password-page")])
+})
 
 beforeEach(() => {
   clearAccessToken()
