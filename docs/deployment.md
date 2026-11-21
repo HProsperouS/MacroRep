@@ -82,18 +82,22 @@ values, so a misconfiguration fails fast instead of running.
 | `PREVIEW_AUTH_ENABLED` | `false` | Required in production (it's a local testing shortcut). |
 | `AUTO_CREATE_SCHEMA` | `false` | Required in production: the schema comes from Alembic. |
 | `SEED_DEMO_DATA` | `false` | Required in production. For a demo environment, see below. |
+| `SEED_DEMO_HISTORY` | `false` | Required in production (four weeks of demo logs on top of the demo seed). |
+| `RATE_LIMITS_ENABLED` | `true` | The default. Only the end-to-end tests turn it off; startup doesn't check it, so never set it to `false` in a deployment. |
 | `DEBUG` | `false` | Required in production. |
 | `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW` | e.g. `5`, `5` | Per task. See the connection budget. |
 | `COACH_MODEL_PROVIDER` | `openai` | Or `fake` (rule-based) for a demo without a key. |
-| `OPENAI_API_KEY` | from Secrets Manager | Required with `openai`. |
+| `OPENAI_API_KEY` | from Secrets Manager | Required with `openai`. Also used to screen Coach Chat messages with OpenAI's moderation endpoint (`app/coach/agents/moderation.py`). |
 | `OPENAI_MODEL` | `gpt-5.4-mini` | The default. |
 | `OPENAI_REASONING_EFFORT` | `low` | The default; empty for a model without reasoning. |
+| `OPENAI_TIMEOUT_SECONDS` | `20` | The default, per model call; at most 25 so a retry fits in an agent step's 60 s. |
 | `LOG_JSON` | `true` | One JSON object per line, for CloudWatch. |
 | `LOG_LEVEL` | `INFO` | |
 | `LOG_DIR` | unset | Log files are for local development; a container's logs are collected from stdout. |
 
 For a **demo** environment that should come with the seeded demo account, the app has to
-run with `APP_ENV=local`, since production refuses `SEED_DEMO_DATA=true`. That also turns
+run with `APP_ENV=local`, since production refuses `SEED_DEMO_DATA=true` (and
+`SEED_DEMO_HISTORY=true`). That also turns
 off every production start-up check, so on anything reachable from the internet set these
 yourself, all of them:
 
@@ -187,7 +191,11 @@ finishes or fails.
   days can't be turned back into one plan per day. Downgrading `e3b6c9f2d4a7` turns its
   `running` and `failed` check-ins into `reviewed`, which older code can read. Downgrading
   `b4e7c1a9d2f8` is **not safe once a failure or drop set has been logged**: PostgreSQL
-  can't drop the enum values, and older code fails to read those sets. Take a manual RDS
+  can't drop the enum values, and older code fails to read those sets. Some downgrades
+  lose data the newer code wrote: `b2f6d8a4c1e9` drops every exercise note,
+  `d3a7c5e1f9b2` drops each set's computed load and each workout's logged bodyweight
+  (what was typed is kept), and `e8b4f2a6c3d9` turns photo-logged food entries into quick
+  adds. Take a manual RDS
   snapshot before running migrations, and restore from it rather than downgrade in that
   case, or when a downgrade isn't possible.
 - **Frontend:** restore the previous object versions in S3 and invalidate CloudFront.
