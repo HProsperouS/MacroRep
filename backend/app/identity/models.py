@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Index, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,3 +38,22 @@ class User(TimestampMixin, Base):
     status: Mapped[UserStatus] = mapped_column(
         SAEnum(UserStatus, name="user_status"), nullable=False, default=UserStatus.ACTIVE
     )
+
+
+class EmailChangeRequest(TimestampMixin, Base):
+    """A new sign-in email waiting to be confirmed with the code sent to it.
+
+    At most one per user: asking again replaces it. Only the code's HMAC is stored
+    (see ``app.auth.security.hash_email_code``), and it stops working after its expiry or
+    too many wrong tries.
+    """
+
+    __tablename__ = "email_change_requests"
+    __table_args__ = (Index("uq_email_change_requests_user", "user_id", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: uuid.uuid4().hex)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    new_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

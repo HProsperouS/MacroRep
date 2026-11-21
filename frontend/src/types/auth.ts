@@ -14,3 +14,20 @@ export type LoginInput = {
   email: string
   password: string
 }
+
+/** Asks for a code at `newEmail`; the sign-in email changes only once it's confirmed. */
+export type RequestEmailChangeInput = {
+  newEmail: string
+  password: string
+}
+
+export type ConfirmEmailChangeInput = {
+  code: string
+}
+
+/** The signed-in user, as `/users/me` and a confirmed email change return it. */
+export type Me = {
+  id: string
+  name: string
+  email: string
+}

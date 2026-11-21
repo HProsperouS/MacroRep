@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 
 import { authApi } from "@/api/auth-api"
+import { profileKeys } from "@/api/query-keys"
 import { clearAccessToken, setAccessToken } from "@/lib/auth"
-import type { LoginInput, RegisterInput } from "@/types/auth"
+import type { ConfirmEmailChangeInput, LoginInput, RegisterInput, RequestEmailChangeInput } from "@/types/auth"
 
 /**
  * Signing in clears the cache: whatever is in it was fetched under the previous
@@ -41,4 +42,22 @@ export function useLogout() {
       queryClient.clear()
     },
   })
+}
+
+/** Sends a code to the new email. Asking again sends a new code. */
+export function useRequestEmailChange() {
+  return useMutation({ mutationFn: (input: RequestEmailChangeInput) => authApi.requestEmailChange(input) })
+}
+
+export function useConfirmEmailChange() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ConfirmEmailChangeInput) => authApi.confirmEmailChange(input),
+    // The profile shows the email.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: profileKeys.all }),
+  })
+}
+
+export function useCancelEmailChange() {
+  return useMutation({ mutationFn: () => authApi.cancelEmailChange() })
 }

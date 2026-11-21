@@ -3,6 +3,7 @@ import { TriangleAlert } from "lucide-react"
 import { Controller, useForm, useWatch, type Control, type UseFormRegisterReturn } from "react-hook-form"
 import { z } from "zod"
 
+import { ChangeEmail } from "@/components/profile/change-email"
 import { ActivityChoice, ExperienceChoice, GoalChoice, SexChoice } from "@/components/profile/profile-choices"
 import { TextField } from "@/components/ui/text-field"
 import { Button } from "@/components/ui/button"
@@ -51,7 +52,13 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
       <FieldGroup>
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField id="profile-name" label="Name" autoComplete="name" error={errors.name?.message} disabled={submitting} {...register("name")} />
-          <TextField id="profile-email" label="Email" value={profile.email} readOnly disabled description="Used to sign in" />
+          <div className="flex items-start gap-2">
+            <TextField id="profile-email" label="Email" value={profile.email} readOnly disabled description="Used to sign in" className="flex-1" />
+            {/* Lined up with the input, below the label. */}
+            <div className="pt-[1.375rem]">
+              <ChangeEmail currentEmail={profile.email} disabled={submitting} />
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

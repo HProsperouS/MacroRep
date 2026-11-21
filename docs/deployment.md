@@ -47,7 +47,7 @@ These need doing once, by hand or in infrastructure code (none exists yet):
    tasks and RDS. The ALB accepts traffic only from CloudFront (the AWS-managed
    CloudFront prefix list); RDS accepts connections only from the tasks' security group.
 2. **RDS PostgreSQL 17**, encrypted, automated backups with point-in-time recovery on.
-3. **Secrets Manager** entries for `DATABASE_URL` and `JWT_SECRET_KEY` (see below).
+3. **Secrets Manager** entries for `DATABASE_URL`, `JWT_SECRET_KEY` and `SMTP_PASSWORD` (see below).
 4. **ECR repository** for the backend image.
 5. **ECS cluster, task definition and service**, with the target group's health check on
    `/health/ready`.
@@ -91,6 +91,10 @@ values, so a misconfiguration fails fast instead of running.
 | `OPENAI_MODEL` | `gpt-5.4-mini` | The default. |
 | `OPENAI_REASONING_EFFORT` | `low` | The default; empty for a model without reasoning. |
 | `OPENAI_TIMEOUT_SECONDS` | `20` | The default, per model call; at most 25 so a retry fits in an agent step's 60 s. |
+| `SMTP_HOST`, `SMTP_FROM` | e.g. `email-smtp.<region>.amazonaws.com`, `MacroRep <no-reply@your-domain>` | Required in production: without them emails, including email-change codes, would only be logged. |
+| `SMTP_PORT`, `SMTP_STARTTLS` | `587`, `true` | The defaults. |
+| `SMTP_USERNAME` | the SMTP user | |
+| `SMTP_PASSWORD` | from Secrets Manager | |
 | `LOG_JSON` | `true` | One JSON object per line, for CloudWatch. |
 | `LOG_LEVEL` | `INFO` | |
 | `LOG_DIR` | unset | Log files are for local development; a container's logs are collected from stdout. |

@@ -37,3 +37,13 @@ class MeRead(CamelModel):
     id: str
     name: str
     email: str
+
+
+class RequestEmailChangeInput(CamelModel):
+    new_email: EmailStr
+    # The current password, so a session left signed in can't move the account elsewhere.
+    password: str = Field(min_length=1, max_length=128)
+
+
+class ConfirmEmailChangeInput(CamelModel):
+    code: str = Field(pattern=r"^\d{6}$")

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import cast
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import User
+from .models import EmailChangeRequest, User
 
 
 class UserRepository:
@@ -43,3 +43,17 @@ class UserRepository:
         self.session.add(user)
         await self.session.flush()
         return user
+
+    async def get_email_change_locked(self, user_id: str) -> EmailChangeRequest | None:
+        """The user's pending email change, row-locked until the caller commits, so two
+        confirmations at once can't both spend the same attempt."""
+
+        return cast(
+            "EmailChangeRequest | None",
+            await self.session.scalar(
+                select(EmailChangeRequest).where(EmailChangeRequest.user_id == user_id).with_for_update()
+            ),
+        )
+
+    async def delete_email_change(self, user_id: str) -> None:
+        await self.session.execute(delete(EmailChangeRequest).where(EmailChangeRequest.user_id == user_id))

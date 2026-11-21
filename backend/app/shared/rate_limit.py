@@ -36,6 +36,9 @@ LOGINS_PER_ADDRESS = Limit(30, 15 * 60)
 # Sign-ups from one address, including refused ones: "already registered" tells whether
 # an email has an account, so this also slows checking addresses in bulk.
 REGISTRATIONS_PER_ADDRESS = Limit(10, 60 * 60)
+# Email-change codes asked for per user: each sends an email, and "already registered"
+# tells whether an address has an account.
+EMAIL_CHANGE_REQUESTS_PER_USER = Limit(5, 60 * 60)
 # Coach Chat questions per user: each is a paid model call. Generous for a conversation
 # about one check-in, small enough to bound the bill.
 CHAT_QUESTIONS_PER_USER = Limit(30, 60 * 60)
@@ -56,6 +59,7 @@ _LONGEST_WINDOW = max(
         FAILED_LOGINS_PER_EMAIL,
         LOGINS_PER_ADDRESS,
         REGISTRATIONS_PER_ADDRESS,
+        EMAIL_CHANGE_REQUESTS_PER_USER,
     )
 )
 

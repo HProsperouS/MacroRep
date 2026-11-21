@@ -9,6 +9,7 @@ stored digest on every refresh gives us server-side revocation.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -90,3 +91,26 @@ def new_refresh_token() -> tuple[str, str]:
 
 def refresh_expiry(settings: Settings) -> datetime:
     return datetime.now(UTC) + timedelta(days=settings.refresh_token_ttl_days)
+
+
+# The code that confirms a new sign-in email (see AuthService.request_email_change).
+EMAIL_CODE_DIGITS = 6
+EMAIL_CODE_TTL = timedelta(minutes=15)
+# Wrong codes before the request is dropped: a 1-in-200,000 chance of guessing it.
+MAX_EMAIL_CODE_ATTEMPTS = 5
+
+
+def new_email_code() -> str:
+    return f"{secrets.randbelow(10**EMAIL_CODE_DIGITS):0{EMAIL_CODE_DIGITS}d}"
+
+
+def hash_email_code(user_id: str, code: str, settings: Settings) -> str:
+    """Keyed with the server secret: a million possible codes would make a plain hash
+    quick to reverse from a leaked row."""
+
+    message = f"{user_id}:{code}".encode()
+    return hmac.new(settings.jwt_secret_key.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def email_code_matches(stored_hash: str, user_id: str, code: str, settings: Settings) -> bool:
+    return hmac.compare_digest(stored_hash, hash_email_code(user_id, code, settings))

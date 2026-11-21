@@ -93,6 +93,16 @@ class Settings(BaseSettings):
     # agent step's 60 s limit (see NODE_TIMEOUT_SECONDS).
     openai_timeout_seconds: float = Field(default=20, alias="OPENAI_TIMEOUT_SECONDS", gt=0, le=25)
 
+    # Outgoing email (app/shared/mail.py), e.g. the code that confirms a new sign-in email.
+    # Without SMTP_HOST messages are written to the log instead; production requires it.
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT", ge=1, le=65535)
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: SecretStr | None = Field(default=None, alias="SMTP_PASSWORD")
+    # The sender, e.g. "MacroRep <no-reply@example.com>".
+    smtp_from: str | None = Field(default=None, alias="SMTP_FROM")
+    smtp_starttls: bool = Field(default=True, alias="SMTP_STARTTLS")
+
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_json: bool = Field(default=True, alias="LOG_JSON")
     # Also keep logs in daily files here (relative paths are under backend/). Unset: console only,
@@ -135,6 +145,13 @@ class Settings(BaseSettings):
 
         return (value.strip() or None) if isinstance(value, str) else value
 
+    @field_validator("smtp_host", "smtp_username", "smtp_password", "smtp_from", mode="before")
+    @classmethod
+    def blank_smtp_is_unset(cls, value: object) -> object:
+        """`SMTP_HOST=` and the like, as shipped in `.env.example`, mean unset."""
+
+        return (value.strip() or None) if isinstance(value, str) else value
+
     @field_validator("log_dir", mode="before")
     @classmethod
     def blank_log_dir_is_unset(cls, value: object) -> object:
@@ -169,6 +186,9 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY must be set to a private value in production")
         if self.app_env is Environment.PRODUCTION and not self.refresh_cookie_secure:
             raise ValueError("REFRESH_COOKIE_SECURE must be true in production")
+        if self.app_env is Environment.PRODUCTION and not (self.smtp_host and self.smtp_from):
+            # Without them emails go to the log, verification codes included.
+            raise ValueError("SMTP_HOST and SMTP_FROM must be set in production")
         return self
 
 

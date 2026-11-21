@@ -40,6 +40,9 @@ const cases: [string, () => Promise<unknown>, Sent][] = [
   ["register", () => authApi.register(body as never), { method: "post", url: "/auth/register", body }],
   ["login", () => authApi.login(body as never), { method: "post", url: "/auth/login", body }],
   ["logout", () => authApi.logout(), { method: "post", url: "/auth/logout" }],
+  ["request email change", () => authApi.requestEmailChange(body as never), { method: "post", url: "/auth/email-change", body }],
+  ["confirm email change", () => authApi.confirmEmailChange(body as never), { method: "post", url: "/auth/email-change/confirm", body }],
+  ["cancel email change", () => authApi.cancelEmailChange(), { method: "delete", url: "/auth/email-change" }],
 
   ["food log", () => foodApi.getFoodLog("2026-10-20"), { method: "get", url: "/food-log", params: { date: "2026-10-20" } }],
   ["add entry", () => foodApi.addEntry(body as never), { method: "post", url: "/food-log/entries", body }],

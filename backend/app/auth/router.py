@@ -19,7 +19,9 @@ from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.identity.repository import UserRepository
 from app.shared.exceptions import Unauthorized
+from app.shared.mail import Mailer, get_mailer
 from app.shared.rate_limit import (
+    EMAIL_CHANGE_REQUESTS_PER_USER,
     FAILED_LOGINS_PER_EMAIL,
     FAILED_LOGINS_PER_EMAIL_AND_ADDRESS,
     LOGINS_PER_ADDRESS,
@@ -28,7 +30,14 @@ from app.shared.rate_limit import (
     limiter,
 )
 
-from .schemas import AccessToken, LoginInput, MeRead, RegisterInput
+from .schemas import (
+    AccessToken,
+    ConfirmEmailChangeInput,
+    LoginInput,
+    MeRead,
+    RegisterInput,
+    RequestEmailChangeInput,
+)
 from .service import WRONG_CREDENTIALS, AuthService
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
@@ -37,8 +46,9 @@ router = APIRouter(prefix="/api/v1", tags=["auth"])
 def get_auth_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    mailer: Annotated[Mailer, Depends(get_mailer)],
 ) -> AuthService:
-    return AuthService(session, UserRepository(session), settings)
+    return AuthService(session, UserRepository(session), settings, mailer)
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
@@ -164,3 +174,29 @@ async def logout(
 @router.get("/users/me", response_model=MeRead)
 async def get_me(actor: ActorDep, service: AuthServiceDep) -> MeRead:
     return await service.get_me(actor.actor_id)
+
+
+@router.post("/auth/email-change", status_code=status.HTTP_202_ACCEPTED)
+async def request_email_change(
+    payload: RequestEmailChangeInput, actor: ActorDep, service: AuthServiceDep, settings: SettingsDep
+) -> None:
+    """Email a code to the new address. The sign-in email changes once it's confirmed."""
+
+    if settings.rate_limits_enabled:
+        count_attempt(
+            (("email-change", actor.actor_id), EMAIL_CHANGE_REQUESTS_PER_USER),
+            reason="Too many codes asked for.",
+        )
+    await service.request_email_change(actor.actor_id, payload)
+
+
+@router.post("/auth/email-change/confirm", response_model=MeRead)
+async def confirm_email_change(
+    payload: ConfirmEmailChangeInput, actor: ActorDep, service: AuthServiceDep
+) -> MeRead:
+    return await service.confirm_email_change(actor.actor_id, payload)
+
+
+@router.delete("/auth/email-change", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_email_change(actor: ActorDep, service: AuthServiceDep) -> None:
+    await service.cancel_email_change(actor.actor_id)
