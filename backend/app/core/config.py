@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # Limits on sign-ins, sign-ups and chat questions (app/shared/rate_limit.py). Off only
     # for the end-to-end tests, which sign up many users from one address.
     rate_limits_enabled: bool = Field(default=True, alias="RATE_LIMITS_ENABLED")
+    # Where the per-address limits find the client's own address when the app sits behind a
+    # proxy, e.g. "CloudFront-Viewer-Address". Unset: the connecting address, which behind
+    # CloudFront and the load balancer is the balancer's, shared by every user. Only set it
+    # when the only way in is through that proxy, which overwrites the header.
+    client_address_header: str | None = Field(default=None, alias="CLIENT_ADDRESS_HEADER")
     auto_create_schema: bool = Field(default=False, alias="AUTO_CREATE_SCHEMA")
     seed_demo_data: bool = Field(default=False, alias="SEED_DEMO_DATA")
     # Four weeks of the demo user's logs on top (app/demo_seed.py).
@@ -145,7 +150,9 @@ class Settings(BaseSettings):
 
         return (value.strip() or None) if isinstance(value, str) else value
 
-    @field_validator("smtp_host", "smtp_username", "smtp_password", "smtp_from", mode="before")
+    @field_validator(
+        "smtp_host", "smtp_username", "smtp_password", "smtp_from", "client_address_header", mode="before"
+    )
     @classmethod
     def blank_smtp_is_unset(cls, value: object) -> object:
         """`SMTP_HOST=` and the like, as shipped in `.env.example`, mean unset."""

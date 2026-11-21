@@ -9,6 +9,7 @@ construction — which `SameSite` is here to absorb (see ``Settings``).
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Annotated, TypeVar
@@ -96,10 +97,43 @@ def _clear_refresh_cookie(response: Response, settings: Settings) -> None:
     )
 
 
-def _address(request: Request) -> str:
-    # The connecting address. Behind a proxy that is the proxy's, unless uvicorn is told to
-    # trust its X-Forwarded-For (--proxy-headers); see docs/deployment.md.
+def _address(request: Request, settings: Settings) -> str:
+    """The client's address, for the per-address limits.
+
+    Behind CloudFront and the load balancer the connecting address is the balancer's, shared
+    by every user, so ``CLIENT_ADDRESS_HEADER`` names a header the proxy sets with the
+    client's own (see docs/deployment.md). Without it, or if the header doesn't hold an
+    address, the connecting address is used.
+    """
+
+    header = settings.client_address_header
+    if header:
+        forwarded = client_address_from(request.headers.get(header))
+        if forwarded is not None:
+            return forwarded
     return request.client.host if request.client else "unknown"
+
+
+def client_address_from(value: str | None) -> str | None:
+    """The address in a proxy's header: an address alone, or with its port as CloudFront's
+    ``CloudFront-Viewer-Address`` sends it (``203.0.113.7:46532``, ``[2001:db8::1]:46532``)."""
+
+    if not value:
+        return None
+    value = value.strip()
+    candidates = [value]
+    if value.startswith("[") and "]" in value:
+        candidates.insert(0, value[1 : value.index("]")])
+    elif value.count(":") == 1:
+        candidates.insert(0, value.split(":", 1)[0])
+    elif ":" in value:
+        candidates.append(value.rsplit(":", 1)[0])
+    for candidate in candidates:
+        try:
+            return str(ipaddress.ip_address(candidate))
+        except ValueError:
+            continue
+    return None
 
 
 @router.post("/auth/register", response_model=AccessToken, status_code=status.HTTP_201_CREATED)
@@ -111,7 +145,7 @@ async def register(
     settings: SettingsDep,
 ) -> AccessToken:
     if settings.rate_limits_enabled:
-        count_attempt((("register", _address(request)), REGISTRATIONS_PER_ADDRESS))
+        count_attempt((("register", _address(request, settings)), REGISTRATIONS_PER_ADDRESS))
     access_token, refresh_token = await service.register(payload)
     _set_refresh_cookie(response, settings, refresh_token)
     return access_token
@@ -130,7 +164,7 @@ async def login(
         _set_refresh_cookie(response, settings, refresh_token)
         return access_token
 
-    address, email = _address(request), payload.email.strip().lower()
+    address, email = _address(request, settings), payload.email.strip().lower()
     from_here = ("login-failed", f"{email} from {address}")
     anywhere = ("login-failed", email)
     # Every attempt counts as a wrong password until it proves otherwise, and a locked
@@ -179,7 +213,7 @@ async def logout(
     service: AuthServiceDep,
     settings: SettingsDep,
 ) -> None:
-    await service.logout(actor.actor_id)
+    await service.logout(actor.session_id)
     _clear_refresh_cookie(response, settings)
 
 
@@ -272,7 +306,7 @@ async def change_password(
     """Set a new password. Starts a new session here and signs out every other device."""
 
     access_token, refresh_token, notice = await _checking_current_password(
-        actor, settings, lambda: service.change_password(actor.actor_id, payload)
+        actor, settings, lambda: service.change_password(actor.actor_id, actor.session_id, payload)
     )
     _set_refresh_cookie(response, settings, refresh_token)
     background.add_task(_send_quietly, mailer, notice)
@@ -293,7 +327,7 @@ async def request_password_reset(
 
     if settings.rate_limits_enabled:
         count_attempt(
-            (("password-reset", _address(request)), PASSWORD_RESETS_PER_ADDRESS),
+            (("password-reset", _address(request, settings)), PASSWORD_RESETS_PER_ADDRESS),
             (("password-reset", payload.email.strip().lower()), PASSWORD_RESETS_PER_EMAIL),
             reason="Too many reset codes asked for.",
         )
@@ -315,7 +349,7 @@ async def confirm_password_reset(
     """Set a new password with the emailed code, and sign in."""
 
     if settings.rate_limits_enabled:
-        count_attempt((("reset-confirm", _address(request)), RESET_CONFIRMS_PER_ADDRESS))
+        count_attempt((("reset-confirm", _address(request, settings)), RESET_CONFIRMS_PER_ADDRESS))
     access_token, refresh_token, notice = await service.confirm_password_reset(payload)
     _set_refresh_cookie(response, settings, refresh_token)
     background.add_task(_send_quietly, mailer, notice)

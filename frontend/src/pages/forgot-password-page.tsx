@@ -104,7 +104,7 @@ function ResetStep({ email, onBack }: { email: string; onBack: () => void }) {
       { email, code, newPassword },
       {
         onSuccess: () => {
-          toast.success("Password reset", { description: "You’re signed in. Other devices were signed out." })
+          toast.success("Password reset", { description: "You’re signed in with your new password." })
           navigate("/", { replace: true })
         },
         onError: (error) => {

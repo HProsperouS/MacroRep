@@ -1,7 +1,7 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { apiClient, apiErrorMessage, restoreSession, retryLostAnswer } from "@/api/client"
+import { apiClient, apiErrorMessage, forgetSignedOutReason, restoreSession, retryLostAnswer, signedOutReason } from "@/api/client"
 import { clearAccessToken, getAccessToken, setAccessToken } from "@/lib/auth"
 
 const originalAdapter = apiClient.defaults.adapter
@@ -33,6 +33,7 @@ beforeEach(() => {
 afterEach(() => {
   apiClient.defaults.adapter = originalAdapter
   clearAccessToken()
+  forgetSignedOutReason()
 })
 
 describe("apiClient", () => {
@@ -73,6 +74,29 @@ describe("apiClient", () => {
     await expect(apiClient.get("/profile")).rejects.toMatchObject({ response: { status: 401 } })
 
     expect(getAccessToken()).toBeNull()
+  })
+
+  it("remembers a session ended elsewhere, for the sign-in page to explain", async () => {
+    setAccessToken("stale")
+    apiClient.defaults.adapter = async (config) => {
+      throw new AxiosError("Unauthorized", "ERR_BAD_REQUEST", config, null, { data: { detail: "Session ended" }, status: 401, statusText: "Unauthorized", headers: {}, config })
+    }
+    vi.spyOn(axios, "post").mockRejectedValue(new Error("refresh cookie retired"))
+
+    await expect(apiClient.get("/profile")).rejects.toMatchObject({ response: { status: 401 } })
+
+    expect(signedOutReason()).toBe("elsewhere")
+    forgetSignedOutReason()
+    expect(signedOutReason()).toBeNull()
+  })
+
+  it("gives no reason when a session simply expired", async () => {
+    setAccessToken("stale")
+    vi.spyOn(axios, "post").mockRejectedValue(new Error("refresh cookie expired"))
+
+    await expect(apiClient.get("/profile")).rejects.toMatchObject({ response: { status: 401 } })
+
+    expect(signedOutReason()).toBeNull()
   })
 
   it("doesn't treat a wrong password as an expired token", async () => {

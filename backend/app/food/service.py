@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.analytics.nutrition import Nutrients, scale_nutrients
 from app.identity.dependencies import ActorContext
 from app.shared.exceptions import Invalid, NotFound
-from app.shared.validation import MAX_CUSTOM_FOODS_PER_USER, ensure_plausible_calories
+from app.shared.validation import (
+    MAX_CALORIES,
+    MAX_CUSTOM_FOODS_PER_USER,
+    MAX_MACRO_G,
+    ensure_plausible_calories,
+)
 
 from .catalog import POPULAR_FOOD_IDS
 from .models import Food, FoodEntry, FoodSource
@@ -68,11 +73,18 @@ def _amount_label(food: Food, quantity: float, unit: QuantityUnit) -> str:
     return label
 
 
+OVERSIZED_ENTRY = "That's more than one entry can hold. Log a smaller amount."
+
+
 def _apply_food_quantity(entry: FoodEntry, food: Food, quantity: float, unit: QuantityUnit) -> None:
     """Derive an entry's name, amount label, and nutrition from a saved food and a quantity."""
 
     per_serving = Nutrients(food.calories, float(food.protein), float(food.carbs), float(food.fat))
     scaled = scale_nutrients(per_serving, _servings(food, quantity, unit))
+    # The quantity alone can't bound this (5,000 servings, or grams over a tiny serving), so
+    # the result is held to the same limits as a quick add, which also fit the columns.
+    if scaled.calories > MAX_CALORIES or max(scaled.protein, scaled.carbs, scaled.fat) > MAX_MACRO_G:
+        raise Invalid(OVERSIZED_ENTRY)
     entry.food_id = food.id
     entry.quantity = quantity
     entry.quantity_unit = unit

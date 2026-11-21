@@ -526,3 +526,230 @@ def test_editing_a_quick_add_rechecks_the_merged_values(client: TestClient, head
     response = client.patch(f"/api/v1/food-log/entries/{entry['id']}", headers=headers, json={"calories": 50})
     assert response.status_code == 422
     assert "too low for these macros" in response.json()["detail"]
+
+
+# --- Every limit's maximum is saved, not just accepted ------------------------------------------
+# Postgres refuses a value too big for its column, so each limit is saved at its maximum: a limit
+# set past its column would fail here as a 500.
+
+ROUTINES = "/api/v1/workouts/routines"
+
+
+def _routine(**exercise: Any) -> dict[str, Any]:
+    planned = {
+        "exerciseId": "exercise-squat",
+        "restSeconds": 90,
+        "sets": [{"kind": "working", "targetWeightKg": 60, "targetReps": 5}],
+    }
+    return {"name": "Leg day", "exercises": [{**planned, **exercise}]}
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "payload", "expected"),
+    [
+        ("POST", "/api/v1/food-log/entries", {**QUICK_ADD, "name": "x" * 60}, 201),
+        ("POST", "/api/v1/food-log/entries", {**QUICK_ADD, "name": "x" * 61}, 422),
+        ("POST", "/api/v1/food-log/entries", {**QUICK_ADD, "amountLabel": "x" * 64}, 201),
+        ("POST", "/api/v1/food-log/entries", {**QUICK_ADD, "amountLabel": "x" * 65}, 422),
+        (
+            "POST",
+            "/api/v1/food-log/entries",
+            {**QUICK_ADD, "calories": 9_000, "protein": 1_000, "carbs": 1_000, "fat": 0},
+            201,
+        ),
+        ("POST", "/api/v1/foods", {**CUSTOM_FOOD, "name": "x" * 60}, 201),
+        ("POST", "/api/v1/foods", {**CUSTOM_FOOD, "name": "x" * 61}, 422),
+        (
+            "POST",
+            "/api/v1/foods",
+            {**CUSTOM_FOOD, "nutrition": {"calories": 9_000, "protein": 1_000, "carbs": 1_000, "fat": 0}},
+            201,
+        ),
+        ("PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": 6_000, "carbs": 1_000, "fat": 200}, 200),
+        ("PUT", "/api/v1/nutrition/targets", {**TARGETS, "calories": 6_000, "carbs": 100, "fat": 400}, 200),
+        ("POST", "/api/v1/exercises", {"name": "x" * 60, "equipment": "barbell", "muscles": ["chest"]}, 201),
+        ("POST", ROUTINES, {**_routine(), "name": "x" * 60}, 201),
+        ("POST", ROUTINES, {**_routine(), "name": "x" * 61}, 422),
+        ("POST", ROUTINES, _routine(restSeconds=600), 201),
+        ("POST", ROUTINES, _routine(restSeconds=601), 422),
+        (
+            "POST",
+            ROUTINES,
+            _routine(sets=[{"kind": "working", "targetWeightKg": 1_000, "targetReps": 100}]),
+            201,
+        ),
+        (
+            "POST",
+            ROUTINES,
+            _routine(sets=[{"kind": "working", "targetWeightKg": 1_000.5, "targetReps": 5}]),
+            422,
+        ),
+        (
+            "POST",
+            ROUTINES,
+            _routine(sets=[{"kind": "working", "targetWeightKg": 60, "targetReps": 101}]),
+            422,
+        ),
+        (
+            "POST",
+            ROUTINES,
+            _routine(sets=[{"kind": "working", "targetWeightKg": 60, "targetReps": 5}] * 50),
+            201,
+        ),
+        (
+            "POST",
+            ROUTINES,
+            _routine(sets=[{"kind": "working", "targetWeightKg": 60, "targetReps": 5}] * 51),
+            422,
+        ),
+        (
+            "POST",
+            "/api/v1/workouts/sessions",
+            _session(
+                exercises=[
+                    {
+                        "exerciseId": "exercise-squat",
+                        "name": "Squat",
+                        "sets": [{"kind": "working", "weightKg": 1_000, "reps": 100, "rpe": 10}] * 50,
+                    }
+                ]
+            ),
+            201,
+        ),
+    ],
+    ids=[
+        "quick add name at maximum",
+        "quick add name above maximum",
+        "amount label at maximum",
+        "amount label above maximum",
+        "quick add macros at maximum",
+        "custom food name at maximum",
+        "custom food name above maximum",
+        "custom food macros at maximum",
+        "carbs target at maximum",
+        "fat target at maximum",
+        "exercise name at maximum",
+        "routine name at maximum",
+        "routine name above maximum",
+        "rest at maximum",
+        "rest above maximum",
+        "planned weight and reps at maximum",
+        "planned weight above maximum",
+        "planned reps above maximum",
+        "sets per routine exercise at maximum",
+        "sets per routine exercise above maximum",
+        "a workout's sets at every maximum",
+    ],
+)
+def test_maximums_are_saved(
+    client: TestClient,
+    headers: dict[str, str],
+    method: str,
+    path: str,
+    payload: dict[str, Any],
+    expected: int,
+) -> None:
+    response = client.request(method, path, headers=headers, json=payload)
+    assert response.status_code == expected, response.text
+
+
+def test_an_exercise_note_at_its_maximum_is_saved(client: TestClient, headers: dict[str, str]) -> None:
+    note = "/api/v1/exercises/exercise-squat/note"
+    assert client.put(note, headers=headers, json={"body": "x" * 500}).json()["body"] == "x" * 500
+    assert client.put(note, headers=headers, json={"body": "x" * 501}).status_code == 422
+
+
+def test_an_entry_detail_at_its_maximum_is_saved(client: TestClient, headers: dict[str, str]) -> None:
+    food = client.post("/api/v1/foods", headers=headers, json=CUSTOM_FOOD).json()
+    entry = {"date": TODAY.isoformat(), "meal": "lunch", "foodId": food["id"], "quantity": 1}
+    saved = client.post("/api/v1/food-log/entries", headers=headers, json={**entry, "detail": "x" * 40})
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["detail"] == "x" * 40
+    too_long = client.post("/api/v1/food-log/entries", headers=headers, json={**entry, "detail": "x" * 41})
+    assert too_long.status_code == 422
+
+
+def test_a_routine_with_the_most_exercises_is_saved(client: TestClient, headers: dict[str, str]) -> None:
+    planned = _routine()["exercises"][0]
+    saved = client.post(ROUTINES, headers=headers, json={"name": "Everything", "exercises": [planned] * 50})
+    assert saved.status_code == 201, saved.text
+    assert len(saved.json()["exercises"]) == 50
+    too_many = client.post(ROUTINES, headers=headers, json={"name": "Too much", "exercises": [planned] * 51})
+    assert too_many.status_code == 422
+
+
+def test_an_idempotency_key_at_its_maximum_is_saved(client: TestClient, headers: dict[str, str]) -> None:
+    def add(key: str) -> int:
+        keyed = {**headers, "Idempotency-Key": key}
+        return client.post("/api/v1/food-log/entries", headers=keyed, json=QUICK_ADD).status_code
+
+    assert add("k" * 255) == 201
+    assert add("k" * 255) == 200
+    assert add("k" * 256) == 422
+
+
+def test_a_chat_message_at_its_maximum_is_answered(client: TestClient, headers: dict[str, str]) -> None:
+    from tests.helpers import ask_coach, ready_check_in, start_check_in, week_with_a_proposal
+
+    week_with_a_proposal(client, headers)
+    assert start_check_in(client, headers, "chat-limit").status_code == 201
+    check_in = ready_check_in(client, headers)
+    assert ask_coach(client, headers, check_in["id"], "why " + "x" * 496).status_code == 200
+    assert ask_coach(client, headers, check_in["id"], "x" * 501).status_code == 422
+
+
+# --- A saved food scaled past what one entry holds --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("food", "quantity", "unit"),
+    [
+        (
+            {**CUSTOM_FOOD, "nutrition": {"calories": 9_000, "protein": 1_000, "carbs": 1_000, "fat": 0}},
+            5_000,
+            "serving",
+        ),
+        # Grams over a tiny serving scale just as far.
+        (
+            {
+                **CUSTOM_FOOD,
+                "servingSize": 1,
+                "nutrition": {"calories": 400, "protein": 50, "carbs": 50, "fat": 0},
+            },
+            5_000,
+            "g",
+        ),
+    ],
+    ids=["many servings", "grams over a 1 g serving"],
+)
+def test_a_saved_food_scaled_too_far_is_refused_not_crashed(
+    client: TestClient, headers: dict[str, str], food: dict[str, Any], quantity: float, unit: str
+) -> None:
+    food_id = client.post("/api/v1/foods", headers=headers, json=food).json()["id"]
+    entry = {
+        "date": TODAY.isoformat(),
+        "meal": "lunch",
+        "foodId": food_id,
+        "quantity": quantity,
+        "quantityUnit": unit,
+    }
+
+    refused = client.post("/api/v1/food-log/entries", headers=headers, json=entry)
+    assert refused.status_code == 422, refused.text
+    assert "more than one entry can hold" in refused.json()["detail"]
+
+    # Editing an entry up to that size is refused the same way.
+    logged = client.post("/api/v1/food-log/entries", headers=headers, json={**entry, "quantity": 1})
+    assert logged.status_code == 201, logged.text
+    path = f"/api/v1/food-log/entries/{logged.json()['id']}"
+    assert client.patch(path, headers=headers, json={"quantity": quantity}).status_code == 422
+
+
+def test_a_large_saved_food_entry_that_fits_is_logged(client: TestClient, headers: dict[str, str]) -> None:
+    food = {**CUSTOM_FOOD, "nutrition": {"calories": 100, "protein": 10, "carbs": 10, "fat": 0}}
+    food_id = client.post("/api/v1/foods", headers=headers, json=food).json()["id"]
+    entry = {"date": TODAY.isoformat(), "meal": "lunch", "foodId": food_id, "quantity": 100}
+
+    logged = client.post("/api/v1/food-log/entries", headers=headers, json=entry)
+    assert logged.status_code == 201, logged.text
+    assert (logged.json()["calories"], logged.json()["protein"]) == (10_000, 1_000)

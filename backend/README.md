@@ -90,13 +90,16 @@ checks each limit from both sides.
 - **Auth is self-issued, not a third-party provider.** `app/auth` implements
   email/password registration and login (Argon2 hashing), a short-lived JWT
   access token, and a rotating refresh token stored as an httpOnly cookie —
-  see that module's docstrings. New passwords need 8–128 characters and can't be
+  see that module's docstrings. Each signed-in device is a session of its own, and a user
+  has one at a time (`MAX_SESSIONS_PER_USER`): signing in elsewhere drops the previous
+  one. Access tokens carry their session's id and every request checks it still exists, so
+  a device that's signed out loses access at once. New passwords need 8–128 characters and can't be
   only spaces, the account's email, or one of ~160 common passwords
   (`app/auth/passwords.py`). Changing the sign-in email and resetting a forgotten
   password are confirmed with a 6-digit code emailed to the address (15 minutes, 5
   tries, stored only as an HMAC); changing the password asks for the current one.
-  Changing or resetting the password replaces the one stored refresh token, which signs
-  out every other device. Email goes out over SMTP when `SMTP_HOST` is set and is
+  Changing the password signs out every other device; resetting it signs out all of
+  them, then signs in the one that reset it. Email goes out over SMTP when `SMTP_HOST` is set and is
   written to the log otherwise (`app/shared/mail.py`); production requires SMTP. Sign-in and sign-up attempts are limited
   (`app/shared/rate_limit.py`): in 15 minutes, 5 wrong passwords for an account
   from one address (so someone else guessing can't lock its owner out) and 30

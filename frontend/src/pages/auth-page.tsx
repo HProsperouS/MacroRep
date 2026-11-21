@@ -1,8 +1,11 @@
+import { LogOut } from "lucide-react"
+import { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
-import { apiErrorMessage } from "@/api/client"
+import { apiErrorMessage, forgetSignedOutReason, signedOutReason } from "@/api/client"
 import { AuthForm, type AuthCredentials, type AuthMode } from "@/components/auth/auth-form"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useLogin, useRegister } from "@/hooks/use-auth"
 
@@ -29,6 +32,9 @@ export default function AuthPage({ mode }: { mode: AuthMode }) {
   const login = useLogin()
   const register = useRegister()
   const copy = COPY[mode]
+  // Read once, then forgotten, so a later visit to the sign-in page doesn't repeat it.
+  const [signedOutElsewhere] = useState(() => mode === "login" && signedOutReason() === "elsewhere")
+  useEffect(() => forgetSignedOutReason(), [])
 
   const submit = (credentials: AuthCredentials) => {
     const handlers = {
@@ -53,6 +59,13 @@ export default function AuthPage({ mode }: { mode: AuthMode }) {
             <CardDescription>{copy.description}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
+            {signedOutElsewhere ? (
+              <Alert>
+                <LogOut />
+                <AlertTitle>You were signed out</AlertTitle>
+                <AlertDescription>Your account was signed in on another device, or its password was changed. Sign in again to carry on here.</AlertDescription>
+              </Alert>
+            ) : null}
             <AuthForm mode={mode} submitting={login.isPending || register.isPending} onSubmit={submit} />
             {mode === "login" ? (
               <Link to="/forgot-password" className="-mt-2 text-sm font-medium text-primary hover:underline">

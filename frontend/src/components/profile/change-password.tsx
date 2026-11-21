@@ -16,7 +16,7 @@ import { NEW_PASSWORD_HINT, newPasswordPair, submitOnly } from "@/lib/password"
 const schema = z.object({ currentPassword: z.string().min(1, "Enter your current password") }).and(newPasswordPair)
 type Values = z.infer<typeof schema>
 
-/** The "Change" button beside the password, and the overlay it opens. Signs out every other device. */
+/** The "Change" button beside the password, and the overlay it opens. This device stays signed in. */
 export function ChangePassword({ disabled = false }: { disabled?: boolean }) {
   const layout = useOverlayLayout()
   const [openedWith, setOpenedWith] = useState<OverlayLayout | null>(null)
@@ -40,7 +40,7 @@ export function ChangePassword({ disabled = false }: { disabled?: boolean }) {
       { currentPassword, newPassword },
       {
         onSuccess: () => {
-          toast.success("Password changed", { description: "Your other devices are signed out." })
+          toast.success("Password changed", { description: "Use it the next time you sign in." })
           reset()
           setOpenedWith(null)
         },
@@ -64,7 +64,7 @@ export function ChangePassword({ disabled = false }: { disabled?: boolean }) {
         onOpenChange={(open) => (open ? undefined : close())}
         layout={openedWith ?? layout}
         title="Change password"
-        description="Your other devices will be signed out."
+        description="You’ll stay signed in here."
       >
         <form onSubmit={submitOnly(submit)} noValidate className="flex flex-col gap-4">
           <TextField

@@ -9,6 +9,7 @@ production can only ever authenticate through a verified access token.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
@@ -28,14 +29,17 @@ class ActorContext(BaseModel):
 
     actor_id: str = Field(min_length=1, max_length=255)
     display_name: str = Field(min_length=1, max_length=255)
+    # The signed-in device the request came from; None for the preview header and for
+    # work the app does itself (the demo seed).
+    session_id: str | None = None
 
     @property
     def user_id(self) -> str:
         return self.actor_id
 
 
-def _actor_from_user(user: User) -> ActorContext:
-    return ActorContext(actor_id=user.id, display_name=user.name)
+def _actor_from_user(user: User, session_id: str | None = None) -> ActorContext:
+    return ActorContext(actor_id=user.id, display_name=user.name, session_id=session_id)
 
 
 async def get_current_actor(
@@ -52,18 +56,24 @@ async def get_current_actor(
 
     if authorization and authorization.lower().startswith("bearer "):
         try:
-            user_id = decode_access_token(authorization[len("Bearer ") :].strip(), settings)
+            claims = decode_access_token(authorization[len("Bearer ") :].strip(), settings)
         except TokenError as exc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
             ) from exc
-        user = await UserRepository(session).get(user_id)
+        users = UserRepository(session)
+        user = await users.get(claims.user_id)
         if user is None or user.status is not UserStatus.ACTIVE:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Authenticated user is unknown or inactive",
             )
-        return _actor_from_user(user)
+        # The device's session must still exist: signing it out (or changing the password)
+        # ends its access at once, not when this token would have expired.
+        device = await users.get_session(claims.session_id)
+        if device is None or device.user_id != user.id or device.expires_at <= datetime.now(UTC):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session ended")
+        return _actor_from_user(user, claims.session_id)
 
     if not settings.preview_auth_enabled or preview_actor_id is None:
         raise HTTPException(

@@ -32,7 +32,7 @@ export type Me = {
   email: string
 }
 
-/** The new password replaces the current one; other devices are signed out. */
+/** The new password replaces the current one; this device stays signed in. */
 export type ChangePasswordInput = {
   currentPassword: string
   newPassword: string

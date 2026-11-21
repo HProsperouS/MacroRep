@@ -61,6 +61,14 @@ To send real emails, fill in the `SMTP_*` settings in `backend/.env` (listed in
 work) and restart the backend. Changing the password (Profile → Password → Change) needs
 no email, but sends a notice to the account.
 
+### Signed-in devices
+
+An account is signed in on one device (a browser or phone) at a time: signing in on
+another signs the first one out, on its next request rather than when its token would have
+expired. Signing out, changing the password and resetting it take effect the same way. To
+try it locally, sign in to the demo account in a normal window, then in a private one: the
+first window is sent back to sign in.
+
 Stop everything with `make dev-down` (or `docker compose down`). Data persists
 in a Docker volume between runs; to wipe it and reseed from scratch:
 `docker compose down -v`.

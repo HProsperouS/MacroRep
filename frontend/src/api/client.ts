@@ -72,9 +72,45 @@ export async function restoreSession() {
   }
 }
 
-function endSession() {
+/** The server's answer when a device's session was ended elsewhere (app/identity/dependencies.py). */
+const SESSION_ENDED = "Session ended"
+/** Why the last session ended, kept across the redirect for the sign-in page to show once. */
+const SIGNED_OUT_KEY = "macrorep.signed-out"
+
+export type SignedOutReason = "elsewhere"
+
+function endSession(reason?: SignedOutReason) {
   clearAccessToken()
+  if (reason) {
+    try {
+      window.sessionStorage.setItem(SIGNED_OUT_KEY, reason)
+    } catch {
+      // Storage blocked: the sign-in page just won't say why.
+    }
+  }
   if (window.location.pathname !== "/login") window.location.assign("/login")
+}
+
+/** Why this browser was last signed out, if the app knows: its session was ended by a sign-in on
+ * another device, or a password change. Read it, then `forgetSignedOutReason` once shown. */
+export function signedOutReason(): SignedOutReason | null {
+  try {
+    return window.sessionStorage.getItem(SIGNED_OUT_KEY) === "elsewhere" ? "elsewhere" : null
+  } catch {
+    return null
+  }
+}
+
+export function forgetSignedOutReason() {
+  try {
+    window.sessionStorage.removeItem(SIGNED_OUT_KEY)
+  } catch {
+    // Nothing stored, or storage blocked.
+  }
+}
+
+function sessionEndedElsewhere(error: AxiosError) {
+  return (error.response?.data as { detail?: unknown } | undefined)?.detail === SESSION_ENDED
 }
 
 apiClient.interceptors.request.use((config) => {
@@ -105,7 +141,9 @@ apiClient.interceptors.response.use(
       config.headers.set("Authorization", `Bearer ${accessToken}`)
       return await apiClient.request(config)
     } catch {
-      endSession()
+      // The session was ended by the server (a sign-in elsewhere, a password change), not
+      // just expired: the sign-in page says so.
+      endSession(sessionEndedElsewhere(error) ? "elsewhere" : undefined)
       return Promise.reject(error)
     }
   },
