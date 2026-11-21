@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClie
 import { format } from "date-fns"
 
 import { foodApi, type CreateCustomFoodInput, type CreateFoodEntryInput, type FoodLogResponse, type UpdateFoodEntryInput } from "@/api/food-api"
+import { createRequestId, retryLostAnswer } from "@/api/client"
 import { foodKeys, progressKeys } from "@/api/query-keys"
 import { photoToDataUrl } from "@/lib/photo"
 import type { FoodEntry } from "@/types/food"
@@ -69,14 +70,28 @@ export function useFoodSuggestions(enabled: boolean) {
   })
 }
 
-/** Adds an entry optimistically; rolls back if the request fails. */
+/** One Idempotency-Key per entry added: a retry gets the same variables object, so the same key. */
+const addKeys = new WeakMap<NewFoodEntry, string>()
+
+function addKeyFor(entry: NewFoodEntry) {
+  let key = addKeys.get(entry)
+  if (!key) {
+    key = createRequestId()
+    addKeys.set(entry, key)
+  }
+  return key
+}
+
+/** Adds an entry optimistically; rolls back if the request fails. A lost answer is retried with the
+ * same Idempotency-Key, so the entry can't be logged twice. */
 export function useAddFoodEntry(date: Date) {
   const queryClient = useQueryClient()
   const key = dateKey(date)
   const queryKey = foodKeys.log(key)
 
   return useMutation({
-    mutationFn: (entry: NewFoodEntry) => foodApi.addEntry(toCreateInput(entry, key)),
+    mutationFn: (entry: NewFoodEntry) => foodApi.addEntry(toCreateInput(entry, key), addKeyFor(entry)),
+    retry: retryLostAnswer,
     onMutate: async (entry) => {
       await queryClient.cancelQueries({ queryKey })
       const previous = queryClient.getQueryData<FoodLogResponse>(queryKey)

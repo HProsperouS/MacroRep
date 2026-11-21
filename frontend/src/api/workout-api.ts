@@ -38,8 +38,10 @@ export const workoutApi = {
     return data
   },
 
-  async finishSession(input: FinishWorkoutInput) {
-    const { data } = await apiClient.post<WorkoutSummary>("/workouts/sessions", input)
+  /** Safe to retry with the same `idempotencyKey`: the workout is logged once. */
+  async finishSession(input: FinishWorkoutInput, idempotencyKey?: string) {
+    const headers = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined
+    const { data } = await apiClient.post<WorkoutSummary>("/workouts/sessions", input, { headers })
     return data
   },
 

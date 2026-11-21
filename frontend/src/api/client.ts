@@ -72,9 +72,45 @@ export async function restoreSession() {
   }
 }
 
-function endSession() {
+/** The server's answer when a device's session was ended elsewhere (app/identity/dependencies.py). */
+const SESSION_ENDED = "Session ended"
+/** Why the last session ended, kept across the redirect for the sign-in page to show once. */
+const SIGNED_OUT_KEY = "macrorep.signed-out"
+
+export type SignedOutReason = "elsewhere"
+
+function endSession(reason?: SignedOutReason) {
   clearAccessToken()
+  if (reason) {
+    try {
+      window.sessionStorage.setItem(SIGNED_OUT_KEY, reason)
+    } catch {
+      // Storage blocked: the sign-in page just won't say why.
+    }
+  }
   if (window.location.pathname !== "/login") window.location.assign("/login")
+}
+
+/** Why this browser was last signed out, if the app knows: its session was ended by a sign-in on
+ * another device, or a password change. Read it, then `forgetSignedOutReason` once shown. */
+export function signedOutReason(): SignedOutReason | null {
+  try {
+    return window.sessionStorage.getItem(SIGNED_OUT_KEY) === "elsewhere" ? "elsewhere" : null
+  } catch {
+    return null
+  }
+}
+
+export function forgetSignedOutReason() {
+  try {
+    window.sessionStorage.removeItem(SIGNED_OUT_KEY)
+  } catch {
+    // Nothing stored, or storage blocked.
+  }
+}
+
+function sessionEndedElsewhere(error: AxiosError) {
+  return (error.response?.data as { detail?: unknown } | undefined)?.detail === SESSION_ENDED
 }
 
 apiClient.interceptors.request.use((config) => {
@@ -105,7 +141,9 @@ apiClient.interceptors.response.use(
       config.headers.set("Authorization", `Bearer ${accessToken}`)
       return await apiClient.request(config)
     } catch {
-      endSession()
+      // The session was ended by the server (a sign-in elsewhere, a password change), not
+      // just expired: the sign-in page says so.
+      endSession(sessionEndedElsewhere(error) ? "elsewhere" : undefined)
       return Promise.reject(error)
     }
   },
@@ -118,8 +156,10 @@ export function apiErrorStatus(error: unknown) {
 
 export function apiErrorMessage(error: unknown) {
   if (error instanceof AxiosError) {
-    const payload = error.response?.data as { detail?: unknown; message?: unknown } | undefined
+    const payload = error.response?.data as { detail?: unknown; message?: unknown; correlationId?: unknown } | undefined
     if (typeof payload?.message === "string") return payload.message
+    // An error on our side carries the id of its log line: a short form of it to quote.
+    if (typeof payload?.detail === "string" && typeof payload.correlationId === "string") return `${payload.detail} (ref ${payload.correlationId.slice(0, 8)})`
     if (typeof payload?.detail === "string") return payload.detail
     if (error.code === "ECONNABORTED") return "The request timed out. Please try again."
     if (!error.response) return "MacroRep could not reach the server. Check your connection and try again."
@@ -131,4 +171,20 @@ export function apiErrorMessage(error: unknown) {
 export function createRequestId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID()
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** The answer was lost (a timeout or a dropped connection) or the server was briefly unavailable. */
+export function isLostAnswer(error: unknown) {
+  if (!(error instanceof AxiosError)) return false
+  const status = error.response?.status
+  return status === undefined || status === 502 || status === 503 || status === 504
+}
+
+/**
+ * A mutation's `retry` for creates sent with an Idempotency-Key: twice more when the answer
+ * was lost. The request may well have gone through; the key makes the retry return what it
+ * created instead of creating it again.
+ */
+export function retryLostAnswer(failureCount: number, error: unknown) {
+  return failureCount < 2 && isLostAnswer(error)
 }

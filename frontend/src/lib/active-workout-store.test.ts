@@ -114,4 +114,38 @@ describe("active workout store", () => {
     store.resumeWorkout()
     expect(store.getActiveWorkout()).toBeNull()
   })
+
+  it("gives a workout one finish key, kept across a reload", async () => {
+    const store = await loadStore()
+    store.beginWorkout(plan)
+    const key = store.finishKeyOf()
+    expect(key).toBeTruthy()
+    expect(store.finishKeyOf()).toBe(key)
+
+    const reloaded = await loadStore()
+    expect(reloaded.finishKeyOf()).toBe(key)
+  })
+
+  it("gives a workout saved before finish keys one on the first finish, and keeps it", async () => {
+    const store = await loadStore()
+    store.beginWorkout(plan)
+    const saved = JSON.parse(window.localStorage.getItem("macrorep.active-workout.v1") ?? "{}") as Record<string, unknown>
+    delete saved.finishKey
+    window.localStorage.setItem("macrorep.active-workout.v1", JSON.stringify(saved))
+
+    const reloaded = await loadStore()
+    const key = reloaded.finishKeyOf()
+    expect(key).toBeTruthy()
+    expect((await loadStore()).finishKeyOf()).toBe(key)
+  })
+
+  it("has no finish key without a workout, and a new one for the next workout", async () => {
+    const store = await loadStore()
+    expect(store.finishKeyOf()).toBeUndefined()
+    store.beginWorkout(plan)
+    const first = store.finishKeyOf()
+    store.clearActiveWorkout()
+    store.beginWorkout(plan)
+    expect(store.finishKeyOf()).not.toBe(first)
+  })
 })

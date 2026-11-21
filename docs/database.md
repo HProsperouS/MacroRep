@@ -22,6 +22,8 @@ erDiagram
     users ||--o{ workout_plan_entries : "routines"
     workout_plan_entries ||--o{ workout_plan_exercises : contains
     exercises ||--o{ workout_plan_exercises : "used in"
+    users ||--o{ exercise_notes : "notes on"
+    exercises ||--o{ exercise_notes : "noted"
     users ||--o{ workout_schedule_days : schedules
     workout_plan_entries ||--o{ workout_schedule_days : "scheduled on"
     users ||--o{ workout_sessions : logs
@@ -32,15 +34,19 @@ erDiagram
     coach_check_ins ||--o{ coach_proposals : proposes
     coach_check_ins ||--o{ coach_messages : "chat"
     coach_proposals |o--o{ nutrition_targets : "set by"
+    users ||--o{ usage_events : "paid AI calls"
+    users ||--o{ user_sessions : "signed-in devices"
+    users ||--o| email_change_requests : "pending new email"
+    users ||--o| password_reset_requests : "pending reset"
 
     users {
         string id PK "USR-..."
         string email UK
         string name
         string password_hash "Argon2"
-        string refresh_token_hash "SHA-256 of the current token"
-        datetime refresh_expires_at
         enum status
+        string refresh_token_hash "legacy, unused; dropped next release"
+        datetime refresh_expires_at "legacy, unused; dropped next release"
     }
     profiles {
         string user_id PK,FK
@@ -96,6 +102,8 @@ erDiagram
         numeric fat
         string food_id FK "nullable"
         numeric quantity
+        string detail "nullable, e.g. less rice"
+        string idempotency_key "nullable, the client's key for adding it"
     }
     exercises {
         string id PK
@@ -103,6 +111,12 @@ erDiagram
         string name
         enum equipment
         json muscles
+    }
+    exercise_notes {
+        string id PK
+        string owner_id FK
+        string exercise_id FK
+        string body "the user's own cues"
     }
     workout_plan_entries {
         string id PK "a routine"
@@ -130,6 +144,8 @@ erDiagram
         string name
         datetime started_at
         datetime finished_at
+        numeric body_weight_kg "latest weigh-in when logged, nullable"
+        string idempotency_key "nullable, the client's key for finishing it"
     }
     workout_set_logs {
         string id PK
@@ -138,7 +154,8 @@ erDiagram
         string exercise_id FK "nullable"
         string exercise_name
         enum kind "warmup / working / failure / drop"
-        numeric weight_kg
+        numeric weight_kg "as typed"
+        numeric load_kg "what analytics count"
         int reps
         numeric rpe "nullable"
         int position
@@ -173,6 +190,34 @@ erDiagram
         string owner_id FK
         enum role
         text text
+    }
+    usage_events {
+        string id PK
+        string owner_id FK
+        string kind "check_in / chat / photo"
+        datetime created_utc
+    }
+    user_sessions {
+        string id PK "the access token's sid"
+        string user_id FK
+        string refresh_token_hash UK "SHA-256 of the device's current token"
+        datetime expires_at
+        datetime last_used_utc
+    }
+    email_change_requests {
+        string id PK
+        string user_id FK,UK
+        string new_email
+        string code_hash "HMAC-SHA256 of the code"
+        datetime expires_at
+        int attempts "wrong codes so far"
+    }
+    password_reset_requests {
+        string id PK
+        string user_id FK,UK
+        string code_hash "HMAC-SHA256 of the code"
+        datetime expires_at
+        int attempts "wrong codes so far"
     }
 ```
 
@@ -210,6 +255,30 @@ each proposal keeps `proposed_changes` (exactly as proposed) next to `changes` (
 user applied them), with its status and `decided_utc`; a target set by a check-in points
 back at its proposal.
 
+**Sessions.** Each signed-in device has its own `user_sessions` row. The device's refresh
+cookie is stored only as a SHA-256 and replaced on every refresh; its access tokens carry
+the row's id (`sid`), and every request checks the row still exists. Deleting it signs that
+device out at once: signing out deletes this device's row, changing the password deletes
+the others, and a reset deletes them all. A user keeps one at a time
+(`MAX_SESSIONS_PER_USER = 1`), so signing in on another device drops the previous row;
+expired rows are dropped then too. Allowing more devices is that one constant.
+
+**Emailed codes.** Changing the sign-in email and resetting a forgotten password each
+wait in their own table until the 6-digit code emailed for them is entered. A user has at
+most one of each (unique `user_id`); asking again replaces it, and it's deleted once used,
+cancelled, expired (15 minutes) or after 5 wrong codes. Only an HMAC of the code is stored,
+keyed with the server's secret and the code's purpose, so a leaked row can't be checked
+against the million possible codes, and an email-change code can't reset a password.
+`users.email` changes only when the code is confirmed. Both are `ON DELETE CASCADE` from
+`users`, keyed by `user_id` like `profiles`.
+
+**Retry-safe creates.** Starting a check-in, finishing a workout and adding a food entry
+take an `Idempotency-Key` header, stored with the row under a unique (`owner_id`,
+`idempotency_key`) index. A repeat of the key (a retry after a timeout or a dropped
+connection, when the first request may have gone through) answers with the row it created
+instead of creating another. The key is optional on workouts and food entries, which had no
+key before; the app sends one with each, and retries a lost answer with it.
+
 **Numbers.** Measured values use `NUMERIC` with a fixed scale (weights to 0.01 kg, macros
 to 0.1 g) rather than floats. Every API input limit fits its column, so an oversized value
 is a 422, never a database error.
@@ -227,11 +296,16 @@ zone when read.
 | `nutrition_targets` | unique (`owner_id`, `version`) | Two concurrent changes can't both become the same version |
 | `workout_schedule_days` | unique (`owner_id`, `day_of_week`) | One routine per weekday |
 | `coach_check_ins` | unique (`owner_id`, `idempotency_key`) | A retried start can't create a second check-in |
+| `workout_sessions`, `food_entries` | unique (`owner_id`, `idempotency_key`) | A retried finish or add can't log a workout or an entry twice |
+| `exercise_notes` | unique (`owner_id`, `exercise_id`) | One note per user and exercise, shown wherever it's done |
+| `email_change_requests`, `password_reset_requests` | unique `user_id` | At most one pending code of each kind per user |
+| `user_sessions` | unique `refresh_token_hash`; (`user_id`, `last_used_utc`) | Finding a device by its cookie; a user's least recently used device |
 | `food_entries` | (`owner_id`, `log_date`) | A day's log |
 | `workout_sessions` | (`owner_id`, `started_at`) | History, newest first |
 | `workout_set_logs` | (`owner_id`, `exercise_id`, `position`) | An exercise's previous sets and trends |
 | `coach_check_ins` | (`owner_id`, `created_utc`) | The current check-in |
 | `foods`, `exercises` | (`owner_id`, `name`) | Search |
+| `usage_events` | (`kind`, `owner_id`, `created_utc`) | Counting a user's recent paid AI calls |
 
 ## Check-in checkpoints
 
@@ -268,6 +342,14 @@ Applied in this order (`backend/migrations/versions`):
 | `e6c2a8f4b1d7` | Installs the common built-in exercise catalog without replacing existing rows |
 | `f7d3b9a5c1e8` | Drops a routine's week label and typed-in time (the time is worked out from its sets) |
 | `a8e4c2f6d0b9` | Installs the built-in food catalog (common foods and Singapore hawker dishes) without replacing existing rows |
+| `b9c3e6a1d4f7` | A food entry's own detail ("less rice"), shown next to the food's name |
+| `c7e2a5f9b3d1` | Usage events: per-user limits on paid AI calls, counted in Postgres |
+| `b2f6d8a4c1e9` | Exercise notes, one per user and exercise |
+| `d3a7c5e1f9b2` | Each set's computed load and each workout's logged bodyweight (existing workouts take the latest weigh-in by then) |
+| `e1c7a3f5b9d2` | Pending email changes, waiting for the code sent to the new address |
+| `f2d8b4a6c0e3` | Pending password resets, waiting for the emailed code |
+| `a3e9c5b1d7f4` | Idempotency keys on workouts and food entries, so a retry can't log them twice |
+| `b4f0d6c2e8a5` | One session per signed-in device, replacing the one refresh token per user (each user's live token becomes their first session; the old `users` columns stay, unused, until the next release drops them) |
 
 Run `uv run alembic upgrade head` from `backend/`. CI runs every migration on PostgreSQL,
 then downgrades and upgrades again.

@@ -1238,8 +1238,10 @@ def test_a_check_in_that_couldnt_be_saved_doesnt_use_one_up(
         raise RuntimeError("database went away")
 
     monkeypatch.setattr("app.coach.repository.CoachRepository.add_check_in", broken)
-    with pytest.raises(RuntimeError):
-        start_check_in(client, headers, "not-saved")
+    # Answered as a JSON 500 with the id of its log line (app.shared.logging), not raised.
+    failed = start_check_in(client, headers, "not-saved")
+    assert failed.status_code == 500
+    assert failed.json()["correlationId"] == failed.headers["X-Correlation-ID"]
 
     assert usage_count(client, "check_in") == 0
 

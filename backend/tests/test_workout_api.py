@@ -1146,3 +1146,64 @@ def test_exercise_search_can_keep_only_custom_or_library_exercises(client: TestC
 
     bad = client.get("/api/v1/exercises", headers=owner, params={"source": "everyone"})
     assert bad.status_code == 422
+
+
+# --- Retrying a finish ------------------------------------------------------------------------
+
+SESSIONS = "/api/v1/workouts/sessions"
+
+
+def _history_count(client: TestClient, headers: dict[str, str]) -> int:
+    return len(client.get(SESSIONS, headers=headers).json())
+
+
+def test_a_retried_finish_logs_the_workout_once(client: TestClient) -> None:
+    headers = register_user(client)
+    payload = _session_payload(
+        "exercise-bench-press",
+        [{"kind": "working", "weightKg": 80, "reps": 5}, {"kind": "working", "weightKg": 80, "reps": 5}],
+    )
+    keyed = {**headers, "Idempotency-Key": "finish-1"}
+
+    first = client.post(SESSIONS, headers=keyed, json=payload)
+    again = client.post(SESSIONS, headers=keyed, json=payload)
+
+    assert (first.status_code, again.status_code) == (201, 200)
+    # The same workout and the same summary, records included: it isn't compared with itself.
+    assert again.json() == first.json()
+    assert first.json()["personalRecords"]
+    assert _history_count(client, headers) == 1
+
+
+def test_a_replayed_key_answers_with_the_first_workout_even_if_the_body_changed(client: TestClient) -> None:
+    headers = {**register_user(client), "Idempotency-Key": "finish-1"}
+    first = client.post(
+        SESSIONS,
+        headers=headers,
+        json=_session_payload("exercise-bench-press", [{"kind": "working", "weightKg": 80, "reps": 5}]),
+    )
+    changed = client.post(
+        SESSIONS,
+        headers=headers,
+        json=_session_payload("exercise-bench-press", [{"kind": "working", "weightKg": 99, "reps": 1}]),
+    )
+    assert changed.status_code == 200
+    assert changed.json()["id"] == first.json()["id"]
+    assert changed.json()["volumeKg"] == first.json()["volumeKg"] == 400
+
+
+def test_finishes_without_a_key_or_with_different_keys_are_separate(client: TestClient) -> None:
+    headers = register_user(client)
+    payload = _session_payload("exercise-bench-press", [{"kind": "working", "weightKg": 60, "reps": 5}])
+    assert client.post(SESSIONS, headers=headers, json=payload).status_code == 201
+    assert client.post(SESSIONS, headers=headers, json=payload).status_code == 201
+    assert client.post(SESSIONS, headers={**headers, "Idempotency-Key": "a"}, json=payload).status_code == 201
+    assert client.post(SESSIONS, headers={**headers, "Idempotency-Key": "b"}, json=payload).status_code == 201
+    assert _history_count(client, headers) == 4
+
+
+def test_two_users_can_use_the_same_finish_key(client: TestClient) -> None:
+    payload = _session_payload("exercise-bench-press", [{"kind": "working", "weightKg": 60, "reps": 5}])
+    for _ in range(2):
+        headers = {**register_user(client), "Idempotency-Key": "same-key"}
+        assert client.post(SESSIONS, headers=headers, json=payload).status_code == 201

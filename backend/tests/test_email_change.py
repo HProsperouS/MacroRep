@@ -135,12 +135,18 @@ def test_asking_again_replaces_the_code_and_cancelling_drops_it(
     assert _pending(client) == []
 
 
-def test_nothing_is_kept_when_the_code_cant_be_sent(client: TestClient, mailer: FakeMailer) -> None:
+def test_a_code_that_cant_be_sent_can_be_asked_for_again(client: TestClient, mailer: FakeMailer) -> None:
     _, headers = _new_account(client)
+    new = f"{uuid.uuid4().hex}@example.com"
     mailer.fail = True
 
-    assert _ask(client, headers, f"{uuid.uuid4().hex}@example.com") == 503
-    assert _pending(client) == []
+    # Sent after answering, so a mail failure can't fail (or slow down) the request.
+    assert _ask(client, headers, new) == 202
+    assert mailer.sent == []
+
+    mailer.fail = False
+    assert _ask(client, headers, new) == 202
+    assert client.post(CONFIRM, headers=headers, json={"code": mailer.last_code()}).status_code == 200
 
 
 def test_a_failed_notice_to_the_old_email_still_changes_it(client: TestClient, mailer: FakeMailer) -> None:

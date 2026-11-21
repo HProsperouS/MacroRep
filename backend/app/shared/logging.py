@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sys
@@ -181,6 +182,9 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))
 
 
+UNHANDLED_ERROR_MESSAGE = "Something went wrong on our side. Try again in a moment."
+
+
 class CorrelationIdMiddleware:
     """Bind one safe correlation ID to every HTTP request and response."""
 
@@ -204,8 +208,12 @@ class CorrelationIdMiddleware:
         )
         correlation_id, token = bind_correlation_id(inbound)
 
+        response_started = False
+
         async def send_with_correlation(message: dict[str, Any]) -> None:
+            nonlocal response_started
             if message.get("type") == "http.response.start":
+                response_started = True
                 headers = [
                     (key, value)
                     for key, value in message.get("headers", [])
@@ -223,6 +231,22 @@ class CorrelationIdMiddleware:
             get_logger(__name__).exception(
                 "unhandled request error", method=scope.get("method"), path=scope.get("path")
             )
-            raise
+            if response_started:
+                raise
+            # Answered here rather than by the server's default (plain text, outside this
+            # middleware), so the client gets JSON like every other error, and the id to
+            # quote: the X-Correlation-ID header and ``correlationId`` match this log line.
+            body = json.dumps({"detail": UNHANDLED_ERROR_MESSAGE, "correlationId": correlation_id}).encode()
+            await send_with_correlation(
+                {
+                    "type": "http.response.start",
+                    "status": 500,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode()),
+                    ],
+                }
+            )
+            await send_with_correlation({"type": "http.response.body", "body": body})
         finally:
             reset_correlation_id(token)

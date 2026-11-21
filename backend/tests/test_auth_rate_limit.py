@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
 
 import pytest
@@ -172,3 +173,73 @@ def test_the_wait_is_given_in_whole_minutes_then_hours() -> None:
     assert too_many_message(2 * 60 * 60) == "Too many attempts. Try again in 120 minutes."
     assert too_many_message(2 * 60 * 60 + 1) == "Too many attempts. Try again in 3 hours."
     assert too_many_message(24 * 60 * 60) == "Too many attempts. Try again in 24 hours."
+
+
+# --- The client's address behind a proxy ------------------------------------------------------
+
+VIEWER = "CloudFront-Viewer-Address"
+
+
+@pytest.fixture
+def behind_cloudfront() -> Iterator[None]:
+    settings = get_settings().model_copy(update={"client_address_header": VIEWER})
+    app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_settings)
+
+
+def _sign_ups_until_refused(client: TestClient, viewer: str | None) -> int:
+    headers = {VIEWER: viewer} if viewer else {}
+    for attempt in range(REGISTRATIONS_PER_ADDRESS.attempts + 1):
+        body = {
+            "name": "Test",
+            "email": f"{uuid.uuid4().hex}@example.com",
+            "password": "long-enough-pw",
+        }
+        if client.post("/api/v1/auth/register", json=body, headers=headers).status_code == 429:
+            return attempt
+    return REGISTRATIONS_PER_ADDRESS.attempts + 1
+
+
+def test_behind_cloudfront_each_viewer_is_counted_on_its_own(
+    client: TestClient, behind_cloudfront: None
+) -> None:
+    # Every request arrives from the same connecting address (the load balancer's); the
+    # header tells the clients apart, so one using up its allowance doesn't block the other.
+    assert _sign_ups_until_refused(client, "203.0.113.7:46532") == REGISTRATIONS_PER_ADDRESS.attempts
+    assert _sign_ups_until_refused(client, "[2001:db8::1]:443") == REGISTRATIONS_PER_ADDRESS.attempts
+
+
+def test_without_the_setting_the_header_is_ignored(client: TestClient) -> None:
+    """A client can't dodge the limit by sending its own made-up address."""
+
+    for attempt in range(REGISTRATIONS_PER_ADDRESS.attempts):
+        body = {"name": "Test", "email": f"spoof-{attempt}@example.com", "password": "long-enough-pw"}
+        headers = {VIEWER: f"198.51.100.{attempt}:1000"}
+        assert client.post("/api/v1/auth/register", json=body, headers=headers).status_code == 201
+    body = {"name": "Test", "email": "spoof-last@example.com", "password": "long-enough-pw"}
+    assert (
+        client.post("/api/v1/auth/register", json=body, headers={VIEWER: "198.51.100.99:1"}).status_code
+        == 429
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "address"),
+    [
+        ("203.0.113.7:46532", "203.0.113.7"),
+        ("203.0.113.7", "203.0.113.7"),
+        ("[2001:db8::1]:46532", "2001:db8::1"),
+        ("2001:db8::1", "2001:db8::1"),
+        (" 203.0.113.7:1 ", "203.0.113.7"),
+        ("not-an-address", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_the_viewer_address_is_read_with_or_without_its_port(value: str | None, address: str | None) -> None:
+    from app.auth.router import client_address_from
+
+    assert client_address_from(value) == address

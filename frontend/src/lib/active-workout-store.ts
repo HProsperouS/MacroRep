@@ -1,3 +1,4 @@
+import { createRequestId } from "@/api/client"
 import { pauseClock, resumeClock, type WorkoutClock } from "@/lib/workout-clock"
 import { initSession, type SessionState } from "@/lib/workout-session"
 import type { PlannedWorkout, StrengthHighlight } from "@/types/workout"
@@ -17,6 +18,9 @@ export type ActiveWorkout = WorkoutClock & {
   session: SessionState
   /** Display context from the plan; null for an empty workout. */
   plan: { highlight?: StrengthHighlight } | null
+  /** Sent as the Idempotency-Key when finishing, the same on every try, so a retry after a lost
+   * answer (even after a reload) can't log the workout twice. Missing on workouts started before it existed. */
+  finishKey?: string
 }
 
 type StoredWorkout = ActiveWorkout & { v: 1 }
@@ -87,7 +91,18 @@ export function beginWorkout(plan: PlannedWorkout | null) {
     pausedAt: null,
     pausedMs: 0,
     plan: plan ? { highlight: plan.highlight } : null,
+    finishKey: createRequestId(),
   })
+}
+
+/** The active workout's finish key, given one first if it was started without. */
+export function finishKeyOf(): string | undefined {
+  const active = getActiveWorkout()
+  if (!active) return undefined
+  if (active.finishKey) return active.finishKey
+  const finishKey = createRequestId()
+  set({ ...active, finishKey })
+  return finishKey
 }
 
 /** Applies an update to the session (e.g. a reducer step). No-op when no workout is active. */

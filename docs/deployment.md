@@ -53,7 +53,9 @@ These need doing once, by hand or in infrastructure code (none exists yet):
    `/health/ready`.
 6. **S3 bucket** (private, versioning on) and the **CloudFront distribution** with two
    behaviours: `/api/*` to the ALB (caching disabled, all viewer headers forwarded,
-   HTTPS-only to the origin) ordered before `/*` to S3.
+   HTTPS-only to the origin) ordered before `/*` to S3. The `/api/*` origin request policy
+   must also add the `CloudFront-Viewer-Address` header, which `CLIENT_ADDRESS_HEADER`
+   reads (see Configuration).
    The app's own routes (`/coach`, `/workout/plan`, …) have no object in the bucket, so a
    first visit or a refresh there must still get `index.html`. Attach a CloudFront
    Function to the `/*` behaviour only that rewrites any path without a file extension to
@@ -63,6 +65,12 @@ These need doing once, by hand or in infrastructure code (none exists yet):
    `X-Content-Type-Options: nosniff` and `Referrer-Policy`. These were deliberately left
    until the real origins are known; the backend sets none. The CSP for the production
    bundle needs no `unsafe-inline`/`unsafe-eval` (only the dev server does).
+8. **Outgoing email (Amazon SES).** Verify the sending domain (its DKIM records) and
+   request production access: a new SES account is in the sandbox and can only send to
+   addresses verified one by one. Create SMTP credentials for the `SMTP_USERNAME` and
+   `SMTP_PASSWORD` settings below. The app emails 6-digit codes to change the sign-in
+   email and to reset a forgotten password, and a notice after each email or password
+   change.
 
 ## Configuration
 
@@ -83,6 +91,7 @@ values, so a misconfiguration fails fast instead of running.
 | `AUTO_CREATE_SCHEMA` | `false` | Required in production: the schema comes from Alembic. |
 | `SEED_DEMO_DATA` | `false` | Required in production. For a demo environment, see below. |
 | `SEED_DEMO_HISTORY` | `false` | Required in production (four weeks of demo logs on top of the demo seed). |
+| `CLIENT_ADDRESS_HEADER` | `CloudFront-Viewer-Address` | Where the per-address sign-in limits find the client's own address. Without it they see the load balancer's, shared by every user. Safe only because the ALB accepts traffic from CloudFront alone, and CloudFront sets this header itself. With `APP_ENV=prod` and this unset, startup logs a warning. |
 | `RATE_LIMITS_ENABLED` | `true` | The default. Only the end-to-end tests turn it off; startup doesn't check it, so never set it to `false` in a deployment. |
 | `DEBUG` | `false` | Required in production. |
 | `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW` | e.g. `5`, `5` | Per task. See the connection budget. |
@@ -91,10 +100,10 @@ values, so a misconfiguration fails fast instead of running.
 | `OPENAI_MODEL` | `gpt-5.4-mini` | The default. |
 | `OPENAI_REASONING_EFFORT` | `low` | The default; empty for a model without reasoning. |
 | `OPENAI_TIMEOUT_SECONDS` | `20` | The default, per model call; at most 25 so a retry fits in an agent step's 60 s. |
-| `SMTP_HOST`, `SMTP_FROM` | e.g. `email-smtp.<region>.amazonaws.com`, `MacroRep <no-reply@your-domain>` | Required in production: without them emails, including email-change codes, would only be logged. |
+| `SMTP_HOST`, `SMTP_FROM` | e.g. `email-smtp.<region>.amazonaws.com`, `MacroRep <no-reply@your-domain>` | Required in production: startup refuses to run without them, since emails (and the codes in them) would otherwise only be logged. `SMTP_FROM` must use the domain verified in SES. |
 | `SMTP_PORT`, `SMTP_STARTTLS` | `587`, `true` | The defaults. |
-| `SMTP_USERNAME` | the SMTP user | |
-| `SMTP_PASSWORD` | from Secrets Manager | |
+| `SMTP_USERNAME` | the SES SMTP user | |
+| `SMTP_PASSWORD` | from Secrets Manager | The SES SMTP password (not the IAM secret key). |
 | `LOG_JSON` | `true` | One JSON object per line, for CloudWatch. |
 | `LOG_LEVEL` | `INFO` | |
 | `LOG_DIR` | unset | Log files are for local development; a container's logs are collected from stdout. |
@@ -157,6 +166,29 @@ flowchart LR
    endpoints live outside `/api` (`/health/live`, `/health/ready`), so CloudFront sends
    them to S3; check them on the load balancer instead (the target group already does).
 
+### The release that adds per-device sessions (`b4f0d6c2e8a5`)
+
+Migrations are written so the code one release back keeps working, since step 3 runs
+before step 4 replaces the old tasks. This one is split over two releases to keep that true:
+
+- **This release** creates `user_sessions` and copies each user's live refresh token into
+  it, but keeps `users.refresh_token_hash` and `users.refresh_expires_at`, which the
+  previous release still reads with every user. The new code ignores them. Old tasks keep
+  serving normally until they're replaced.
+- **Nobody is signed out by the upgrade.** Access tokens issued before it have no session
+  id (`sid`), so the new tasks refuse them once, and the app's refresh-on-401 swaps the
+  cookie for a new token without the user noticing.
+- **The one gap:** someone who signs in, or whose token is refreshed, on an *old* task
+  after the migration ran gets a token stored only in the legacy columns, which the new
+  tasks don't read. They sign in once more after the switch. Keep steps 3 and 4 back to
+  back (a minute or two with one task), ideally in a quiet period.
+- **The release after it** drops the two columns ([`follow-ups.md`](follow-ups.md)). Don't
+  ship both in one release: `alembic upgrade head` would run the drop straight after, and
+  old tasks would fail every signed-in request until replaced.
+
+After it, each access token is checked against its session on every request: one more
+primary-key lookup per request, which doesn't change the connection budget above.
+
 ### Check-ins running during a release
 
 A check-in's proposals are generated in the background, inside a backend task. When ECS
@@ -198,8 +230,12 @@ finishes or fails.
   can't drop the enum values, and older code fails to read those sets. Some downgrades
   lose data the newer code wrote: `b2f6d8a4c1e9` drops every exercise note,
   `d3a7c5e1f9b2` drops each set's computed load and each workout's logged bodyweight
-  (what was typed is kept), and `e8b4f2a6c3d9` turns photo-logged food entries into quick
-  adds. Take a manual RDS
+  (what was typed is kept), `e8b4f2a6c3d9` turns photo-logged food entries into quick
+  adds, `e1c7a3f5b9d2` and `f2d8b4a6c0e3` drop pending email-change and password-reset
+  codes (users ask for a new one), `a3e9c5b1d7f4` drops the idempotency keys (only a
+  retry in flight during the rollback could then log twice), and `b4f0d6c2e8a5` puts each
+  user's most recently used session back in the legacy `users` columns (their other
+  devices are signed out). Take a manual RDS
   snapshot before running migrations, and restore from it rather than downgrade in that
   case, or when a downgrade isn't possible.
 - **Frontend:** restore the previous object versions in S3 and invalidate CloudFront.
@@ -234,14 +270,12 @@ Gaps that would matter for real users, tracked in [`follow-ups.md`](follow-ups.m
   each user's AI calls (5 check-ins a day, 30 chat questions and 20 photos an hour, counted in
   Postgres by `app/shared/usage.py`, so they hold across restarts and tasks) and caps each
   answer's tokens, but only the provider's budget caps the total across every account.
-- **Sign-in limits count per task, by the connecting address.** `app/shared/rate_limit.py`
-  keeps its sign-in and sign-up counts in memory, so with two tasks an account gets twice the
-  attempts. And
-  behind CloudFront and the ALB the connecting address is the ALB's, so every user would
-  share one count. The client's own address has to be passed through: have CloudFront send
-  its `CloudFront-Viewer-Address` header to the origin and read that, or run uvicorn with
-  `--proxy-headers` trusting both the ALB's and CloudFront's address ranges. For more than one
-  task, move the counts to a shared store (Redis) or use an AWS WAF rate-based rule on the
-  distribution instead.
+- **Sign-in limits count per task.** `app/shared/rate_limit.py` keeps its sign-in,
+  sign-up, password-reset and account-change counts in memory, so with two tasks an
+  account gets twice the attempts, and a restart starts them afresh. That's fine for the one
+  task this runs on; before running more, add an AWS WAF rate-based rule on the
+  distribution, or move the counts to a shared store (Redis, or Postgres as
+  `app/shared/usage.py` does for the AI limits). The client's own address is already used
+  behind CloudFront, through `CLIENT_ADDRESS_HEADER`.
 - **No infrastructure code or deploy pipeline.** CI is step 1 of releasing and builds the
   image, but pushes nothing; the other steps are manual.

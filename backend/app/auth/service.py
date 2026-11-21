@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -10,10 +9,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.identity.models import EmailChangeRequest, PasswordResetRequest, User, UserStatus
+from app.identity.models import EmailChangeRequest, PasswordResetRequest, User, UserSession, UserStatus
 from app.identity.repository import UserRepository
-from app.shared.exceptions import Conflict, Forbidden, Invalid, NotFound, Unauthorized, Unavailable
-from app.shared.mail import LogMailer, Mailer, MailError
+from app.shared.exceptions import Conflict, Forbidden, Invalid, NotFound, Unauthorized
+from app.shared.persistence.mixins import utc_now
 
 from .passwords import check_new_password
 from .schemas import (
@@ -42,8 +41,6 @@ from .security import (
     verify_password,
 )
 
-logger = logging.getLogger(__name__)
-
 # One message for an unknown email and a wrong password; the sign-in limits count it.
 WRONG_CREDENTIALS = "Incorrect email or password"
 EMAIL_TAKEN = "That email is already registered"
@@ -52,6 +49,9 @@ WRONG_CURRENT_PASSWORD = "Incorrect password"
 # One answer for an unknown email, no reset asked for, an expired code and a wrong one.
 BAD_RESET_CODE = "That code isn't right or has expired. Check it, or ask for a new one."
 CODE_MINUTES = int(CODE_TTL.total_seconds() // 60)
+# Signed-in devices per user: one at a time, so signing in on another device signs the
+# previous one out (at once: its session is gone, see app.identity.dependencies).
+MAX_SESSIONS_PER_USER = 1
 
 
 @dataclass(frozen=True)
@@ -68,26 +68,40 @@ def _require_usable(password: str, email: str) -> None:
 
 
 class AuthService:
-    def __init__(
-        self, session: AsyncSession, users: UserRepository, settings: Settings, mailer: Mailer | None = None
-    ) -> None:
+    def __init__(self, session: AsyncSession, users: UserRepository, settings: Settings) -> None:
         self.session = session
         self.users = users
         self.settings = settings
-        self.mailer = mailer or LogMailer()
 
-    def _issue(self, user: User) -> tuple[AccessToken, str]:
-        """Rotate the stored refresh token and mint a matching access token.
+    async def _start_session(self, user: User) -> tuple[AccessToken, str]:
+        """Sign in a new device with a session of its own. Past ``MAX_SESSIONS_PER_USER``
+        (one), the least recently used session is dropped, so the previous device is signed
+        out at once.
 
-        Returns the response body alongside the plain refresh token, which the
-        router puts in a cookie — only its digest is ever stored here.
+        Returns the response body alongside the plain refresh token, which the router puts
+        in a cookie; only its digest is stored.
         """
 
         plain, digest = new_refresh_token()
-        user.refresh_token_hash = digest
-        user.refresh_expires_at = refresh_expiry(self.settings)
-        body = AccessToken(access_token=create_access_token(user.id, self.settings))
-        return body, plain
+        device = UserSession(
+            user_id=user.id,
+            refresh_token_hash=digest,
+            expires_at=refresh_expiry(self.settings),
+            last_used_utc=utc_now(),
+        )
+        await self.users.add_session(device)
+        await self.users.prune_sessions(user.id, MAX_SESSIONS_PER_USER)
+        return AccessToken(access_token=create_access_token(user.id, device.id, self.settings)), plain
+
+    def _rotate(self, device: UserSession) -> tuple[AccessToken, str]:
+        """A new refresh token for the same device, retiring its old one."""
+
+        plain, digest = new_refresh_token()
+        device.refresh_token_hash = digest
+        device.expires_at = refresh_expiry(self.settings)
+        device.last_used_utc = utc_now()
+        device.touch()
+        return AccessToken(access_token=create_access_token(device.user_id, device.id, self.settings)), plain
 
     async def register(self, payload: RegisterInput) -> tuple[AccessToken, str]:
         email = payload.email.strip().lower()
@@ -113,7 +127,7 @@ class AuthService:
             if "email" not in str(exc.orig).lower():
                 raise
             raise Conflict(EMAIL_TAKEN) from None
-        session = self._issue(user)
+        session = await self._start_session(user)
         await self.session.commit()
         return session
 
@@ -132,37 +146,36 @@ class AuthService:
             raise Unauthorized(WRONG_CREDENTIALS)
         if user.status is not UserStatus.ACTIVE:
             raise Unauthorized("This account is disabled")
-        session = self._issue(user)
+        session = await self._start_session(user)
         await self.session.commit()
         return session
 
     async def refresh(self, refresh_token: str) -> tuple[AccessToken, str]:
-        """Trade a valid refresh token for a new pair, retiring the old one.
+        """Trade a device's valid refresh token for a new pair, retiring the old one.
 
-        Row-locks the user for the transaction so two concurrent refreshes
-        presenting the same cookie can't both read the same stale hash and
-        rotate from under each other — the second waits, then correctly sees
-        the first's already-rotated hash and is rejected as a replay.
+        Row-locks the session so two concurrent refreshes presenting the same cookie can't
+        both rotate it from the same stale read: the second waits, then finds no match for
+        the old hash and is refused as a replay.
         """
 
-        user = await self.users.get_by_refresh_hash_locked(hash_refresh_token(refresh_token))
+        device = await self.users.get_session_by_refresh_hash_locked(hash_refresh_token(refresh_token))
         # A rotated-away token no longer matches any row, so replaying an old
         # refresh token lands here as a 401.
-        if user is None or user.refresh_expires_at is None or user.refresh_expires_at <= datetime.now(UTC):
+        if device is None or device.expires_at <= datetime.now(UTC):
             raise Unauthorized("Refresh token is invalid or expired")
-        if user.status is not UserStatus.ACTIVE:
+        user = await self.users.get(device.user_id)
+        if user is None or user.status is not UserStatus.ACTIVE:
             raise Unauthorized("This account is disabled")
-        session = self._issue(user)
+        session = self._rotate(device)
         await self.session.commit()
         return session
 
-    async def logout(self, user_id: str) -> None:
-        user = await self.users.get(user_id)
-        if user is None:
+    async def logout(self, session_id: str | None) -> None:
+        """End this device's session; its access tokens stop working at once."""
+
+        if session_id is None:
             return
-        user.refresh_token_hash = None
-        user.refresh_expires_at = None
-        user.touch()
+        await self.users.delete_session(session_id)
         await self.session.commit()
 
     async def get_me(self, user_id: str) -> MeRead:
@@ -171,11 +184,10 @@ class AuthService:
             raise NotFound("User not found")
         return MeRead(id=user.id, name=user.name, email=user.email)
 
-    async def request_email_change(self, user_id: str, payload: RequestEmailChangeInput) -> None:
-        """Send a code to the new address; the email changes only once it's confirmed.
-
-        Asking again replaces the pending request and its code. Nothing is stored if the
-        email can't be sent.
+    async def request_email_change(self, user_id: str, payload: RequestEmailChangeInput) -> Email:
+        """Store a code for the new address and return the email that sends it there; the
+        sign-in email changes only once it's confirmed. Asking again replaces the pending
+        request and its code.
         """
 
         # Locked so two requests at once can't both add a pending change.
@@ -201,24 +213,21 @@ class AuthService:
                 attempts=0,
             )
         )
-        await self.session.flush()
-        try:
-            await self.mailer.send(
-                new_email,
-                "Your MacroRep verification code",
-                f"Hi {user.name},\n\n"
-                f"Your code to make {new_email} your MacroRep sign-in email is {code}.\n"
-                f"It expires in {CODE_MINUTES} minutes.\n\n"
-                "If you didn't ask for this, you can ignore this email.",
-            )
-        except MailError:
-            await self.session.rollback()
-            logger.exception("Couldn't send an email-change code for user %s", user_id)
-            raise Unavailable("Couldn't send the code just now. Try again.") from None
         await self.session.commit()
+        return Email(
+            new_email,
+            "Your MacroRep verification code",
+            f"Hi {user.name},\n\n"
+            f"Your code to make {new_email} your MacroRep sign-in email is {code}.\n"
+            f"It expires in {CODE_MINUTES} minutes.\n\n"
+            "If you didn't ask for this, you can ignore this email.",
+        )
 
-    async def confirm_email_change(self, user_id: str, payload: ConfirmEmailChangeInput) -> MeRead:
-        """Switch to the pending email if the code is right, then tell the old address."""
+    async def confirm_email_change(
+        self, user_id: str, payload: ConfirmEmailChangeInput
+    ) -> tuple[MeRead, Email]:
+        """Switch to the pending email if the code is right. Returns the notice for the old
+        address too."""
 
         pending = await self.users.get_email_change_locked(user_id)
         if pending is None:
@@ -251,34 +260,24 @@ class AuthService:
                 raise
             raise Conflict(EMAIL_TAKEN) from None
 
-        try:
-            await self.mailer.send(
-                old_email,
-                "Your MacroRep email was changed",
-                f"Hi {user.name},\n\n"
-                f"Your MacroRep sign-in email was changed from {old_email} to {user.email}.\n\n"
-                "If you didn't do this, contact us straight away.",
-            )
-        except MailError:
-            # The change is made; a missing notice shouldn't undo it or fail the request.
-            logger.exception("Couldn't send the email-changed notice for user %s", user_id)
-        return MeRead(id=user.id, name=user.name, email=user.email)
+        notice = Email(
+            old_email,
+            "Your MacroRep email was changed",
+            f"Hi {user.name},\n\n"
+            f"Your MacroRep sign-in email was changed from {old_email} to {user.email}.\n\n"
+            "If you didn't do this, contact us straight away.",
+        )
+        return MeRead(id=user.id, name=user.name, email=user.email), notice
 
     async def cancel_email_change(self, user_id: str) -> None:
         await self.users.delete_email_change(user_id)
         await self.session.commit()
 
-    async def _notify(self, email: Email, what: str, user_id: str) -> None:
-        """Best effort: the change is made, a missing notice shouldn't undo it."""
-
-        try:
-            await self.mailer.send(email.to, email.subject, email.body)
-        except MailError:
-            logger.exception("Couldn't send the %s notice for user %s", what, user_id)
-
-    async def change_password(self, user_id: str, payload: ChangePasswordInput) -> tuple[AccessToken, str]:
-        """Set a new password and start a new session here. Other devices are signed out:
-        only one refresh token is kept, and this replaces it."""
+    async def change_password(
+        self, user_id: str, session_id: str | None, payload: ChangePasswordInput
+    ) -> tuple[AccessToken, str, Email]:
+        """Set a new password. This device stays signed in with a new token; every other
+        device is signed out at once. Returns the notice to send."""
 
         user = await self.session.get(User, user_id, with_for_update=True)
         if user is None:
@@ -291,20 +290,21 @@ class AuthService:
 
         user.password_hash = hash_password(payload.new_password)
         user.touch()
-        issued = self._issue(user)
-        await self.session.commit()
-        await self._notify(
-            Email(
-                user.email,
-                "Your MacroRep password was changed",
-                f"Hi {user.name},\n\n"
-                "Your MacroRep password was just changed, and your other devices were signed out.\n\n"
-                "If you didn't do this, reset your password straight away from the sign-in page.",
-            ),
-            "password-changed",
-            user.id,
+        await self.users.delete_sessions(user.id, keep=session_id)
+        device = await self.users.get_session(session_id) if session_id is not None else None
+        access_token, refresh_token = (
+            self._rotate(device) if device is not None else await self._start_session(user)
         )
-        return issued
+        await self.session.commit()
+        notice = Email(
+            user.email,
+            "Your MacroRep password was changed",
+            f"Hi {user.name},\n\n"
+            "Your MacroRep password was just changed. If you were signed in anywhere else, "
+            "you've been signed out there.\n\n"
+            "If you didn't do this, reset your password straight away from the sign-in page.",
+        )
+        return access_token, refresh_token, notice
 
     async def request_password_reset(self, payload: RequestPasswordResetInput) -> Email | None:
         """Store a new reset code for the account, if there is one, and return the email to
@@ -334,9 +334,11 @@ class AuthService:
             "If you didn't ask for this, you can ignore this email: your password stays as it is.",
         )
 
-    async def confirm_password_reset(self, payload: ConfirmPasswordResetInput) -> tuple[AccessToken, str]:
+    async def confirm_password_reset(
+        self, payload: ConfirmPasswordResetInput
+    ) -> tuple[AccessToken, str, Email]:
         """Set the new password if the code is right, and sign in here. Every other device
-        is signed out."""
+        is signed out. Returns the notice to send."""
 
         user = await self.users.get_by_email(payload.email.strip().lower())
         if user is None or user.status is not UserStatus.ACTIVE:
@@ -360,18 +362,16 @@ class AuthService:
         user.password_hash = hash_password(payload.new_password)
         user.touch()
         await self.session.delete(pending)
-        issued = self._issue(user)
+        # Whoever had the old password may be signed in somewhere: every device is signed out.
+        await self.users.delete_sessions(user.id)
+        access_token, refresh_token = await self._start_session(user)
         await self.session.commit()
-        await self._notify(
-            Email(
-                user.email,
-                "Your MacroRep password was reset",
-                f"Hi {user.name},\n\n"
-                "Your MacroRep password was reset with a code sent to this email, and your other "
-                "devices were signed out.\n\n"
-                "If you didn't do this, reset it again now and keep this inbox secure.",
-            ),
-            "password-reset",
-            user.id,
+        notice = Email(
+            user.email,
+            "Your MacroRep password was reset",
+            f"Hi {user.name},\n\n"
+            "Your MacroRep password was reset with a code sent to this email. If you were "
+            "signed in anywhere else, you've been signed out there.\n\n"
+            "If you didn't do this, reset it again now and keep this inbox secure.",
         )
-        return issued
+        return access_token, refresh_token, notice

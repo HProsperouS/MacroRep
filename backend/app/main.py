@@ -14,7 +14,7 @@ from app.body.router import router as body_router
 from app.coach.agents.checkpoint import checkpointer_lifespan
 from app.coach.router import router as coach_router
 from app.coach.runner import resume_interrupted_check_ins, stop_running_check_ins
-from app.core.config import Settings, get_settings
+from app.core.config import Environment, Settings, get_settings
 from app.core.database import dispose_engine, get_engine, get_session_factory
 from app.food.router import router as food_router
 from app.health.router import router as health_router
@@ -22,15 +22,31 @@ from app.profile.router import router as profile_router
 from app.progress.router import router as progress_router
 from app.shared.errors import domain_error_handler, validation_error_handler
 from app.shared.exceptions import DomainError
-from app.shared.logging import CorrelationIdMiddleware, configure_logging
+from app.shared.logging import CorrelationIdMiddleware, configure_logging, get_logger
 from app.shared.persistence import Base
 from app.shared.request_guard import LimitBodySizeMiddleware, RejectNulBytesMiddleware
 from app.workout.router import router as workout_router
 
 
+def warn_about_settings(settings: Settings) -> None:
+    """Settings that are allowed but probably a mistake, logged at start-up. (Ones that are
+    always wrong refuse to start instead: ``Settings.reject_debug_in_production``.)"""
+
+    if settings.app_env is Environment.PRODUCTION and not settings.client_address_header:
+        # Not refused: production behind no proxy is valid. Behind CloudFront and the load
+        # balancer, though, every user would share the balancer's address, so one person's
+        # wrong passwords would lock everyone out of signing in.
+        get_logger(__name__).warning(
+            "CLIENT_ADDRESS_HEADER is not set: the sign-in limits count every client at the "
+            "connecting address. Behind CloudFront, set it to CloudFront-Viewer-Address "
+            "(docs/deployment.md)."
+        )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(level=settings.log_level, json_output=settings.log_json, log_dir=settings.log_dir)
+    warn_about_settings(settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

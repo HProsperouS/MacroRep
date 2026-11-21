@@ -40,12 +40,34 @@ and workouts, so Progress has something to show and a check-in can start right a
 - **Email:** `alex.yau@example.com`
 - **Password:** `nailong2`
 
-Open http://localhost:5173, sign in with that account (or register your own —
-registration works for real, against the real database).
+Open http://localhost:5173, sign in with that account (or register your own, registration works for real, against the real database).
 
 The history is dated from the day it's seeded and a routine is due that day, so for a
 demo reseed the same day (`docker compose down -v`, then `make dev`). A check-in uses the
 built-in rule-based model unless `backend/.env` sets `COACH_MODEL_PROVIDER=openai` and a key.
+
+### Account emails (verification and reset codes)
+
+Changing the sign-in email (Profile → Email → Change) and resetting a forgotten password
+(**Forgot password?** on the sign-in page) both email a 6-digit code. Locally no mail
+server is set up, so the email is written to the backend log instead. Read the code there:
+
+```bash
+docker compose logs backend | grep -A6 "Email not sent"
+```
+
+To send real emails, fill in the `SMTP_*` settings in `backend/.env` (listed in
+`backend/.env.example`; a Gmail account with an app password or a Mailtrap sandbox both
+work) and restart the backend. Changing the password (Profile → Password → Change) needs
+no email, but sends a notice to the account.
+
+### Signed-in devices
+
+An account is signed in on one device (a browser or phone) at a time: signing in on
+another signs the first one out, on its next request rather than when its token would have
+expired. Signing out, changing the password and resetting it take effect the same way. To
+try it locally, sign in to the demo account in a normal window, then in a private one: the
+first window is sent back to sign in.
 
 Stop everything with `make dev-down` (or `docker compose down`). Data persists
 in a Docker volume between runs; to wipe it and reseed from scratch:
@@ -59,6 +81,9 @@ in a Docker volume between runs; to wipe it and reseed from scratch:
 - **Frontend can't reach the backend**: make sure the `backend` container is
   healthy (`docker compose ps`) — the frontend waits for it, but a failed
   migration can leave it unhealthy. Check with `docker compose logs backend`.
+- **"relation ... does not exist" after pulling**: a new migration hasn't been applied
+  yet. Restart the backend (`docker compose restart backend`), which runs
+  `alembic upgrade head` on start.
 
 ## Running services individually (without Docker)
 

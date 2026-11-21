@@ -49,6 +49,18 @@ describe("App", () => {
     expect(screen.queryByText("Food page")).not.toBeInTheDocument()
   })
 
+  it("says why on the sign-in page when the session was ended elsewhere, once", async () => {
+    window.sessionStorage.setItem("macrorep.signed-out", "elsewhere")
+    const { unmount } = renderAt("/login")
+
+    expect(await screen.findByText("You were signed out")).toBeInTheDocument()
+    unmount()
+
+    renderAt("/login")
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument()
+    expect(screen.queryByText("You were signed out")).not.toBeInTheDocument()
+  })
+
   it("lets a returning visitor in on their refresh cookie", async () => {
     session.restoreSession.mockResolvedValue(true)
     renderAt("/food")

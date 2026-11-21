@@ -33,8 +33,10 @@ export const foodApi = {
     return data
   },
 
-  async addEntry(input: CreateFoodEntryInput) {
-    const { data } = await apiClient.post<FoodEntry>("/food-log/entries", input)
+  /** Safe to retry with the same `idempotencyKey`: the entry is logged once. */
+  async addEntry(input: CreateFoodEntryInput, idempotencyKey?: string) {
+    const headers = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined
+    const { data } = await apiClient.post<FoodEntry>("/food-log/entries", input, { headers })
     return data
   },
 

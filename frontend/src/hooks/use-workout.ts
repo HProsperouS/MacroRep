@@ -1,7 +1,9 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
+import { retryLostAnswer } from "@/api/client"
 import { progressKeys, workoutKeys } from "@/api/query-keys"
 import { workoutApi } from "@/api/workout-api"
+import { finishKeyOf } from "@/lib/active-workout-store"
 import type { CreateExerciseInput, ExerciseFilters, FinishWorkoutInput, HistoryRange, SaveRoutineInput, UpdateWorkoutInput } from "@/types/workout"
 
 export function useTodayWorkout() {
@@ -12,10 +14,13 @@ export function useTodayWorkout() {
   })
 }
 
+/** Logs the active workout. Its finish key goes with every try, so a lost answer is retried safely,
+ * here and by the user pressing Finish again. */
 export function useFinishWorkout() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (input: FinishWorkoutInput) => workoutApi.finishSession(input),
+    mutationFn: (input: FinishWorkoutInput) => workoutApi.finishSession(input, finishKeyOf()),
+    retry: retryLostAnswer,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: workoutKeys.all })
       void queryClient.invalidateQueries({ queryKey: progressKeys.all })

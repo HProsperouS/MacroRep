@@ -1,7 +1,7 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { apiClient, apiErrorMessage, restoreSession } from "@/api/client"
+import { apiClient, apiErrorMessage, forgetSignedOutReason, restoreSession, retryLostAnswer, signedOutReason } from "@/api/client"
 import { clearAccessToken, getAccessToken, setAccessToken } from "@/lib/auth"
 
 const originalAdapter = apiClient.defaults.adapter
@@ -33,6 +33,7 @@ beforeEach(() => {
 afterEach(() => {
   apiClient.defaults.adapter = originalAdapter
   clearAccessToken()
+  forgetSignedOutReason()
 })
 
 describe("apiClient", () => {
@@ -73,6 +74,29 @@ describe("apiClient", () => {
     await expect(apiClient.get("/profile")).rejects.toMatchObject({ response: { status: 401 } })
 
     expect(getAccessToken()).toBeNull()
+  })
+
+  it("remembers a session ended elsewhere, for the sign-in page to explain", async () => {
+    setAccessToken("stale")
+    apiClient.defaults.adapter = async (config) => {
+      throw new AxiosError("Unauthorized", "ERR_BAD_REQUEST", config, null, { data: { detail: "Session ended" }, status: 401, statusText: "Unauthorized", headers: {}, config })
+    }
+    vi.spyOn(axios, "post").mockRejectedValue(new Error("refresh cookie retired"))
+
+    await expect(apiClient.get("/profile")).rejects.toMatchObject({ response: { status: 401 } })
+
+    expect(signedOutReason()).toBe("elsewhere")
+    forgetSignedOutReason()
+    expect(signedOutReason()).toBeNull()
+  })
+
+  it("gives no reason when a session simply expired", async () => {
+    setAccessToken("stale")
+    vi.spyOn(axios, "post").mockRejectedValue(new Error("refresh cookie expired"))
+
+    await expect(apiClient.get("/profile")).rejects.toMatchObject({ response: { status: 401 } })
+
+    expect(signedOutReason()).toBeNull()
   })
 
   it("doesn't treat a wrong password as an expired token", async () => {
@@ -131,8 +155,31 @@ describe("apiErrorMessage", () => {
     expect(apiErrorMessage(new AxiosError("timeout", "ECONNABORTED"))).toMatch(/timed out/)
   })
 
+  it("adds a short reference to an error on our side, to quote", () => {
+    const failed = failure(500, { detail: "Something went wrong on our side. Try again in a moment.", correlationId: "3f9c2a7e-1b4d-4c8e" })
+    expect(apiErrorMessage(failed)).toBe("Something went wrong on our side. Try again in a moment. (ref 3f9c2a7e)")
+  })
+
   it("falls back to a generic message", () => {
     expect(apiErrorMessage(new Error("boom"))).toBe("Something went wrong. Please try again.")
     expect(apiErrorMessage(failure(500, "<html>"))).toBe("Something went wrong. Please try again.")
+  })
+})
+
+describe("retryLostAnswer", () => {
+  const answered = (status: number) =>
+    new AxiosError("failed", "ERR_BAD_REQUEST", undefined, null, { data: {}, status, statusText: "", headers: {}, config: {} as InternalAxiosRequestConfig })
+
+  it("retries a lost answer or a briefly unavailable server, twice", () => {
+    expect(retryLostAnswer(0, new AxiosError("timeout", "ECONNABORTED"))).toBe(true)
+    expect(retryLostAnswer(1, new AxiosError("Network Error"))).toBe(true)
+    expect(retryLostAnswer(0, answered(503))).toBe(true)
+    expect(retryLostAnswer(2, new AxiosError("Network Error"))).toBe(false)
+  })
+
+  it("doesn't retry an answer that refused the request", () => {
+    expect(retryLostAnswer(0, answered(422))).toBe(false)
+    expect(retryLostAnswer(0, answered(500))).toBe(false)
+    expect(retryLostAnswer(0, new Error("boom"))).toBe(false)
   })
 })

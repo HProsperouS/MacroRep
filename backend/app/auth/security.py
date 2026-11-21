@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -53,11 +54,20 @@ def verify_password(password_hash: str, password: str) -> bool:
     return True
 
 
-def create_access_token(user_id: str, settings: Settings) -> str:
+@dataclass(frozen=True)
+class AccessClaims:
+    user_id: str
+    # The signed-in device's session (``UserSession``): checked on every request, so
+    # signing a device out stops its access tokens at once rather than when they expire.
+    session_id: str
+
+
+def create_access_token(user_id: str, session_id: str, settings: Settings) -> str:
     now = datetime.now(UTC)
     return jwt.encode(
         {
             "sub": user_id,
+            "sid": session_id,
             "iat": now,
             "exp": now + timedelta(minutes=settings.access_token_ttl_minutes),
         },
@@ -66,8 +76,9 @@ def create_access_token(user_id: str, settings: Settings) -> str:
     )
 
 
-def decode_access_token(token: str, settings: Settings) -> str:
-    """Return the user id carried by a valid access token."""
+def decode_access_token(token: str, settings: Settings) -> AccessClaims:
+    """The user and session a valid access token was issued to. A token from before
+    sessions (no ``sid``) is refused, and the client refreshes it with its cookie."""
 
     try:
         claims = jwt.decode(token, settings.jwt_secret_key, algorithms=[ACCESS_TOKEN_ALGORITHM])
@@ -76,7 +87,10 @@ def decode_access_token(token: str, settings: Settings) -> str:
     subject = claims.get("sub")
     if not isinstance(subject, str) or not subject:
         raise TokenError("Token is missing a subject")
-    return subject
+    session_id = claims.get("sid")
+    if not isinstance(session_id, str) or not session_id:
+        raise TokenError("Token is missing a session")
+    return AccessClaims(user_id=subject, session_id=session_id)
 
 
 def hash_refresh_token(token: str) -> str:

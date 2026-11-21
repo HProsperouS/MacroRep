@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
 from app.profile.repository import ProfileRepository
+from app.shared.idempotency import IdempotencyKey
 from app.shared.validation import MAX_SEARCH_LENGTH, LogDate
 
 from .models import EQUIPMENT, EXERCISE_SOURCES, MUSCLE_GROUPS
@@ -96,11 +97,25 @@ async def set_exercise_note(
     return await service.set_exercise_note(actor, exercise_id, payload.body)
 
 
-@router.post("/workouts/sessions", response_model=WorkoutSummary, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/workouts/sessions",
+    response_model=WorkoutSummary,
+    status_code=status.HTTP_201_CREATED,
+    responses={200: {"description": "Replay of an Idempotency-Key already used: the workout it logged."}},
+)
 async def finish_session(
-    payload: FinishWorkoutInput, actor: ActorDep, service: WorkoutServiceDep
+    payload: FinishWorkoutInput,
+    response: Response,
+    actor: ActorDep,
+    service: WorkoutServiceDep,
+    idempotency_key: IdempotencyKey = None,
 ) -> WorkoutSummary:
-    return await service.finish_session(payload, actor)
+    """Log a finished workout. Safe to retry with the same Idempotency-Key."""
+
+    summary, created = await service.finish_session(payload, actor, idempotency_key)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return summary
 
 
 @router.get("/workouts/sessions", response_model=list[WorkoutHistoryItem])

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from datetime import date as date_
+from typing import cast
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,6 +93,16 @@ class FoodEntryRepository:
             .order_by(FoodEntry.created_utc.asc())
         )
         return list(await self.session.scalars(statement))
+
+    async def get_by_idempotency_key(self, owner_id: str, idempotency_key: str) -> FoodEntry | None:
+        return cast(
+            "FoodEntry | None",
+            await self.session.scalar(
+                select(FoodEntry).where(
+                    FoodEntry.owner_id == owner_id, FoodEntry.idempotency_key == idempotency_key
+                )
+            ),
+        )
 
     async def add(self, entry: FoodEntry) -> FoodEntry:
         self.session.add(entry)

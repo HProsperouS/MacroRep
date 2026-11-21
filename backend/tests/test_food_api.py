@@ -393,3 +393,28 @@ def test_another_users_entry_cannot_be_edited(client: TestClient) -> None:
     intruder = register_user(client)
     response = client.patch(f"{ENTRIES}/{entry['id']}", headers=intruder, json={"calories": 1})
     assert response.status_code == 404
+
+
+def test_a_retried_add_logs_the_entry_once(client: TestClient) -> None:
+    headers = register_user(client)
+    body = {
+        "date": date.today().isoformat(),
+        "meal": "lunch",
+        "name": "Hawker lunch",
+        "amountLabel": "Quick add",
+        "source": "quick-add",
+        "calories": 650,
+        "protein": 30,
+        "carbs": 80,
+        "fat": 20,
+    }
+    keyed = {**headers, "Idempotency-Key": "add-1"}
+
+    first = client.post(ENTRIES, headers=keyed, json=body)
+    again = client.post(ENTRIES, headers=keyed, json=body)
+    other = client.post(ENTRIES, headers={**headers, "Idempotency-Key": "add-2"}, json=body)
+
+    assert (first.status_code, again.status_code, other.status_code) == (201, 200, 201)
+    assert again.json() == first.json()
+    day = client.get("/api/v1/food-log", headers=headers, params={"date": date.today().isoformat()}).json()
+    assert len(day["entries"]) == 2

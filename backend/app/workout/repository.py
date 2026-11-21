@@ -307,6 +307,16 @@ class WorkoutSessionRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def get_by_idempotency_key(self, owner_id: str, idempotency_key: str) -> WorkoutSession | None:
+        return cast(
+            "WorkoutSession | None",
+            await self.session.scalar(
+                select(WorkoutSession).where(
+                    WorkoutSession.owner_id == owner_id, WorkoutSession.idempotency_key == idempotency_key
+                )
+            ),
+        )
+
     async def add_session(self, workout_session: WorkoutSession) -> WorkoutSession:
         self.session.add(workout_session)
         await self.session.flush()

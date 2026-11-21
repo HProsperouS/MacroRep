@@ -64,7 +64,7 @@ export function ProfileForm({ profile, submitting, onSubmit }: ProfileFormProps)
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex items-start gap-2 sm:col-start-2">
-            <TextField id="profile-password" label="Password" type="password" value="••••••••" readOnly disabled description="Changing it signs out your other devices" className="flex-1" />
+            <TextField id="profile-password" label="Password" type="password" value="••••••••" readOnly disabled description="Used to sign in, with your email" className="flex-1" />
             <div className="pt-[1.375rem]">
               <ChangePassword disabled={submitting} />
             </div>

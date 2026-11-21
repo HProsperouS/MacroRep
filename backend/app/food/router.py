@@ -12,6 +12,7 @@ from app.coach.agents.provider import get_coach_model
 from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.identity.dependencies import ActorContext, get_current_actor
+from app.shared.idempotency import IdempotencyKey
 from app.shared.validation import MAX_SEARCH_LENGTH
 
 from .photo_estimate import PhotoService
@@ -55,11 +56,25 @@ async def get_food_log(
     return await service.get_log(actor, date)
 
 
-@router.post("/food-log/entries", response_model=FoodEntryRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/food-log/entries",
+    response_model=FoodEntryRead,
+    status_code=status.HTTP_201_CREATED,
+    responses={200: {"description": "Replay of an Idempotency-Key already used: the entry it logged."}},
+)
 async def add_food_entry(
-    payload: CreateFoodEntryInput, actor: ActorDep, service: FoodServiceDep
+    payload: CreateFoodEntryInput,
+    response: Response,
+    actor: ActorDep,
+    service: FoodServiceDep,
+    idempotency_key: IdempotencyKey = None,
 ) -> FoodEntryRead:
-    return await service.add_entry(payload, actor)
+    """Log one entry. Safe to retry with the same Idempotency-Key."""
+
+    entry, created = await service.add_entry(payload, actor, idempotency_key)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return entry
 
 
 @router.patch("/food-log/entries/{entry_id}", response_model=FoodEntryRead)

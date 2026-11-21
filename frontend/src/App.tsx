@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom"
 
 import { restoreSession } from "@/api/client"
 import { AppShell } from "@/components/layout/app-shell"
+import { ErrorBoundary } from "@/components/layout/error-boundary"
 import { Spinner } from "@/components/ui/spinner"
 import { useProfile } from "@/hooks/use-profile"
 import { getAccessToken } from "@/lib/auth"
@@ -82,60 +83,63 @@ function RedirectIfAuthenticated({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
-    <Suspense fallback={null}>
-      <Routes>
-        <Route
-          path="login"
-          element={
-            <RedirectIfAuthenticated>
-              <AuthPage mode="login" />
-            </RedirectIfAuthenticated>
-          }
-        />
-        <Route
-          path="register"
-          element={
-            <RedirectIfAuthenticated>
-              <AuthPage mode="register" />
-            </RedirectIfAuthenticated>
-          }
-        />
-        <Route
-          path="forgot-password"
-          element={
-            <RedirectIfAuthenticated>
-              <ForgotPasswordPage />
-            </RedirectIfAuthenticated>
-          }
-        />
-        <Route
-          path="welcome"
-          element={
-            <RequireAuth>
-              <OnboardingPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          element={
-            <RequireAuth>
-              <RequireOnboarded>
-                <AppShell />
-              </RequireOnboarded>
-            </RequireAuth>
-          }
-        >
-          <Route index element={<HomePage />} />
-          <Route path="food" element={<FoodPage />} />
-          <Route path="workout" element={<WorkoutPage />} />
-          <Route path="workout/history" element={<WorkoutHistoryPage />} />
-          <Route path="workout/plan" element={<WorkoutPlanPage />} />
-          <Route path="coach" element={<CoachPage />} />
-          <Route path="progress" element={<ProgressPage />} />
-          <Route path="profile" element={<ProfilePage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Route>
-      </Routes>
-    </Suspense>
+    // The last resort, for the pages outside the app shell (sign-in, the sign-up guide).
+    <ErrorBoundary fullScreen>
+      <Suspense fallback={null}>
+        <Routes>
+          <Route
+            path="login"
+            element={
+              <RedirectIfAuthenticated>
+                <AuthPage mode="login" />
+              </RedirectIfAuthenticated>
+            }
+          />
+          <Route
+            path="register"
+            element={
+              <RedirectIfAuthenticated>
+                <AuthPage mode="register" />
+              </RedirectIfAuthenticated>
+            }
+          />
+          <Route
+            path="forgot-password"
+            element={
+              <RedirectIfAuthenticated>
+                <ForgotPasswordPage />
+              </RedirectIfAuthenticated>
+            }
+          />
+          <Route
+            path="welcome"
+            element={
+              <RequireAuth>
+                <OnboardingPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            element={
+              <RequireAuth>
+                <RequireOnboarded>
+                  <AppShell />
+                </RequireOnboarded>
+              </RequireAuth>
+            }
+          >
+            <Route index element={<HomePage />} />
+            <Route path="food" element={<FoodPage />} />
+            <Route path="workout" element={<WorkoutPage />} />
+            <Route path="workout/history" element={<WorkoutHistoryPage />} />
+            <Route path="workout/plan" element={<WorkoutPlanPage />} />
+            <Route path="coach" element={<CoachPage />} />
+            <Route path="progress" element={<ProgressPage />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   )
 }
