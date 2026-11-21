@@ -63,6 +63,12 @@ These need doing once, by hand or in infrastructure code (none exists yet):
    `X-Content-Type-Options: nosniff` and `Referrer-Policy`. These were deliberately left
    until the real origins are known; the backend sets none. The CSP for the production
    bundle needs no `unsafe-inline`/`unsafe-eval` (only the dev server does).
+8. **Outgoing email (Amazon SES).** Verify the sending domain (its DKIM records) and
+   request production access: a new SES account is in the sandbox and can only send to
+   addresses verified one by one. Create SMTP credentials for the `SMTP_USERNAME` and
+   `SMTP_PASSWORD` settings below. The app emails 6-digit codes to change the sign-in
+   email and to reset a forgotten password, and a notice after each email or password
+   change.
 
 ## Configuration
 
@@ -91,10 +97,10 @@ values, so a misconfiguration fails fast instead of running.
 | `OPENAI_MODEL` | `gpt-5.4-mini` | The default. |
 | `OPENAI_REASONING_EFFORT` | `low` | The default; empty for a model without reasoning. |
 | `OPENAI_TIMEOUT_SECONDS` | `20` | The default, per model call; at most 25 so a retry fits in an agent step's 60 s. |
-| `SMTP_HOST`, `SMTP_FROM` | e.g. `email-smtp.<region>.amazonaws.com`, `MacroRep <no-reply@your-domain>` | Required in production: without them emails, including email-change codes, would only be logged. |
+| `SMTP_HOST`, `SMTP_FROM` | e.g. `email-smtp.<region>.amazonaws.com`, `MacroRep <no-reply@your-domain>` | Required in production: startup refuses to run without them, since emails (and the codes in them) would otherwise only be logged. `SMTP_FROM` must use the domain verified in SES. |
 | `SMTP_PORT`, `SMTP_STARTTLS` | `587`, `true` | The defaults. |
-| `SMTP_USERNAME` | the SMTP user | |
-| `SMTP_PASSWORD` | from Secrets Manager | |
+| `SMTP_USERNAME` | the SES SMTP user | |
+| `SMTP_PASSWORD` | from Secrets Manager | The SES SMTP password (not the IAM secret key). |
 | `LOG_JSON` | `true` | One JSON object per line, for CloudWatch. |
 | `LOG_LEVEL` | `INFO` | |
 | `LOG_DIR` | unset | Log files are for local development; a container's logs are collected from stdout. |
@@ -198,8 +204,9 @@ finishes or fails.
   can't drop the enum values, and older code fails to read those sets. Some downgrades
   lose data the newer code wrote: `b2f6d8a4c1e9` drops every exercise note,
   `d3a7c5e1f9b2` drops each set's computed load and each workout's logged bodyweight
-  (what was typed is kept), and `e8b4f2a6c3d9` turns photo-logged food entries into quick
-  adds. Take a manual RDS
+  (what was typed is kept), `e8b4f2a6c3d9` turns photo-logged food entries into quick
+  adds, and `e1c7a3f5b9d2` and `f2d8b4a6c0e3` drop pending email-change and password-reset
+  codes (users ask for a new one). Take a manual RDS
   snapshot before running migrations, and restore from it rather than downgrade in that
   case, or when a downgrade isn't possible.
 - **Frontend:** restore the previous object versions in S3 and invalidate CloudFront.
@@ -235,7 +242,7 @@ Gaps that would matter for real users, tracked in [`follow-ups.md`](follow-ups.m
   Postgres by `app/shared/usage.py`, so they hold across restarts and tasks) and caps each
   answer's tokens, but only the provider's budget caps the total across every account.
 - **Sign-in limits count per task, by the connecting address.** `app/shared/rate_limit.py`
-  keeps its sign-in and sign-up counts in memory, so with two tasks an account gets twice the
+  keeps its sign-in, sign-up, password-reset and account-change counts in memory, so with two tasks an account gets twice the
   attempts. And
   behind CloudFront and the ALB the connecting address is the ALB's, so every user would
   share one count. The client's own address has to be passed through: have CloudFront send
