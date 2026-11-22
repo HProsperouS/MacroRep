@@ -166,28 +166,20 @@ flowchart LR
    endpoints live outside `/api` (`/health/live`, `/health/ready`), so CloudFront sends
    them to S3; check them on the load balancer instead (the target group already does).
 
-### The release that adds per-device sessions (`b4f0d6c2e8a5`)
+### Per-device sessions (`b4f0d6c2e8a5`, `c5a1e7d3f9b6`)
 
-Migrations are written so the code one release back keeps working, since step 3 runs
-before step 4 replaces the old tasks. This one is split over two releases to keep that true:
+Migrations are normally written so the code one release back keeps working, since step 3
+runs before step 4 replaces the old tasks. These two break that rule on purpose: nothing
+had been deployed when they were written, so there is no older release to keep working.
+`b4f0d6c2e8a5` moves refresh tokens into `user_sessions`, and `c5a1e7d3f9b6` drops the
+old `users.refresh_token_hash` and `users.refresh_expires_at` columns straight after.
 
-- **This release** creates `user_sessions` and copies each user's live refresh token into
-  it, but keeps `users.refresh_token_hash` and `users.refresh_expires_at`, which the
-  previous release still reads with every user. The new code ignores them. Old tasks keep
-  serving normally until they're replaced.
-- **Nobody is signed out by the upgrade.** Access tokens issued before it have no session
-  id (`sid`), so the new tasks refuse them once, and the app's refresh-on-401 swaps the
-  cookie for a new token without the user noticing.
-- **The one gap:** someone who signs in, or whose token is refreshed, on an *old* task
-  after the migration ran gets a token stored only in the legacy columns, which the new
-  tasks don't read. They sign in once more after the switch. Keep steps 3 and 4 back to
-  back (a minute or two with one task), ideally in a quiet period.
-- **The release after it** drops the two columns ([`follow-ups.md`](follow-ups.md)). Don't
-  ship both in one release: `alembic upgrade head` would run the drop straight after, and
-  old tasks would fail every signed-in request until replaced.
+If a database running the code from before `b4f0d6c2e8a5` ever had to be upgraded, don't
+ship both at once: old tasks read those columns on every signed-in request and would fail
+until replaced. Deploy `b4f0d6c2e8a5` alone first, then `c5a1e7d3f9b6` in the next release.
 
-After it, each access token is checked against its session on every request: one more
-primary-key lookup per request, which doesn't change the connection budget above.
+Each access token is checked against its session on every request: one more primary-key
+lookup per request, which doesn't change the connection budget above.
 
 ### Check-ins running during a release
 
@@ -234,8 +226,8 @@ finishes or fails.
   adds, `e1c7a3f5b9d2` and `f2d8b4a6c0e3` drop pending email-change and password-reset
   codes (users ask for a new one), `a3e9c5b1d7f4` drops the idempotency keys (only a
   retry in flight during the rollback could then log twice), and `b4f0d6c2e8a5` puts each
-  user's most recently used session back in the legacy `users` columns (their other
-  devices are signed out). Take a manual RDS
+  user's most recently used session back in the old `users` columns, which downgrading
+  `c5a1e7d3f9b6` re-creates empty first (their other devices are signed out). Take a manual RDS
   snapshot before running migrations, and restore from it rather than downgrade in that
   case, or when a downgrade isn't possible.
 - **Frontend:** restore the previous object versions in S3 and invalidate CloudFront.

@@ -45,8 +45,6 @@ erDiagram
         string name
         string password_hash "Argon2"
         enum status
-        string refresh_token_hash "legacy, unused; dropped next release"
-        datetime refresh_expires_at "legacy, unused; dropped next release"
     }
     profiles {
         string user_id PK,FK
@@ -349,7 +347,8 @@ Applied in this order (`backend/migrations/versions`):
 | `e1c7a3f5b9d2` | Pending email changes, waiting for the code sent to the new address |
 | `f2d8b4a6c0e3` | Pending password resets, waiting for the emailed code |
 | `a3e9c5b1d7f4` | Idempotency keys on workouts and food entries, so a retry can't log them twice |
-| `b4f0d6c2e8a5` | One session per signed-in device, replacing the one refresh token per user (each user's live token becomes their first session; the old `users` columns stay, unused, until the next release drops them) |
+| `b4f0d6c2e8a5` | One session per signed-in device, replacing the one refresh token per user (each user's live token becomes their first session) |
+| `c5a1e7d3f9b6` | Drops the old refresh-token columns on `users`, unused since `b4f0d6c2e8a5` |
 
 Run `uv run alembic upgrade head` from `backend/`. CI runs every migration on PostgreSQL,
 then downgrades and upgrades again.
