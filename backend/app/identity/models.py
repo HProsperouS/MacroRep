@@ -31,11 +31,6 @@ class User(TimestampMixin, Base):
     # Nullable so an account created through an external identity provider
     # (e.g. Google) can exist without a local password.
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # Legacy: the one refresh token per user from before ``UserSession``. Nothing reads or
-    # writes them any more; they stay for one release so the previous release's tasks keep
-    # working while a deploy replaces them, and are dropped in the next (docs/follow-ups.md).
-    refresh_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[UserStatus] = mapped_column(
         SAEnum(UserStatus, name="user_status"), nullable=False, default=UserStatus.ACTIVE
     )

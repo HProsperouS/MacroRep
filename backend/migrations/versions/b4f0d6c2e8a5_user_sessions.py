@@ -6,8 +6,8 @@ session, so nobody is signed out by the upgrade.
 
 The old ``users.refresh_token_hash`` and ``refresh_expires_at`` columns are kept, unused by
 this release: the previous release's tasks still read them while a deploy replaces them, so
-dropping them here would fail every signed-in request in that window. A later release drops
-them (docs/follow-ups.md).
+dropping them here would fail every signed-in request in that window. ``c5a1e7d3f9b6``
+drops them.
 
 Revision ID: b4f0d6c2e8a5
 Revises: a3e9c5b1d7f4

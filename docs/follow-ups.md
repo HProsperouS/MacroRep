@@ -3,15 +3,6 @@
 Known gaps and deferred decisions, so they aren't lost between work sessions.
 Remove an item once it's done.
 
-## Next release
-
-- **Drop the legacy refresh-token columns.** `users.refresh_token_hash` and
-  `users.refresh_expires_at` are unused since `b4f0d6c2e8a5` (one session per device) but
-  were kept so the previous release's tasks keep working during that deploy. In the
-  release after it, remove them from `User` (`app/identity/models.py`) and add a migration
-  that drops them. Not before: in the same release, `alembic upgrade head` would drop them
-  while old tasks still read them, failing every signed-in request until they're replaced.
-
 ## Before production
 
 The open items in [`deployment.md`](deployment.md#not-ready-for-production-yet), and why
