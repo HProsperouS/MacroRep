@@ -1,8 +1,10 @@
 """user sessions
 
-One session per signed-in device, instead of one refresh token per user: signing in on a
-second device no longer signs the first out. Each user's live token becomes their first
-session, so nobody is signed out by the upgrade.
+Refresh tokens move from ``users`` into a ``user_sessions`` table, one row per signed-in
+device, which access tokens point to so that deleting the row signs that device out at
+once. A user keeps at most ``MAX_SESSIONS_PER_USER`` (one): signing in on another device
+signs the previous one out. Each user's live token becomes their first session, so nobody
+is signed out by the upgrade.
 
 The old ``users.refresh_token_hash`` and ``refresh_expires_at`` columns are kept, unused by
 this release: the previous release's tasks still read them while a deploy replaces them, so
